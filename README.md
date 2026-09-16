@@ -1,28 +1,28 @@
 # AgentNexus
 
-> 参考 [xerrors/Yuxi](https://github.com/xerrors/Yuxi)（可私有部署的多租户知识智能体平台）的架构重构而来的简历项目，面向 2026-2027 秋招 / 暑期实习「大模型算法 / Agent 开发」方向。
+> 面向 2026-2027 秋招 / 暑期实习「大模型算法 / Agent 开发」方向的简历项目：一个面向团队私有部署的多租户知识智能体平台。
 
 ## 项目定位
 
-AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排、知识库、知识图谱、工具 / MCP / Skills 扩展、沙盒执行、权限）可复用，具体业务以「场景包」形式插拔接入。当前完整落地的场景包是 **智能客服与工单自动化**，其余场景包先留接口占位（stub）。
+AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排、知识库、知识图谱、工具 / MCP 扩展、沙盒执行、权限）可复用，具体业务以「场景包」形式插拔接入。当前完整落地的场景包是 **智能客服与工单自动化**，其余场景包先留接口占位（stub）。
 
-目标是在技术广度上对标 Yuxi：RAG 知识库、知识图谱、LangGraph 多智能体编排、MCP/Skills、沙盒工具、多租户权限、运行监控 Dashboard 都要有实现；基础设施按 solo 项目的体量做了轻量化取舍，具体见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
+设计目标覆盖 RAG 知识库、知识图谱、LangGraph 多智能体编排、可扩展工具协议、沙盒工具执行、多租户权限、运行监控看板这几类能力；每一项技术选型的推导过程见 [docs/interview-prep.md](docs/interview-prep.md)，基础设施规模按 solo 项目的体量做了取舍，具体见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
 
 ## 技术栈（目标状态）
 
-| 层 | AgentNexus 选型 | 对应 Yuxi 原版 |
-|---|---|---|
-| 前端 | Vue 3 + Vite + Ant Design Vue | 相同 |
-| 后端 API | FastAPI | 相同 |
-| Agent 编排 | LangGraph + LangChain | 相同 |
-| 向量检索 | Qdrant | Milvus + etcd |
-| 关系型存储 | PostgreSQL | 相同 |
-| 缓存 / 队列 | Redis + ARQ | 相同 |
-| 对象存储 | MinIO | 相同 |
-| 知识图谱 | Neo4j | 相同 |
-| 文档解析 | pypdf / python-docx / unstructured | MinerU + PaddleX + RapidOCR |
-| 工具沙盒 | Docker SDK 容器隔离（内置于 worker） | 独立 agent-sandbox provisioner 微服务 |
-| 部署 | Docker Compose | 相同 |
+| 层 | 选型 |
+|---|---|
+| 前端 | Vue 3 + Vite + Ant Design Vue |
+| 后端 API | FastAPI |
+| Agent 编排 | LangGraph + LangChain |
+| 向量检索 | Qdrant |
+| 关系型存储 | PostgreSQL |
+| 缓存 / 队列 | Redis + ARQ |
+| 对象存储 | MinIO |
+| 知识图谱 | Neo4j |
+| 文档解析 | pypdf / python-docx / unstructured |
+| 工具沙盒 | Docker SDK 容器隔离（内置于 worker） |
+| 部署 | Docker Compose |
 
 ## 文档索引
 
