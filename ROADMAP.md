@@ -27,7 +27,7 @@
 
 **产出**
 - `backend/package/agentnexus/agents/base.py`：BaseAgent / BaseContext
-- `backend/package/agentnexus/agents/buildin/chatbot/`：graph.py + state.py + prompt.py（参照 Yuxi 的四件套组织方式）
+- `backend/package/agentnexus/agents/buildin/chatbot/`：graph.py + state.py + prompt.py（按 graph/state/prompt/context 四件套拆分，职责单一、方便单测）
 - 请求先写 Postgres（conversation + message），再交给一个简单队列（可以先用 asyncio.Queue 单机版，阶段 4 前再升级成 ARQ 真正的独立 worker）
 - 前端 `web/`：最小 Vue3 页面，能发消息、流式收到回复
 
@@ -40,7 +40,7 @@
 ## 阶段 2 · RAG 知识库（第 5-7 周）
 
 **学习目标**
-- 文档解析与分块策略（可以参考 Yuxi 的 `ragflow_like` 分块思路，不用整套照搬）
+- 文档解析与分块策略（可以参考 RAGFlow 的分块思路，不用整套照搬）
 - 向量库选型与使用（Qdrant 比 Milvus 部署更轻，适合 solo 项目）
 - Embedding / Rerank 模型接入
 
@@ -60,7 +60,7 @@
 ## 阶段 3 · 知识图谱（第 8-9 周）
 
 **学习目标**
-- 用 LLM 做实体/关系抽取（参考 Yuxi 的 `graphs/extractors/llm.py` 思路）
+- 用 LLM 做实体/关系抽取（prompt 让模型输出结构化的实体/关系 JSON，再写入图数据库）
 - Neo4j 基础：Cypher 查询、Python driver
 - 图可视化组件（AntV G6 或更轻量的方案）
 
@@ -81,9 +81,9 @@
 **学习目标**
 - LangGraph 多 Agent 编排模式（supervisor 派发 + subagent 并行执行）
 - MCP 协议基础，用 `langchain-mcp-adapters` 接入一个现成的 MCP server
-- Skills 机制（可以简化成一种「按需加载的工具配置」，不用做到 Yuxi 那样支持在线安装）
-- 工具沙盒执行（用 Docker SDK 起隔离容器跑文件读写/代码执行类工具，比 Yuxi 独立的 provisioner 微服务简化很多，但要保留「沙盒隔离」这个核心概念）
-- 这一阶段把「请求排队」从阶段 1 的 asyncio.Queue 升级成真正的 ARQ + 独立 worker 容器，加上简单的 lease/heartbeat 防止任务被重复执行——这是 Yuxi 架构里最值得学的设计
+- Skills 机制（可以简化成一种「按需加载的工具配置」，不需要支持在线插件市场）
+- 工具沙盒执行（用 Docker SDK 起隔离容器跑文件读写/代码执行类工具，比独立的 provisioner 微服务简化很多，但要保留「沙盒隔离」这个核心概念）
+- 这一阶段把「请求排队」从阶段 1 的 asyncio.Queue 升级成真正的 ARQ + 独立 worker 容器，加上简单的 lease/heartbeat 防止任务被重复执行——这是分布式任务执行里最值得练的设计
 
 **产出**
 - `agents/middlewares/`：subagent 派发、摘要压缩、审批中断
@@ -105,7 +105,7 @@
 - FastAPI 依赖注入做权限校验
 
 **产出**
-- 简化版用户/部门/权限体系：不需要 Yuxi 那么细的权限矩阵，但要有"用户只能看到自己和本部门的 Agent / 知识库"这种基本隔离
+- 简化版用户/部门/权限体系：不需要企业级系统那么细的权限矩阵，但要有"用户只能看到自己和本部门的 Agent / 知识库"这种基本隔离
 - 运行监控 Dashboard：请求量、Token 消耗、知识库检索频次的简单统计图表
 
 **里程碑**：用两个不同角色的账号登录，能看到彼此看不到对方数据的实际效果；Dashboard 上能看到真实的用量曲线。
@@ -116,7 +116,7 @@
 
 **产出**
 - 完整 `docker-compose.yml` 一键起全部服务
-- 补全 `ARCHITECTURE.md`（仿 Yuxi 的写法：鸟瞰、代码地图、核心运行链路、架构不变量）
+- 补全 `ARCHITECTURE.md`（参考成熟项目常见的架构文档写法：鸟瞰、代码地图、核心运行链路、架构不变量）
 - 录制一段 3-5 分钟的演示视频（客服工单场景端到端 + Agent 并行任务场景）
 - 准备好面试要讲的技术故事，重点是阶段 4 的排队/lease/恢复机制和阶段 2-3 的 RAG+知识图谱设计取舍
 
