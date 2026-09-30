@@ -2,6 +2,8 @@
 
 配合 AgentNexus 阶段 0 剩下的学习内容：异步路径函数 + `Depends` 依赖注入、`BackgroundTasks`、`StreamingResponse` 做 SSE。纯练习代码，不是 AgentNexus 产品代码。
 
+> 系统学习请先读 [FASTAPI_GUIDE.md](FASTAPI_GUIDE.md)（详细介绍 + 运行方式 + 常见坑），并跑 `fastapi_basics.py`（路由/校验/async 陷阱）；本文件对应的 `fastapi_learning.py` 覆盖 Depends / BackgroundTasks / SSE。
+
 ## 环境准备
 
 ```bash
