@@ -17,14 +17,14 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 ## 阶段 1 进度（核心骨架）
 - [x] 数据层：`storage/postgres`（表）、`repositories/`、`services/runs.py`（submit/claim/complete/fail）、Alembic 迁移 `0001`、compose 的一次性 `migrate` 服务。8 个集成测试通过。
 - [x] API：`POST /api/users`、对话 CRUD、`POST /api/conversations/{id}/messages`（202，返回 queued run）、`GET .../messages`、`GET /api/runs/{id}`。用 `X-User-Id` 头做鉴权占位（阶段 5 替换 `server/deps.py` 的 `current_user_id`）。14 个测试通过，compose 内 curl 端到端验证过。
-- [ ] 派发：asyncio.Queue 单机版 + 启动时扫描 queued 补投递（需写 decisions/0005：为什么先单机队列）
+- [x] 派发与执行（单机版）：`runtime/dispatcher.py`（enqueue / 扫描补投 / claim / 超时 / 并发上限 / 启动恢复 / 关停收尾）+ 回声 Agent，decisions/0005，22 个测试通过，容器内端到端验证。**单进程假设：api 只能起 1 个实例、uvicorn 不能开多 workers**
 - [ ] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套）+ PostgresSaver
 - [ ] SSE 流式推送；最小 Vue3 页面
 
 ## 下一步
-1. 派发队列 + worker 循环（启动时扫 queued 补投递；claim → 执行 → complete/fail），先用假 agent（回声）打通链路，并写 decisions/0005。
-2. 接入 LangGraph chatbot + PostgresSaver。
-3. SSE 流式推送，最后做前端页面。
+1. 接入 LangGraph chatbot + PostgresSaver（先定 LLM 供应商与 `.env` 配置；先决定历史以 messages 表还是 checkpoint 为准）。
+2. SSE 流式推送。
+3. 前端页面；取消 run。
 
 ### 跑测试
 集成测试用真实 Postgres（先 `docker compose up -d postgres`）。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
@@ -39,8 +39,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q16。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q19。
