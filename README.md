@@ -27,6 +27,7 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
 - [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md) — 基础设施与能力深度的取舍及理由
 - `docs/decisions/` — 关键架构决策记录（每次重大取舍写一条，含背景/决定/后果/验证）
+- [docs/dev-log.md](docs/dev-log.md) — 开发日志：每一步的设计思路、取舍与踩坑记录
 - `docs/interview-prep.md` — 面试拷打准备文档，解释每个模块的设计原因和业务逻辑
 - `docs/learning-notes/` — 按主题记录的学习笔记（含本地私有的问答记录，未纳入版本管理）
 - `ARCHITECTURE.md` — 随开发推进逐步补全（边界、目录职责、核心链路、不变量）
