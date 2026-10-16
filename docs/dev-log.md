@@ -2,7 +2,23 @@
 
 按时间顺序记录每一步**做了什么、为什么这么设计、备选方案与取舍、遇到的问题与解法**。与其他文档的分工：`decisions/` 只记重大决策的结论；`interview-prep.md` 按模块整理成"面试怎么讲"；本文件保留过程，尤其是排错过程，因为"遇到过什么问题、怎么定位的"是最有说服力的项目经历。
 
-条目模板：目标 → 设计思路 → 备选与取舍 → 遇到的问题 → 验证 → 面试可讲点。
+条目模板：目标 → 设计思路 → **技术选型明细（选了什么、为什么、否掉了什么）** → 备选与取舍 → 遇到的问题 → 验证 → 面试可讲点。
+
+## 问题索引（按发生顺序，随开发追加）
+
+| # | 阶段 | 问题 | 根因（一句话） |
+|---|---|---|---|
+| 1 | 0 | demo yml 报 `mapping values are not allowed` | shell 命令里的 `: ` 被 YAML 当键值分隔，引号嵌套又冲突 → 改列表形式 |
+| 2 | 0 | Docker daemon 未启动，里程碑无法验证 | 环境缺失；把"已验证/未验证"分开写，环境就绪后补测并加故障用例 |
+| 3 | 0 | `git commit` 失败：`HEAD.lock` 已存在 | 10 月 14 日遗留的 0 字节锁文件；确认无 git 进程后删除 |
+| 4 | 1 | `Column object 'id' already assigned to Table` | `mapped_column` 对象被多个模型共用，列对象只能属于一张表 |
+| 5 | 1 | 测试夹具 `Could not parse SQLAlchemy URL` | `make_conninfo` 返回 `key=value` 串不是 URL → 改用 `make_url().set(database=)` |
+| 6 | 1 | macOS `sed -i` 报 `invalid command code` | BSD sed 要求 `-i ''` |
+| 7 | 1 | Alembic 警告 `No path_separator found` | 新版本弃用旧的路径分隔推断 → 配置 `path_separator = os` |
+| 8 | 1 | 不确定"事务内手动 rollback 再退出块"是否安全 | 不凭印象，写集成测试验证（通过） |
+| 9 | 1 | compose 验证误判：以为 `migrate` 没生效 | `sleep` 太短 + `grep` 过滤掉关键输出；镜像其实还在构建 |
+| 10 | 1 | `TypeError: 'function' object is not subscriptable` | 类里方法名 `list` 遮蔽了内置 `list`，后面的 `list[Message]` 取到方法 |
+| 11 | 1 | （预防）Alembic 的 `sqlalchemy.url` 含 `%` 会被 ConfigParser 当插值 | 设置时把 `%` 转义成 `%%`；真实密码常含 `%` 等特殊字符 |
 
 ---
 
@@ -17,6 +33,17 @@
 - **配置全走环境变量**。`.env` 不提交，提交 `.env.template`；连接串在 compose 里用服务名拼装，应用代码只读 `DATABASE_URL`、`REDIS_URL`。
 - **宿主机端口只绑 127.0.0.1**，避免开发机上的数据库被局域网访问。
 - **Dockerfile 先装依赖再拷代码**，改业务代码时依赖层缓存不失效；uvicorn 监听 `0.0.0.0`，否则端口映射后宿主机访问不到。
+
+### 技术选型明细
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| `postgres:16-alpine` | 16 是稳定的主流版本，与 `learning/langgraph` 练习用的版本一致，行为可对照；alpine 镜像小，拉取快 | 17 太新、生态跟进不全；`pgvector` 镜像暂不需要（向量库选 Qdrant）。alpine 用 musl，排序规则（collation）与 Debian 镜像略有差异，生产环境建议换 Debian 系镜像 |
+| `redis:7-alpine` + `--appendonly yes` | 后续要放队列信号、事件流，开 AOF 持久化，重启不丢最近写入 | 默认只有 RDB 快照，崩溃会丢最近几分钟数据 |
+| `python:3.12-slim`（而不是 alpine） | 依赖 `psycopg-binary`、`uvloop` 等带 C 扩展的包，glibc 的 slim 镜像有预编译 wheel；alpine（musl）常没有 wheel，需要现场编译，慢且易失败 | 镜像比 alpine 大。注意：本机 venv 是 Python 3.13、容器是 3.12，代码用到的 `StrEnum` 需 ≥3.11，两者都满足；若后续依赖出现版本差异再统一 |
+| 单阶段 Dockerfile | 当前依赖少，先求简单可读 | 多阶段构建能缩小镜像，等镜像体积成为问题再做 |
+| `uvicorn[standard]` | 带 `uvloop`（更快的事件循环）和 `httptools`（更快的 HTTP 解析） | 纯 `uvicorn` 更轻，但性能收益在 I/O 密集的 Agent 场景里值得 |
+| 依赖清单用 `requirements.txt` | 对 solo 项目足够，Dockerfile 里"先拷清单再装依赖"容易利用层缓存 | `uv`/`poetry` 有锁文件、可复现性更好；依赖多起来后再迁移 |
+| Compose 而不是 Kubernetes | 本地一键复现，学习与运维成本低 | K8s 的滚动发布、弹性伸缩，对简历项目的体量是过度设计 |
 
 ### 备选与取舍
 - 健康检查用 `curl` 还是 Python 标准库？slim 镜像没有 curl，为一个探针装 curl 会增大镜像，所以用 `python -c "urllib.request.urlopen(...)"`。
@@ -50,6 +77,18 @@
 - **消息排序用自增 `seq`**：同一事务内 `now()` 都是事务开始时间，多条消息时间戳相同；uuid 又无序，两者都不能保证顺序。
 - **迁移用独立的一次性 `migrate` 服务**：多个实例同时启动各自跑迁移会互相抢，一次性服务跑完退出，api 用 `service_completed_successfully` 等它。
 
+### 技术选型明细
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| SQLAlchemy 2.0 异步 | 需要部分唯一索引、CHECK、条件更新这类细粒度控制，同时表会越来越多，需要模型层和迁移联动；2.0 风格（`Mapped[]` 类型注解）与 FastAPI 的类型驱动风格一致 | 直接写 SQL：灵活但表多了后重复代码和迁移同步成本高；SQLModel：封装更薄但对复杂约束支持不如原生 SQLAlchemy；Tortoise 等：生态和资料不如 SQLAlchemy |
+| psycopg3 作为驱动 | LangGraph 的 `PostgresSaver` 用的就是 psycopg3，项目里只维护一套 Postgres 驱动和连接配置；同时支持同步和异步 | asyncpg 更快，但会出现两套驱动、两套连接串格式，收益不值得 |
+| Alembic | 模型改了能 autogenerate 出迁移草稿，再人工审核；迁移有版本链，可回滚 | `create_all()` 只能建表不能演进已有表；纯手写 SQL 脚本没有版本管理 |
+| 主键用 UUID，由数据库 `gen_random_uuid()` 生成 | id 会出现在 URL 里，自增整数可枚举、会泄露数据量；UUID 不可猜，多实例无需协调；PG13+ 内置该函数，不用装扩展 | 自增 bigint 索引更紧凑、插入更有序；UUID 索引更大。所以**需要顺序的地方（messages）单独加 `seq` 自增列**，主键仍用 UUID |
+| 时间列用 `timestamptz` | 带时区，跨时区部署和展示不出错 | 不带时区的 `timestamp` 容易在服务器时区变化时产生歧义 |
+| status/role 用 `String + CHECK` | 增减枚举值只需一次迁移改约束；原生 PG enum 增删值更麻烦 | 原生 enum 存储更省，但演进成本高 |
+| Alembic 用同步引擎 | 迁移是一次性脚本，异步无收益，同步更简单稳妥 | 在 env.py 里跑异步引擎要额外样板代码 |
+| 测试用真实 Postgres + `pytest-asyncio` | 部分唯一索引、`UPDATE … WHERE` 的 rowcount、事务回滚，SQLite 模拟不出来；测试库由真实迁移建表，顺带验证迁移脚本 | SQLite 内存库更快，但会测出"假通过"；代价是跑测试要先起 Postgres |
+
 ### 备选与取舍
 - **ORM**：SQLAlchemy 异步 vs 直接写 SQL。选 SQLAlchemy，因为表和关系会随阶段 2-5 不断增加，需要迁移工具和模型层；驱动选 psycopg3，与 LangGraph 的 PostgresSaver 同一个，不维护两套驱动。代价是学习成本，且部分唯一索引、条件更新必须在真实 Postgres 上测试，SQLite 模拟不了。
 - **Alembic 用同步引擎**：迁移是一次性脚本，不需要异步，同步更简单稳妥。
@@ -61,8 +100,9 @@
 2. **测试夹具里 `Could not parse SQLAlchemy URL`**。想用 `psycopg.conninfo.make_conninfo` 替换库名，但它返回的是 `key=value` 格式，不是 URL。改用 SQLAlchemy 的 `make_url(...).set(database=...)`，全程保持 URL 形式。
 3. **macOS 的 `sed -i` 报 `invalid command code`**：BSD sed 要求 `-i ''`。
 4. **Alembic 弃用警告**（`No path_separator found`）：在 `alembic.ini` 加 `path_separator = os`。
-5. **一个我不确定的点：在 `session.begin()` 块里手动 `rollback()` 再退出，是否安全？** 没有凭印象判断，写了测试 `test_complete_only_from_running_and_leaves_no_orphan`，验证"run 不在 running 时，助手消息整体回滚、不留孤儿"，通过。
-6. **验证 compose 时误判**：执行 `up -d --build` 后只 `sleep 10`，并用 `grep` 过滤了输出，看到 api 还是旧容器、`migrate` 不在列表里，一度以为没生效。实际是镜像还在构建，grep 又把关键信息过滤掉了。重新查看完整输出后确认 `migrate` 退出码 0。教训：验证时看完整输出和状态，不要过早过滤；耗时操作要等它真正结束。
+5. **预防性处理：Alembic 的 `sqlalchemy.url` 含 `%` 时会被 ConfigParser 当成插值语法报错**。数据库密码里出现 `%`、`@` 等字符很常见。设置到 Alembic 配置时把 `%` 转义成 `%%`（`conftest.py` 里的 `.replace("%", "%%")`）。同时统一用 `to_sqlalchemy_url()` 把应用通用的 `postgresql://` 转成 SQLAlchemy 需要的 `postgresql+psycopg://`，避免连接串格式在各处不一致。
+6. **一个我不确定的点：在 `session.begin()` 块里手动 `rollback()` 再退出，是否安全？** 没有凭印象判断，写了测试 `test_complete_only_from_running_and_leaves_no_orphan`，验证"run 不在 running 时，助手消息整体回滚、不留孤儿"，通过。
+7. **验证 compose 时误判**：执行 `up -d --build` 后只 `sleep 10`，并用 `grep` 过滤了输出，看到 api 还是旧容器、`migrate` 不在列表里，一度以为没生效。实际是镜像还在构建，grep 又把关键信息过滤掉了。重新查看完整输出后确认 `migrate` 退出码 0。教训：验证时看完整输出和状态，不要过早过滤；耗时操作要等它真正结束。
 
 ### 验证
 - 8 个集成测试在真实 Postgres 上通过：原子提交；他人对话/不存在的对话统一报 `ConversationNotFound`；提交失败不留孤儿消息；前一个 run 结束后可以再提交；8 路并发 claim 只有 1 个成功；未 claim 不能直接 complete；失败记录错误且终态不可再改；同事务内消息顺序正确。
@@ -85,6 +125,16 @@
 - **越权与不存在一视同仁**：访问别人的对话/run 返回 404，和不存在一样，不泄露 id 是否存在（返回 403 会暴露资源存在）。
 - **sessionmaker 通过依赖注入**：lifespan 里创建引擎并挂到 `app.state`，路由经 `Depends` 取用；测试用 `dependency_overrides` 换成测试库，不用改任何业务代码。
 - **`create_app()` 工厂**：测试可以创建独立的 app 实例。
+
+### 技术选型明细
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| Pydantic 请求/响应模型（`schemas.py`）与 ORM 模型分开 | 对外接口字段由 schema 显式声明，数据库加列不会意外泄露到接口；校验（如内容 1~20000 字符）放在入口 | 直接返回 ORM 对象省代码，但接口和表结构耦合，改表即破坏接口 |
+| `X-User-Id` 头做鉴权占位 | 数据隔离从现在起就生效，又不引入密码哈希、token 签发这些阶段 5 的内容；替换点只有一个依赖函数 | 直接上 JWT：这一步会被无关代码淹没；完全不做隔离：之后补隔离要改所有查询 |
+| 依赖注入传 sessionmaker | 测试用 `dependency_overrides` 换成测试库，业务代码零改动 | 全局单例连接：测试要打补丁，且难以并行 |
+| `create_app()` 工厂 | 每个测试得到独立 app 实例，互不污染 | 模块级全局 `app` 在测试间共享状态 |
+| 测试用 `httpx.AsyncClient` + `ASGITransport` | 数据库夹具本身是异步的，客户端也用异步，整条链路在同一个事件循环里；不需要真的监听端口 | Starlette 的同步 `TestClient` 内部起独立线程/事件循环，与异步夹具混用容易出现跨事件循环的问题（这里是设计上避开，并非实际踩到） |
+| 发消息返回 202 + run | 语义为"已受理、未处理完"，客户端用 run id 查进度 | 200/201 会让客户端误以为已处理完；同步等待 Agent 完成则会占住 HTTP 连接几十秒 |
 
 ### 备选与取舍
 - 重复用户名：先查再插有竞态，改成以数据库唯一约束为准，捕获 `IntegrityError` 转成 `UserExists`（409）。和阶段 1（一）"并发正确性交给数据库"一脉相承。
