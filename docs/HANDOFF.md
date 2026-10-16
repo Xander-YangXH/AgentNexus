@@ -22,7 +22,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [ ] SSE 流式推送；最小 Vue3 页面
 
 ## 下一步
-1. 接入 LangGraph chatbot + PostgresSaver（先定 LLM 供应商与 `.env` 配置；先决定历史以 messages 表还是 checkpoint 为准）。
+1. **等用户确认 `docs/decisions/0006-history-source-of-truth.md`（草稿）**：是否接受“messages 表为准 + checkpoint 的 thread_id 用 run_id + 失败轮次保留”，并选定 LLM 供应商。确认后接入 LangGraph chatbot + PostgresSaver。
 2. SSE 流式推送。
 3. 前端页面；取消 run。
 
@@ -43,4 +43,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q19。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q20。

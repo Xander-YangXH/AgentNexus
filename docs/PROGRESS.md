@@ -159,7 +159,9 @@
 - [ ] `agents/base.py`：`BaseAgent` / `BaseContext`
 - [ ] `agents/buildin/chatbot/`：`graph.py` / `state.py` / `prompt.py` / `context.py` 四件套
 - [ ] 接入 PostgresSaver：`thread_id = conversation_id`，checkpoint 与业务表同库
-- [ ] 历史消息如何喂给图（取 messages 表 vs 依赖 checkpoint）——写清取舍，避免双份事实来源
+- [x] 调研并写 decisions/0006 **草稿**：历史以 messages 表为准，checkpoint 按 run 划分（含 7 条对照实验结论）
+- [ ] **等你确认 0006**，并选定 LLM 供应商
+- [ ] 实现：消息映射（ChatMessage ↔ LangChain 消息）与测试
 - [ ] 单元测试：图用假 LLM 跑通；真实 LLM 仅手动验证
 
 **1.5 流式输出**
