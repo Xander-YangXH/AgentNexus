@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends
 
 from agentnexus.services.conversations import ConversationService
 from agentnexus.services.runs import RunService
-from server.deps import CurrentUser, get_conversation_service, get_run_service
+from agentnexus.runtime.dispatcher import RunDispatcher
+from server.deps import CurrentUser, get_conversation_service, get_dispatcher, get_run_service
 from server.schemas import (
     ConversationCreate,
     ConversationOut,
@@ -47,9 +48,13 @@ async def send_message(
     body: MessageCreate,
     user_id: CurrentUser,
     svc: RunService = Depends(get_run_service),
+    dispatcher: RunDispatcher = Depends(get_dispatcher),
 ):
     """202 Accepted：消息和 run 已落库，执行是异步的，用 run 的 id 查进度。"""
-    return await svc.submit(user_id, conversation_id, body.content)
+    run = await svc.submit(user_id, conversation_id, body.content)
+    # 投递在提交成功之后；即使这里什么都没发生，周期扫描也会把 queued 的 run 补投
+    dispatcher.enqueue(run.id)
+    return run
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)

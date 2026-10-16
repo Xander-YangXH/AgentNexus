@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.repositories.users import UserRepository
 from agentnexus.services.conversations import ConversationService
 from agentnexus.services.runs import RunService
@@ -12,6 +13,10 @@ from agentnexus.services.users import UserService
 
 def get_sessionmaker(request: Request) -> async_sessionmaker:
     return request.app.state.sessionmaker
+
+
+def get_dispatcher(request: Request) -> RunDispatcher:
+    return request.app.state.dispatcher
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]

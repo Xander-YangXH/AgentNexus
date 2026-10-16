@@ -38,10 +38,14 @@ class MessageRepository:
         await self.session.flush()  # 触发 INSERT，拿到 id / seq
         return msg
 
-    async def list_by_conversation(self, conversation_id: uuid.UUID) -> list[Message]:
-        stmt = (
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.seq)
-        )
+    async def get(self, message_id: uuid.UUID) -> Message | None:
+        return await self.session.get(Message, message_id)
+
+    async def list_by_conversation(
+        self, conversation_id: uuid.UUID, up_to_seq: int | None = None
+    ) -> list[Message]:
+        stmt = select(Message).where(Message.conversation_id == conversation_id)
+        if up_to_seq is not None:
+            stmt = stmt.where(Message.seq <= up_to_seq)
+        stmt = stmt.order_by(Message.seq)
         return list((await self.session.scalars(stmt)).all())

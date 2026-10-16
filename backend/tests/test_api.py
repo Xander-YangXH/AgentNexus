@@ -3,7 +3,9 @@ import uuid
 import httpx
 import pytest_asyncio
 
-from server.deps import get_sessionmaker
+from agentnexus.agents.echo import echo_agent
+from agentnexus.runtime.dispatcher import RunDispatcher
+from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
 
 
@@ -11,6 +13,9 @@ from server.main import create_app
 async def client(sessionmaker):
     app = create_app()
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
+    # 不 start()：只入队、没人消费，run 保持 queued，便于断言“落库后”的状态
+    dispatcher = RunDispatcher(sessionmaker, echo_agent)
+    app.dependency_overrides[get_dispatcher] = lambda: dispatcher
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as c:

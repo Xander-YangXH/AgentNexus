@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from agentnexus.agents.types import ChatMessage, RunContext
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
 from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound
@@ -62,3 +63,26 @@ class RunService:
     async def fail(self, run_id: uuid.UUID, error: str) -> bool:
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).finish(run_id, RunStatus.FAILED, error=error)
+
+    async def list_queued_ids(self, limit: int = 1000) -> list[uuid.UUID]:
+        async with self.sessionmaker() as session:
+            return [r.id for r in await AgentRunRepository(session).list_queued(limit)]
+
+    async def load_context(self, run_id: uuid.UUID) -> RunContext:
+        """取该 run 的输入上下文：对话历史截止到本次输入消息（含），保证重放结果稳定。"""
+        async with self.sessionmaker() as session:
+            run = await AgentRunRepository(session).get(run_id)
+            if run is None:
+                raise RunNotFound(str(run_id))
+            messages = MessageRepository(session)
+            input_msg = await messages.get(run.input_message_id)
+            history = await messages.list_by_conversation(run.conversation_id, up_to_seq=input_msg.seq)
+            return RunContext(
+                run_id=run.id,
+                conversation_id=run.conversation_id,
+                history=[ChatMessage(m.role, m.content) for m in history],
+            )
+
+    async def fail_orphaned_running(self, error: str) -> int:
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).fail_all_running(error)

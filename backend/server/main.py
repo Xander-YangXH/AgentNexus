@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from agentnexus.agents.echo import echo_agent
 from agentnexus.config import get_settings
+from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, UserExists
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from server.routers import conversations, health, users
@@ -11,9 +13,19 @@ from server.routers import conversations, health, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    engine = make_engine(get_settings().database_url, pool_pre_ping=True)
+    settings = get_settings()
+    engine = make_engine(settings.database_url, pool_pre_ping=True)
     app.state.sessionmaker = make_sessionmaker(engine)
+    app.state.dispatcher = RunDispatcher(
+        app.state.sessionmaker,
+        echo_agent,  # 1.4 换成 LangGraph chatbot
+        concurrency=settings.worker_concurrency,
+        run_timeout=settings.run_timeout_seconds,
+        sweep_interval=settings.sweep_interval_seconds,
+    )
+    await app.state.dispatcher.start()
     yield
+    await app.state.dispatcher.stop()
     await engine.dispose()
 
 
