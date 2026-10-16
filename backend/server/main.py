@@ -3,11 +3,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from agentnexus.agents.echo import echo_agent
+from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
 from agentnexus.config import get_settings
+from agentnexus.models import build_chat_model
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, UserExists
+from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from server.routers import conversations, health, users
 
 
@@ -16,9 +19,15 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     engine = make_engine(settings.database_url, pool_pre_ping=True)
     app.state.sessionmaker = make_sessionmaker(engine)
+    # checkpoint 表由 migrate 服务建好；这里只负责连接
+    checkpoint_pool = await open_pool(settings.database_url)
+    agent = ChatbotAgent(
+        ChatbotContext(model=build_chat_model(settings)),
+        checkpointer=AsyncPostgresSaver(checkpoint_pool),
+    )
     app.state.dispatcher = RunDispatcher(
         app.state.sessionmaker,
-        echo_agent,  # 1.4 换成 LangGraph chatbot
+        agent.run,
         concurrency=settings.worker_concurrency,
         run_timeout=settings.run_timeout_seconds,
         sweep_interval=settings.sweep_interval_seconds,
@@ -26,6 +35,7 @@ async def lifespan(app: FastAPI):
     await app.state.dispatcher.start()
     yield
     await app.state.dispatcher.stop()
+    await checkpoint_pool.close()
     await engine.dispose()
 
 

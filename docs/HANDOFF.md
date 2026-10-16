@@ -18,13 +18,13 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [x] 数据层：`storage/postgres`（表）、`repositories/`、`services/runs.py`（submit/claim/complete/fail）、Alembic 迁移 `0001`、compose 的一次性 `migrate` 服务。8 个集成测试通过。
 - [x] API：`POST /api/users`、对话 CRUD、`POST /api/conversations/{id}/messages`（202，返回 queued run）、`GET .../messages`、`GET /api/runs/{id}`。用 `X-User-Id` 头做鉴权占位（阶段 5 替换 `server/deps.py` 的 `current_user_id`）。14 个测试通过，compose 内 curl 端到端验证过。
 - [x] 派发与执行（单机版）：`runtime/dispatcher.py`（enqueue / 扫描补投 / claim / 超时 / 并发上限 / 启动恢复 / 关停收尾）+ 回声 Agent，decisions/0005，22 个测试通过，容器内端到端验证。**单进程假设：api 只能起 1 个实例、uvicorn 不能开多 workers**
-- [ ] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套）+ PostgresSaver
+- [x] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套 + `agent.py`）、`models/` 工厂（默认假模型）、AsyncPostgresSaver（`thread_id=run_id`，表由 migrate 服务建）、decisions/0006 已确认（方案 A）。37 个测试通过，容器内两轮对话验证。**真实 LLM 调用从未验证**
 - [ ] SSE 流式推送；最小 Vue3 页面
 
 ## 下一步
-1. **等用户确认 `docs/decisions/0006-history-source-of-truth.md`（草稿）**：是否接受“messages 表为准 + checkpoint 的 thread_id 用 run_id + 失败轮次保留”，并选定 LLM 供应商。确认后接入 LangGraph chatbot + PostgresSaver。
-2. SSE 流式推送。
-3. 前端页面；取消 run。
+1. **选定真实 LLM 供应商并配置 `.env`**（`LLM_PROVIDER`/`LLM_MODEL`/`LLM_API_KEY`/`LLM_BASE_URL`），手动验证一次真实调用——这件事需要用户提供密钥，我不会也不应该替用户填。
+2. 1.5 SSE 流式输出：事件模型、事件通道、`GET /runs/{id}/events`、断线续传。会改 Agent 契约（`run()` 目前返回完整文本）。
+3. 前端页面；取消 run；checkpoint 清理。
 
 ### 跑测试
 集成测试用真实 Postgres（先 `docker compose up -d postgres`）。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
@@ -43,4 +43,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q20。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q21。

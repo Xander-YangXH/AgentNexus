@@ -5,24 +5,24 @@
 
 ## 1. 当前位置
 
-**阶段 1「核心骨架」进行中：数据层、API 层、派发与执行（回声 Agent）已完成，下一步是 1.4「接入 LangGraph chatbot + PostgresSaver」。**
+**阶段 1「核心骨架」进行中：数据层、API 层、派发与执行、LangGraph chatbot（假模型）已完成，下一步是 1.5「SSE 流式输出」。**
 
-当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占、执行（回声 Agent），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
-当前做不到的：没有 LLM（回复只是回声）、没有流式输出、没有前端页面、不能取消 run。
+当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
+当前做不到的：**还没接过真实 LLM**（默认假模型，回复是回声）、没有流式输出、没有前端页面、不能取消 run。
 
 ### 完成度（由勾选框统计，粒度不等，仅作参考）
 
 | 模块 | 已完成 | 待本机验证 | 总数 | 完成度 |
 |---|---|---|---|---|
 | M0 工程基础与环境 | 12 | 2 | 14 | 85% |
-| M1 核心骨架与 Agent 引擎 | 18 | 0 | 37 | 48% |
+| M1 核心骨架与 Agent 引擎 | 26 | 0 | 41 | 63% |
 | M2 RAG 知识库 | 0 | 0 | 11 | 0% |
 | M3 知识图谱 | 0 | 0 | 8 | 0% |
 | M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 2 | 0 | 7 | 28% |
-| **合计** | **32** | 2 | **100** | **32%** |
+| **合计** | **40** | 2 | **104** | **38%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -64,7 +64,7 @@
  ④ 派发：把 run_id 投给队列      （单机 asyncio.Queue → 阶段 4 换 ARQ + 独立 worker）
         └ 兜底：启动时/定期扫描 status=queued 的 run 补投递（队列丢了也不丢任务）
  ⑤ worker 抢占：UPDATE … WHERE status='queued'，rowcount=1 者执行   ← 并发安全交给数据库
- ⑥ 执行：LangGraph 图运行，thread_id = conversation_id，checkpoint 存 Postgres（PostgresSaver）
+ ⑥ 执行：LangGraph 图运行，输入是 messages 表的历史，thread_id = run_id，checkpoint 存 Postgres（PostgresSaver）
         └ 工具调用 / 子 Agent 派发 / 审批中断(interrupt) / 沙盒执行
  ⑦ 流式事件：token 与步骤事件 → 事件通道 → ⑧
  ⑧ 客户端 GET /runs/{id}/events（SSE）订阅，断线可从游标续传
@@ -72,11 +72,11 @@
  ⑩ 阶段 4：worker 持租约(lease)+心跳；租约过期的 run 被他人接管，保证“不卡死、不重复执行”
 ```
 
-标注：①②③④⑤⑨ 已完成（单机版，⑥ 目前是回声 Agent）；⑥ 的 LangGraph 部分、⑦⑧ 流式、⑩ 租约未做。
+标注：①②③④⑤⑥⑨ 已完成（单机版；⑥ 的 LangGraph 图已接入，但模型默认是假模型，真实 LLM 未验证）；⑦⑧ 流式、⑩ 租约未做。
 
 ### 2.3 数据模型
 
-已建（迁移 `0001`）：`users` → `conversations`（id 即 LangGraph `thread_id`）→ `messages`（`seq` 自增排序）；`agent_runs`（queued/running/succeeded/failed/cancelled，`output_message_id`、`error`、起止时间）。
+已建（迁移 `0001`）：`users` → `conversations`（LangGraph `thread_id` 用 run_id）→ `messages`（`seq` 自增排序）；`agent_runs`（queued/running/succeeded/failed/cancelled，`output_message_id`、`error`、起止时间）。
 计划追加：`agent_runs` 的 lease 字段（阶段 4）；`knowledge_bases` / `documents` / `chunks`（阶段 2）；实体与关系的图谱元数据（阶段 3）；`departments`、角色、资源可见性、`usage_records`（阶段 5）。
 
 ### 2.4 架构不变量（改代码时不能破坏）
@@ -154,15 +154,17 @@
 - [x] 回声 Agent 打通整条链路 + 8 个测试 + 变异检查 + 容器内端到端
 - [ ] 取消 run（与 1.2 的取消接口一起做）
 
-**1.4 Agent 引擎**
-- [ ] LLM 供应商适配（`models/`）：配置项进 `.env.template`，统一接口，便于换模型
-- [ ] `agents/base.py`：`BaseAgent` / `BaseContext`
-- [ ] `agents/buildin/chatbot/`：`graph.py` / `state.py` / `prompt.py` / `context.py` 四件套
-- [ ] 接入 PostgresSaver：`thread_id = conversation_id`，checkpoint 与业务表同库
-- [x] 调研并写 decisions/0006 **草稿**：历史以 messages 表为准，checkpoint 按 run 划分（含 7 条对照实验结论）
-- [ ] **等你确认 0006**，并选定 LLM 供应商
-- [ ] 实现：消息映射（ChatMessage ↔ LangChain 消息）与测试
-- [ ] 单元测试：图用假 LLM 跑通；真实 LLM 仅手动验证
+**1.4 Agent 引擎** — decisions/0006
+- [x] LLM 供应商适配（`models/`）：工厂 + 环境变量，`fake` / `openai`（OpenAI 兼容）/ `anthropic`；默认假模型
+- [x] `agents/base.py`：`BaseAgent` / `BaseContext`
+- [x] `agents/buildin/chatbot/`：`graph.py` / `state.py` / `prompt.py` / `context.py` 四件套 + `agent.py`
+- [x] 调研并写 decisions/0006：历史以 messages 表为准，checkpoint 按 run 划分（含对照实验）
+- [x] 0006 已确认（方案 A）
+- [x] 接入 AsyncPostgresSaver：`thread_id = run_id`；checkpoint 表由 migrate 服务建
+- [x] 消息映射（ChatMessage ↔ LangChain 消息）与测试；假模型图测试；变异检查
+- [x] compose 传递 LLM / 执行器配置并在容器内验证
+- [ ] **选定真实 LLM 供应商、配置密钥，并手动验证一次真实调用**（目前真实调用从未验证）
+- [ ] checkpoint 清理：run 终态后按保留期 `delete_thread`；测量存储增长
 
 **1.5 流式输出**
 - [ ] 事件模型：token / 步骤 / 完成 / 错误，带单调递增游标

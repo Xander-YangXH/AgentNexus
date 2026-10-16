@@ -23,6 +23,8 @@
 | 13 | 1 | 新测试一次全过，不确定是否有效 | 做变异检查：故意破坏实现，确认测试会失败；还证实 `_pending` 只是优化 |
 | 14 | 1 | 文档脚本中途崩溃（正则转义写错，统计为 0 → 除零），但后面的 `git commit` 照常执行，提交了“改了一半”的文档 | 脚本与提交没有串成“前一步成功才继续”；再次犯了第 12 条同类错误。补救：查清已写/未写，补一个修复提交 |
 | 15 | 1 | 我断言“messages 表为准则失败 run 不污染历史”，但支撑它的实验把失败消息人为排除了 | 实验没复刻真实数据流（失败 run 的用户消息已落库）；对照真实流程推演时发现，在 decision 中更正 |
+| 16 | 1 | `AsyncConnectionPool(max_size=1)` 报 `max_size must be >= min_size` | `psycopg_pool` 的 `min_size` 默认 4；同样的代码生产里 migrate 建表也会崩，被测试提前抓出 |
+| 17 | 1 | `.env` 里的 `WORKER_CONCURRENCY` 等改了不生效（1.3 遗留） | compose 只把 `environment:` 里列出的变量传进容器；要验证“进程里读到的值” |
 
 ---
 
@@ -226,3 +228,45 @@
 
 ### 面试可讲点
 “业务表和框架 checkpoint 两份数据，谁是事实来源”；用对照实验而不是直觉做架构决定；混合方案为什么是陷阱；按 run 划分 checkpoint 如何自然支撑中断与崩溃恢复；自己发现并更正了论断中的错误。
+
+---
+
+## 2026-10 · 阶段 1（四）：接入 LangGraph chatbot（决策 0006 落地）
+
+### 目标
+把回声 Agent 换成 LangGraph 聊天图：历史以 `messages` 表为准，checkpoint 的 `thread_id` 用 `run_id`，模型通过工厂可替换；真实 LLM 暂不接入，用确定性的假模型跑通。
+
+### 设计思路
+- **Agent 是“函数”契约，LangGraph 是它的内部实现**。`BaseAgent.run(RunContext) -> str` 可直接作为派发器的 handler，派发器完全不知道 LangGraph 的存在。以后换 Agent、加多 Agent，派发层不动。
+- **两个世界的边界集中在 `messages.py`**：数据库里的 `role + content` ↔ LangChain 消息类型。映射只写一处，也只测一处。数据库里出现 `tool` 角色直接报错，而不是静默丢弃——决策 0006 规定工具中间结果不入 `messages` 表，出现就说明数据异常。
+- **系统提示词只在调用模型时拼接，不写进 state**。这样 checkpoint 里不重复保存它，改提示词也不用迁移任何历史状态。
+- **checkpoint 表由 LangGraph 自己建（`setup()`），不放进我们的 Alembic**，在 `migrate` 一次性服务里于 Alembic 之后执行。原因：那套表的结构和升级由 LangGraph 维护，我们再抄一份迁移，升级时两边会打架；`setup()` 本身幂等。
+- **api 进程只连接、不建表**：和“迁移不在 api 启动时跑”的既有原则一致。
+- **模型工厂默认 `fake`**：没有密钥也能把整条链路跑通和测试；真实供应商只改环境变量。
+
+### 技术选型明细
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| `AsyncPostgresSaver` + `psycopg_pool.AsyncConnectionPool` | 整个服务是异步的，同步 saver 会阻塞事件循环；连接池让多个 run 并发读写 checkpoint 不互相等 | 同步 `PostgresSaver`：简单但会卡住事件循环；`MemorySaver`：进程重启即丢，无法支撑崩溃恢复 |
+| 模型工厂：`fake` / `openai` / `anthropic` 三种 | `openai` 通过 `base_url` 覆盖 DeepSeek、通义、智谱等所有 OpenAI 兼容接口，一个分支顶很多家；`anthropic` 单独保留，因为它的 content 可能是内容块列表（已在 `message_text` 处理） | 每家供应商一个分支：重复；只支持一家：绑死 |
+| 供应商 SDK 延迟导入 | 用 fake 时不加载 openai/anthropic SDK，启动更快，也不要求配置密钥 | 全局导入：启动慢，且缺密钥时也要构造客户端 |
+| 假模型自写 `FakeEchoChatModel`（回复 `echo: …`） | 确定、免费、秒级；出问题时能确定不是 LLM 的锅 | 直接用 LangChain 自带的 `FakeListChatModel`：回复是预设列表，无法按输入回声，不能验证“历史有没有喂对” |
+| 测试用 `RecordingModel` 记录模型收到的消息 | 能直接断言“模型收到了什么”，这才是验证决策 0006 的关键 | 只断言最终回复文本：看不出历史是不是全量、有没有叠加 |
+| 本阶段先不做流式 | 流式要改 Agent 契约（返回异步迭代器）并配套事件通道，属于 1.5，一次做完比现在半做更清晰 | 现在 `run()` 返回完整文本 |
+
+### 备选与取舍
+- 历史转换放在 Agent 里还是服务层？放在 Agent 里：`RunContext.history` 保持与框架无关（`ChatMessage`），换框架时服务层不用动。
+- 系统提示词是否可配置？先放常量，等有多个 Agent、多租户配置时再抽到配置里，避免现在为不存在的需求设计。
+
+### 遇到的问题
+1. **`psycopg_pool` 的 `min_size` 默认是 4**。我写的连接池 `max_size=1`（给 migrate 建表用）和 `max_size=3`（测试用）直接报 `max_size must be greater or equal than min_size`。不只是测试问题：同样的代码生产里 `setup_checkpoint_tables` 也会崩，是测试把它提前暴露出来的。处理：显式 `min_size=1`。教训：第三方库的默认值要读，尤其是“我只设了一个参数”的时候。
+2. **我在 1.3 留下的潜伏 bug**：`.env.template` 里写了 `WORKER_CONCURRENCY` 等可选变量，但 `docker-compose.yml` 没把它们传进容器——compose 只传 `environment:` 里列出的变量，`.env` 里多写的只用于 compose 文件内的 `${}` 替换。所以用户改了 `.env` 也不会生效，而当时我没发现，因为默认值恰好和代码默认值一致。发现方式：这一步要加 LLM 变量时，核对“`.env` → 容器 → 代码”整条路径，发现链路少了一环。处理：在 compose 里显式列出并带默认值，并在容器内 `os.environ` 实际读取验证。教训：配置要验证到“进程里读到的值”，不能只看配置文件写了没有。
+3. **变异检查**：测试全过后，对实现做 4 种破坏（thread_id 改回 conversation_id / 只传最后一条消息 / 系统提示词写进 state / 去掉 checkpointer），分别有 2~4 个测试失败，说明测试确实在保护决策 0006 的各条规则。
+4. **没有验证的事**：真实供应商的调用（没有密钥）。只验证了工厂的配置分支，以及 `ChatOpenAI` / `ChatAnthropic` 能用我们传的参数名构造出来（不联网）。流式、工具调用、各家对 `content` 格式的差异都还没碰到。
+
+### 验证
+- 37 个测试通过（原 22 + 新增 15）：消息映射、工厂分支、全量历史+系统提示词顺序、checkpoint 的 thread 是 run_id 且不含系统提示词、同一对话的多个 run 不叠加、失败后同一 thread `invoke(None)` 续跑、经派发器的两轮端到端（第二轮模型看到的是表里的历史）。
+- 容器内：`migrate` 建出 checkpoint 表；两轮对话成功；checkpoint 里只有 run_id 作为 thread（没有以 conversation_id 为线程的记录）；容器内 `os.environ` 读到 `LLM_PROVIDER=fake` 等配置。
+
+### 面试可讲点
+Agent 与派发层如何解耦；业务库与框架状态的边界集中在哪、怎么测；为什么 checkpoint 表不进自己的迁移；为什么按 run 划分 checkpoint 并实测过续跑；配置要验证到进程内读到的值；第三方库默认值引发的线上才会炸的 bug 被测试提前抓出。

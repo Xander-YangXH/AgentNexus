@@ -58,7 +58,7 @@ class User(Base):
 
 
 class Conversation(Base):
-    """对话线程。id 同时作为 LangGraph 的 thread_id，checkpoint 按它隔离。"""
+    """对话。历史消息的事实来源是 messages 表；LangGraph 的 thread_id 用 run_id，不用本表 id（见 decisions/0006）。"""
 
     __tablename__ = "conversations"
 

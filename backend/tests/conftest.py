@@ -46,6 +46,12 @@ def test_db_url() -> str:
     cfg.set_main_option("sqlalchemy.url", to_sqlalchemy_url(url).replace("%", "%%"))
     cfg.set_main_option("path_separator", "os")
     command.upgrade(cfg, "head")
+
+    # LangGraph 的 checkpoint 表由它自己的 setup() 建（生产里由 migrate 服务执行）
+    from langgraph.checkpoint.postgres import PostgresSaver
+
+    with PostgresSaver.from_conn_string(url) as saver:
+        saver.setup()
     return url
 
 
@@ -58,6 +64,19 @@ async def sessionmaker(test_db_url):
             "TRUNCATE agent_runs, messages, conversations, users RESTART IDENTITY CASCADE"
         )
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def checkpointer(test_db_url):
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    from agentnexus.storage.checkpoint import open_pool
+
+    pool = await open_pool(test_db_url, max_size=3)
+    yield AsyncPostgresSaver(pool)
+    async with pool.connection() as conn:  # 与业务表一样，测试间清理，避免互相污染
+        await conn.execute("TRUNCATE checkpoints, checkpoint_blobs, checkpoint_writes")
+    await pool.close()
 
 
 @pytest_asyncio.fixture

@@ -11,6 +11,14 @@ x-backend: &backend
     # 容器间用服务名互通（postgres / redis），不是 localhost
     DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://redis:6379/0
+    # compose 只会把这里列出的变量传进容器；.env 里写了但这里没列的，容器里读不到
+    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+    RUN_TIMEOUT_SECONDS: ${RUN_TIMEOUT_SECONDS:-300}
+    SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-5}
+    LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+    LLM_MODEL: ${LLM_MODEL:-}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-}
 
 services:
   postgres:
@@ -44,10 +52,11 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # 一次性任务：跑完数据库迁移就退出（restart: "no"），api 等它成功后再启动
+  # 一次性任务：建表/迁移后退出（restart: "no"），api 等它成功后再启动
+  # 先跑我们自己的 Alembic 迁移，再建 LangGraph checkpoint 表（那套表由 LangGraph 自己管理）
   migrate:
     <<: *backend
-    command: ["alembic", "upgrade", "head"]
+    command: ["sh", "-c", "alembic upgrade head && python -m agentnexus.storage.checkpoint"]
     working_dir: /app/backend
     depends_on:
       postgres:

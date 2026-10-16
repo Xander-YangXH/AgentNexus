@@ -99,12 +99,12 @@ Agent 能读写文件、执行命令，如果直接在宿主进程里跑，一�
 - 0003：本地开发环境用 Docker Compose + healthcheck 保证启动顺序
 - 0004：数据层 SQLAlchemy 异步 + Alembic，run 与消息同事务，不变量放数据库
 - 0005：阶段 1 先用进程内派发器（队列非事实来源、claim 保证正确性），阶段 4 换 ARQ + lease
-- 0006（草稿）：对话历史以 messages 表为准，LangGraph checkpoint 按 run 划分
+- 0006：对话历史以 messages 表为准，LangGraph checkpoint 按 run 划分
 
 ## 模块问答（随开发填充）
 
 ### Agent 运行链路
-**数据模型**：users → conversations（id 即 LangGraph 的 thread_id）→ messages；agent_runs 记录一次执行（queued → running → succeeded/failed/cancelled）。
+**数据模型**：users → conversations（LangGraph 的 thread_id 用 run_id，见 decisions/0006）→ messages；agent_runs 记录一次执行（queued → running → succeeded/failed/cancelled）。
 
 **为什么 submit 要把"用户消息 + queued run"放同一事务**：两者要么都在要么都不在。只存消息没有 run，用户发了话但永远没人处理；只存 run 没有消息，执行时找不到输入。返回成功就等价于"这个任务一定会被执行"，之后投递队列失败也能靠扫描 `status=queued` 补发。测试 `test_failed_submit_leaves_no_orphan_message` 验证了回滚后不留孤儿消息。
 
@@ -128,6 +128,12 @@ Agent 能读写文件、执行命令，如果直接在宿主进程里跑，一�
 - 只传新消息、checkpoint 为准：能跑，但历史藏在框架的二进制状态里，失败轮次的残留也在里面，我们的表对不上。
 - 混合（表的全量历史 + checkpoint 已有历史）：消息会翻倍；给消息加稳定 id 只能让用户消息去重，助手消息由图自己生成 id，仍重复，除非把库里的 id 回写进 checkpoint，两个存储更耦合。
 - 倾向方案：表为准，图对会话无状态，checkpoint 按 **run** 划分——它只存“一次执行的进行中状态”。实测同一 run 的 thread 失败后 `invoke(None)` 可从失败节点续跑，已完成节点不重做，正好对应阶段 4 的中断审批和崩溃接管。
+**LangGraph 接入的落地方式**：
+- Agent 对外只是 `RunContext -> str` 的函数，派发器不知道 LangGraph 的存在；换 Agent 或加多 Agent 时派发层不动。
+- 数据库消息与 LangChain 消息的互转集中在一个模块，也只在那里测；`tool` 角色出现在历史里直接报错（决策 0006 规定工具中间结果不入库，出现说明数据异常），不静默丢弃。
+- 系统提示词只在调用模型时拼接、不写进 state：checkpoint 不重复存它，改提示词不用迁移历史状态。
+- checkpoint 表由 LangGraph 的 `setup()` 建，放在一次性 `migrate` 服务里、Alembic 之后；不抄进自己的迁移，因为那套表的升级由 LangGraph 维护。
+- 模型走工厂 + 环境变量：`openai` 分支通过 `base_url` 覆盖所有 OpenAI 兼容接口，`anthropic` 单独处理（content 可能是块列表）；默认假模型，所以没有密钥也能测整条链路。**真实供应商的调用目前未验证。**
 > 待补：租约机制（阶段 4）、worker 崩溃后的恢复怎么测。
 
 ### RAG 知识库
@@ -218,3 +224,15 @@ Agent 能读写文件、执行命令，如果直接在宿主进程里跑，一�
 - **根因**：实验里我在代码里人为把失败那条消息排除了，等于预设结论；真实系统中失败 run 的用户消息提交时就已落库，两种方案的下一轮都会看到它。
 - **发现与处理**：设计下一个实验时对照真实数据流推演，发现不一致；在 decision 里公开更正，并改写真正的优势——策略握在我们手里、可见、可调整。
 - **学到**：实验必须复刻真实数据流，不能替自己倾向的方案挑输入；发现自己错了就在文档里直接更正，面试里讲这个比讲“一直都对”更可信。
+
+### 第三方库的默认值在生产里才会炸
+- **现象**：连接池写 `max_size=1`，报 `max_size must be greater or equal than min_size`。
+- **根因**：`psycopg_pool` 的 `min_size` 默认是 4，我只设了 `max_size`。
+- **为什么值得讲**：这段代码有两个调用点——测试里的夹具和生产里的 migrate 建表。测试先炸，所以生产的同一个 bug 被提前抓住了；如果只在生产路径里用这个函数且没有测试，就会在部署时才发现。
+- **学到**：只设一个参数时去看库里与之相关的其他默认值；让每条生产代码路径至少被一个测试走到。
+
+### 配置“写了”不等于“生效了”
+- **现象**：`.env.template` 里列了 `WORKER_CONCURRENCY` 等变量，用户改了却没有任何效果。
+- **根因**：docker compose 只把 `environment:` 里列出的变量传进容器；`.env` 里多写的只用于 compose 文件内部的 `${}` 替换。我在做上一步时没发现，因为默认值恰好等于代码默认值，行为看不出差别。
+- **发现方式**：这一步要加 LLM 变量，核对“`.env` → compose → 容器 → 代码”整条路径时发现少了一环。
+- **学到**：配置要验证到“进程内实际读到的值”（我用 `os.environ` 在容器里打印确认），不能只检查配置文件；默认值相同会掩盖传递链路的缺失。
