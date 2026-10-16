@@ -5,15 +5,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
+from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound
 from agentnexus.storage.postgres import AgentRun, MessageRole, RunStatus
-
-
-class ConversationNotFound(Exception):
-    pass
-
-
-class RunConflict(Exception):
-    """该对话已有未结束的 run。"""
 
 
 class RunService:
@@ -39,6 +32,17 @@ class RunService:
             if "uq_agent_runs_one_active_per_conversation" in str(exc.orig):
                 raise RunConflict(str(conversation_id)) from exc
             raise
+
+    async def get(self, user_id: uuid.UUID, run_id: uuid.UUID) -> AgentRun:
+        """按 run 所属对话校验归属：不是自己的 run 与不存在同样报 RunNotFound。"""
+        async with self.sessionmaker() as session:
+            run = await AgentRunRepository(session).get(run_id)
+            if run is None:
+                raise RunNotFound(str(run_id))
+            conv = await ConversationRepository(session).get(run.conversation_id)
+            if conv is None or conv.user_id != user_id:
+                raise RunNotFound(str(run_id))
+            return run
 
     async def claim(self, run_id: uuid.UUID) -> bool:
         async with self.sessionmaker() as session, session.begin():

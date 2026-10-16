@@ -5,7 +5,8 @@ import pytest
 
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
-from agentnexus.services.runs import ConversationNotFound, RunConflict, RunService
+from agentnexus.services.errors import ConversationNotFound, RunConflict
+from agentnexus.services.runs import RunService
 from agentnexus.storage.postgres import MessageRole, RunStatus, User
 
 
