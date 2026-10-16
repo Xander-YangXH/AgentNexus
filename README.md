@@ -50,12 +50,12 @@ AgentNexus/
 ├── docker/                      # 各服务 Dockerfile
 ├── docs/
 ├── scripts/
-└── docker-compose.yml           # 阶段 1 起逐步补全
+└── docker-compose.yml           # 阶段 0：postgres + redis + api，后续逐步叠加
 ```
 
 ## 当前进度
 
-- [ ] 阶段 0：环境与技术选型
+- [x] 阶段 0：环境与技术选型
 - [ ] 阶段 1：核心骨架与 Agent 编排引擎
 - [ ] 阶段 2：RAG 知识库
 - [ ] 阶段 3：知识图谱

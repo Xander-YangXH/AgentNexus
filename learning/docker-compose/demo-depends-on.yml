@@ -1,0 +1,32 @@
+# 演示：depends_on 默认只等"启动"，加了 service_healthy 才等"就绪"
+services:
+  slow-db:
+    image: alpine:3.20
+    # 模拟一个启动很慢的数据库：8 秒后才"可用"
+    command:
+      - sh
+      - -c
+      - "sleep 8 && touch /tmp/ready && echo 'slow-db: 已就绪' && sleep 3600"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  client-naive:
+    image: alpine:3.20
+    depends_on: [slow-db]   # 只等容器启动
+    command:
+      - sh
+      - -c
+      - "echo 'client-naive: 启动了，数据库其实还没好'; sleep 1; echo 'client-naive: 连接失败（模拟）'"
+
+  client-healthy:
+    image: alpine:3.20
+    depends_on:
+      slow-db:
+        condition: service_healthy   # 等 healthcheck 通过
+    command:
+      - sh
+      - -c
+      - "echo 'client-healthy: 数据库已就绪，开始工作'"
