@@ -1,5 +1,16 @@
-# 阶段 0：postgres + redis + api。后续阶段在此基础上叠加 qdrant / minio / neo4j / worker。
+# postgres + redis + migrate（一次性）+ api。后续阶段在此基础上叠加 qdrant / minio / neo4j / worker。
 name: agentnexus
+
+# api 与 migrate 共用同一个镜像和环境变量
+x-backend: &backend
+  image: agentnexus-backend
+  build:
+    context: .
+    dockerfile: docker/api.Dockerfile
+  environment:
+    # 容器间用服务名互通（postgres / redis），不是 localhost
+    DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
 
 services:
   postgres:
@@ -33,19 +44,23 @@ services:
       retries: 10
     restart: unless-stopped
 
-  api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    environment:
-      # 容器间用服务名互通（postgres / redis），不是 localhost
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+  # 一次性任务：跑完数据库迁移就退出（restart: "no"），api 等它成功后再启动
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    working_dir: /app/backend
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:

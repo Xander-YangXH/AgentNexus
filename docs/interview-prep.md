@@ -84,11 +84,24 @@ Agent 能读写文件、执行命令，如果直接在宿主进程里跑，一�
 - 0001：技术栈基线与工程规模取舍
 - 0002：不引入 LlamaIndex，RAG 链路手写（分块/向量化/检索每一步可讲清楚）
 - 0003：本地开发环境用 Docker Compose + healthcheck 保证启动顺序
+- 0004：数据层 SQLAlchemy 异步 + Alembic，run 与消息同事务，不变量放数据库
 
 ## 模块问答（随开发填充）
 
 ### Agent 运行链路
-> 占位，阶段 1 完成后补充：为什么要"先落库再派发"、租约机制解决的是什么并发问题、怎么测试 worker 崩溃后的恢复行为。
+**数据模型**：users → conversations（id 即 LangGraph 的 thread_id）→ messages；agent_runs 记录一次执行（queued → running → succeeded/failed/cancelled）。
+
+**为什么 submit 要把"用户消息 + queued run"放同一事务**：两者要么都在要么都不在。只存消息没有 run，用户发了话但永远没人处理；只存 run 没有消息，执行时找不到输入。返回成功就等价于"这个任务一定会被执行"，之后投递队列失败也能靠扫描 `status=queued` 补发。测试 `test_failed_submit_leaves_no_orphan_message` 验证了回滚后不留孤儿消息。
+
+**并发正确性放在数据库里**：
+- 抢占执行权用条件更新 `UPDATE ... SET status='running' WHERE id=? AND status='queued'`，看 rowcount 判断是否抢到。先 SELECT 再 UPDATE 在并发下有竞态。测试用 8 个协程同时 claim，只有 1 个成功。
+- "同一对话同一时刻最多一个活跃 run" 用部分唯一索引（`WHERE status IN ('queued','running')`）实现，而不是应用层先查再插。原因：两个 LangGraph run 并发写同一个 thread 的 checkpoint 会互相覆盖。应用层检查有竞态，唯一索引由数据库串行化保证。
+- 终态不可覆盖：`finish()` 只允许从 running 转出，已 failed/succeeded 的 run 不会被迟到的结果改写。
+
+**消息排序为什么不用 created_at**：同一事务内 `now()` 返回事务开始时间，多条消息时间相同；uuid 无序。所以加自增 `seq` 列专门排序。
+
+**为什么迁移用独立的 migrate 服务**：多个 api/worker 实例同时启动时各自跑迁移会互相抢；一次性服务跑完退出，其余服务用 `service_completed_successfully` 等待，迁移只执行一次。
+> 待补：租约机制（阶段 4）、worker 崩溃后的恢复怎么测。
 
 ### RAG 知识库
 > 占位，阶段 2 完成后补充：分块策略怎么设计的、检索质量怎么评估、遇到过什么召回不准的问题。
