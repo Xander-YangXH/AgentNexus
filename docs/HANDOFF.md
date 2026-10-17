@@ -23,7 +23,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 
 ## 下一步
 1. ~~配置真实 LLM~~ 已完成：Gemini（`gemini-3.8-flash`）真实调用验证通过（含完整服务路径、历史喂给模型）。content 是块列表，流式逐段到达，**首块延迟约 7.6s**（前端需要“等待首字”状态）。
-2. 1.5 SSE 流式输出：事件模型、事件通道、`GET /runs/{id}/events`、断线续传。会改 Agent 契约（`run()` 目前返回完整文本）。
+2. **等用户确认 `docs/decisions/0007-streaming-events.md`（草稿）**：是否接受 Redis Streams 方案、`events` 放进 `RunContext`、失败时半截输出不入库。确认后实现 1.5。
 3. 前端页面；取消 run；checkpoint 清理。
 
 ### 跑测试
@@ -42,4 +42,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q25。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q26。
