@@ -64,6 +64,12 @@ def test_message_text_handles_string_and_content_blocks():
     assert message_text(AIMessage(content=blocks)) == "ab"
 
 
+def test_message_text_skips_non_text_blocks_such_as_thinking():
+    # 假设：带“思考”的模型可能返回混合内容块；我们只取 type=text 的部分。真实形状待真实调用时核对
+    blocks = [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "answer"}]
+    assert message_text(AIMessage(content=blocks)) == "answer"
+
+
 # ---------- 模型工厂（只测配置分支与构造，不联网） ----------
 
 def _settings(**kw):
@@ -80,6 +86,8 @@ def test_factory_default_is_fake():
         {"llm_provider": "openai", "llm_api_key": "k"},  # 缺 model
         {"llm_provider": "openai", "llm_model": "m"},  # 缺 key
         {"llm_provider": "anthropic", "llm_model": "m"},
+        {"llm_provider": "google", "llm_model": "m"},  # 缺 key
+        {"llm_provider": "google", "llm_api_key": "k"},  # 缺 model
         {"llm_provider": "nope"},
     ],
 )
@@ -95,6 +103,11 @@ def test_factory_builds_real_provider_clients_without_network():
     m = build_chat_model(_settings(llm_provider="openai", llm_model="m", llm_api_key="k", llm_base_url="http://localhost:1/v1"))
     assert isinstance(m, ChatOpenAI) and m.openai_api_base == "http://localhost:1/v1"
     assert isinstance(build_chat_model(_settings(llm_provider="anthropic", llm_model="m", llm_api_key="k")), ChatAnthropic)
+
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    g = build_chat_model(_settings(llm_provider="google", llm_model="gemini-x", llm_api_key="k"))
+    assert isinstance(g, ChatGoogleGenerativeAI) and g.model == "gemini-x"
 
 
 # ---------- Agent / 图 ----------

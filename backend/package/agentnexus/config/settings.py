@@ -13,7 +13,7 @@ class Settings:
     run_timeout_seconds: float = 300.0  # 单个 run 的执行超时
     sweep_interval_seconds: float = 5.0  # 扫描 queued 补投递的间隔
     # LLM：默认 fake（确定性回声模型），不需要密钥即可跑通整条链路
-    llm_provider: str = "fake"  # fake | openai（OpenAI 兼容接口） | anthropic
+    llm_provider: str = "fake"  # fake | openai（OpenAI 兼容接口） | anthropic | google
     llm_model: str = ""
     llm_api_key: str | None = None
     llm_base_url: str | None = None

@@ -22,7 +22,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [ ] SSE 流式推送；最小 Vue3 页面
 
 ## 下一步
-1. **选定真实 LLM 供应商并配置 `.env`**（`LLM_PROVIDER`/`LLM_MODEL`/`LLM_API_KEY`/`LLM_BASE_URL`），手动验证一次真实调用——这件事需要用户提供密钥，我不会也不应该替用户填。
+1. **用户配置 Gemini 密钥**（`.env`：`LLM_PROVIDER=google`、`LLM_MODEL=<模型名>`、`LLM_API_KEY=<key>`），运行 `docker compose run --rm --no-deps api python backend/scripts/check_llm.py`，把输出（不含密钥）告诉我。重点看：能否调通、content 类型、流式分块数。已新增 `google` provider；真实调用仍未验证。
 2. 1.5 SSE 流式输出：事件模型、事件通道、`GET /runs/{id}/events`、断线续传。会改 Agent 契约（`run()` 目前返回完整文本）。
 3. 前端页面；取消 run；checkpoint 清理。
 
@@ -34,7 +34,6 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 ```
 
 ## 待办 / 可选
-- 把本地未推送的提交推到 GitHub。
 - 路线图可补充：定时/主动触发的 Agent（复用 AgentRun 流水线）。
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
@@ -43,4 +42,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q21。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q23。
