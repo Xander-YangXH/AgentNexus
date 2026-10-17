@@ -17,6 +17,8 @@ from agentnexus.models.factory import ModelConfigError
 from agentnexus.agents.messages import message_text
 
 PROMPT = "用一句话回答：1+1 等于几？只输出答案。"
+# 流式要用“长回答”才能判断是否逐段到达：一个字的回复生成瞬间完成，所有分块几乎同时到
+LONG_PROMPT = "请用中文写一段约 300 字的介绍，主题是：为什么 AI 应用需要把对话历史存进数据库。"
 
 
 async def main() -> int:
@@ -43,6 +45,18 @@ async def main() -> int:
     print(f"[流式]   {time.perf_counter() - t0:.2f}s 分块数={chunks} 首块延迟={first:.2f}s 回复={text!r}")
     if chunks <= 1 and settings.llm_provider != "fake":
         print("提示：只收到 1 个分块，说明这条路径目前并不是逐段流式（对 1.5 有影响，请告诉我）")
+
+    # 长回答：看分块是否随时间分散到达
+    t0 = time.perf_counter()
+    arrivals, total_chars = [], 0
+    async for chunk in model.astream(LONG_PROMPT):
+        arrivals.append(time.perf_counter() - t0)
+        total_chars += len(message_text(chunk))
+    if arrivals:
+        spread = arrivals[-1] - arrivals[0]
+        print(f"[流式·长文本] 分块数={len(arrivals)} 总字数={total_chars} 首块={arrivals[0]:.2f}s 末块={arrivals[-1]:.2f}s "
+              f"首末间隔={spread:.2f}s")
+        print("判断：" + ("逐段到达（可做 token 级流式）" if spread > 0.3 and len(arrivals) > 3 else "分块几乎同时到达（不是有效的逐段流式）"))
     return 0
 
 
