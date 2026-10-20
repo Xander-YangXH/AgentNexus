@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.repositories.users import UserRepository
+from agentnexus.services.run_events import RunEventStreamer
+from agentnexus.storage.postgres import AgentRun
 from agentnexus.services.conversations import ConversationService
 from agentnexus.services.runs import RunService
 from agentnexus.services.users import UserService
@@ -17,6 +19,10 @@ def get_sessionmaker(request: Request) -> async_sessionmaker:
 
 def get_dispatcher(request: Request) -> RunDispatcher:
     return request.app.state.dispatcher
+
+
+def get_event_streamer(request: Request) -> RunEventStreamer:
+    return request.app.state.event_streamer
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]
@@ -53,3 +59,16 @@ async def current_user_id(
 
 
 CurrentUser = Annotated[uuid.UUID, Depends(current_user_id)]
+
+
+async def owned_run(
+    run_id: uuid.UUID,
+    user_id: CurrentUser,
+    svc: RunService = Depends(get_run_service),
+) -> AgentRun:
+    """归属校验做成依赖：依赖在响应开始之前执行，所以流式接口也能正常返回 404，
+    而不是先发出 200 响应头、再在流里报错。"""
+    return await svc.get(user_id, run_id)
+
+
+OwnedRun = Annotated[AgentRun, Depends(owned_run)]

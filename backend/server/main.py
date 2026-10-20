@@ -8,10 +8,13 @@ from agentnexus.config import get_settings
 from agentnexus.models import build_chat_model
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, UserExists
+from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
+from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from server.routers import conversations, health, users
+from redis.asyncio import Redis
+from server.routers import conversations, events, health, users
 
 
 @asynccontextmanager
@@ -25,16 +28,32 @@ async def lifespan(app: FastAPI):
         ChatbotContext(model=build_chat_model(settings)),
         checkpointer=AsyncPostgresSaver(checkpoint_pool),
     )
+    # 两个 Redis 客户端：发布与订阅分开。SSE 每个客户端占一个阻塞连接，
+    # 如果共用一个连接池，订阅者一多就会把连接占满，导致执行方的事件发不出去
+    publish_redis = Redis.from_url(settings.redis_url, decode_responses=True, max_connections=20)
+    sse_redis = make_reader_client(
+        settings.redis_url,
+        block_seconds=settings.sse_poll_interval_seconds,
+        max_connections=settings.sse_redis_max_connections,
+    )
     app.state.dispatcher = RunDispatcher(
         app.state.sessionmaker,
         agent.run,
         concurrency=settings.worker_concurrency,
         run_timeout=settings.run_timeout_seconds,
         sweep_interval=settings.sweep_interval_seconds,
+        events=RunEventPublisher(
+            publish_redis, maxlen=settings.event_stream_maxlen, ttl_seconds=settings.event_stream_ttl_seconds
+        ),
+    )
+    app.state.event_streamer = RunEventStreamer(
+        app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
     await app.state.dispatcher.start()
     yield
     await app.state.dispatcher.stop()
+    await sse_redis.aclose()
+    await publish_redis.aclose()
     await checkpoint_pool.close()
     await engine.dispose()
 
@@ -46,11 +65,13 @@ def _error(status: int, message: str):
     return handler
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="AgentNexus", lifespan=lifespan)
+def create_app(*, with_lifespan: bool = True) -> FastAPI:
+    """with_lifespan=False 供测试使用：不连接真实环境，由测试自己往 app.state 里放依赖。"""
+    app = FastAPI(title="AgentNexus", lifespan=lifespan if with_lifespan else None)
     app.include_router(health.router)
     app.include_router(users.router)
     app.include_router(conversations.router)
+    app.include_router(events.router)
     # 服务层只抛领域异常，HTTP 状态码在这里统一映射
     app.add_exception_handler(ConversationNotFound, _error(404, "conversation not found"))
     app.add_exception_handler(RunNotFound, _error(404, "run not found"))

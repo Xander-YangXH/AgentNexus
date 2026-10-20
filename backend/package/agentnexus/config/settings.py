@@ -17,6 +17,13 @@ class Settings:
     llm_model: str = ""
     llm_api_key: str | None = None
     llm_base_url: str | None = None
+    # 流式事件（decisions/0007）。用代码默认值、不开放环境变量，需要时再接入 compose
+    event_stream_ttl_seconds: int = 3600  # run 结束后事件流保留多久（供断线重连回放）
+    event_stream_maxlen: int = 5000  # 单条事件流的近似最大长度
+    sse_poll_interval_seconds: float = 5.0  # SSE 空闲多久查一次数据库
+    # 每个 SSE 客户端占一个阻塞的 Redis 连接，这个值约等于单进程能同时服务的流数。
+    # redis-py 默认是 100（已查证），这里显式设置并与发布用的客户端分开，避免读者占满连接导致事件发不出去
+    sse_redis_max_connections: int = 200
 
 
 @lru_cache

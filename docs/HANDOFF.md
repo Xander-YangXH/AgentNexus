@@ -19,18 +19,19 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [x] API：`POST /api/users`、对话 CRUD、`POST /api/conversations/{id}/messages`（202，返回 queued run）、`GET .../messages`、`GET /api/runs/{id}`。用 `X-User-Id` 头做鉴权占位（阶段 5 替换 `server/deps.py` 的 `current_user_id`）。14 个测试通过，compose 内 curl 端到端验证过。
 - [x] 派发与执行（单机版）：`runtime/dispatcher.py`（enqueue / 扫描补投 / claim / 超时 / 并发上限 / 启动恢复 / 关停收尾）+ 回声 Agent，decisions/0005，22 个测试通过，容器内端到端验证。**单进程假设：api 只能起 1 个实例、uvicorn 不能开多 workers**
 - [x] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套 + `agent.py`）、`models/` 工厂（默认假模型）、AsyncPostgresSaver（`thread_id=run_id`，表由 migrate 服务建）、decisions/0006 已确认（方案 A）。37 个测试通过，容器内两轮对话验证。**真实 LLM 仅 Gemini 验证过**
-- [ ] SSE 流式推送；最小 Vue3 页面
+- [x] SSE 流式推送：`GET /api/runs/{id}/events`（Redis Streams + FastAPI 内置 SSE），decisions/0007 已确认并实现；59 个测试通过；真实 Gemini 端到端推送延迟 4~6ms。学习导读：`docs/guides/message-lifecycle.md`
+- [ ] 最小 Vue3 页面
 
 ## 下一步
-1. ~~配置真实 LLM~~ 已完成：Gemini（`gemini-3.8-flash`）真实调用验证通过（含完整服务路径、历史喂给模型）。content 是块列表，流式逐段到达，**首块延迟约 7.6s**（前端需要“等待首字”状态）。
-2. **等用户确认 `docs/decisions/0007-streaming-events.md`（草稿）**：是否接受 Redis Streams 方案、`events` 放进 `RunContext`、失败时半截输出不入库。确认后实现 1.5。
-3. 前端页面；取消 run；checkpoint 清理。
+1. **1.6 前端页面**（Vue3 + Vite + Ant Design Vue）：发消息、用 fetch 流式读取 SSE（不能用原生 EventSource，因为要带 `X-User-Id` 头）、断线续传、失败时把半截输出标成“生成中断”、等待首字的状态（Gemini 首块可能很久）。
+2. 取消 run；checkpoint 清理；LLM 高延迟的产品处理（超时提示、重试）。
+3. 阶段 1 收尾：README 截图、回填 interview-prep 占位。
 
 ### 跑测试
-集成测试用真实 Postgres（先 `docker compose up -d postgres`）。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
+集成测试用真实 Postgres 和 Redis（先 `docker compose up -d postgres redis`）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
 ```bash
 cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
-DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis://localhost:6379/0 pytest -q
 ```
 
 ## 待办 / 可选
@@ -42,4 +43,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> pytest -q
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q26。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q27。

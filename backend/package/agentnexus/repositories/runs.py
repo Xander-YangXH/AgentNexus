@@ -65,11 +65,12 @@ class AgentRunRepository:
         result = await self.session.execute(stmt)
         return result.rowcount == 1
 
-    async def fail_all_running(self, error: str) -> int:
-        """把所有 running 的 run 置为 failed，返回条数。仅用于单进程部署的启动恢复。"""
+    async def fail_all_running(self, error: str) -> list[uuid.UUID]:
+        """把所有 running 的 run 置为 failed，返回它们的 id。仅用于单进程部署的启动恢复。"""
         stmt = (
             update(AgentRun)
             .where(AgentRun.status == RunStatus.RUNNING)
             .values(status=RunStatus.FAILED, error=error, finished_at=func.now())
+            .returning(AgentRun.id)
         )
-        return (await self.session.execute(stmt)).rowcount
+        return list((await self.session.execute(stmt)).scalars().all())

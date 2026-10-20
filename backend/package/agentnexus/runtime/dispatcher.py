@@ -7,16 +7,23 @@
 
 单进程假设：启动恢复会把遗留的 running 置为 failed，只有整个系统只有一个这样的进程时才安全。
 多实例会互相误杀，所以阶段 4 要换成 lease/heartbeat（见 docs/decisions/0005）。
+
+事件（decisions/0007）：认领后发 run.started；终态事件一律“先提交数据库、再发布”，
+所以客户端收到 run.completed 时助手消息一定已经落库。事件发不出去不影响 run 本身。
 """
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.agents.types import RunHandler
+from agentnexus.events import NULL_SINK, RUN_COMPLETED, RUN_FAILED, RUN_STARTED
+from agentnexus.events.redis_stream import RunEventPublisher
 from agentnexus.services.runs import RunService
 
 log = logging.getLogger(__name__)
@@ -31,8 +38,10 @@ class RunDispatcher:
         concurrency: int = 4,
         run_timeout: float = 300.0,
         sweep_interval: float = 5.0,
+        events: RunEventPublisher | None = None,
     ):
         self._svc = RunService(sessionmaker)
+        self._events = events  # None：不发事件（单元测试、或不需要流式的部署）
         self._handler = handler
         self._concurrency = concurrency
         self._run_timeout = run_timeout
@@ -57,9 +66,13 @@ class RunDispatcher:
         return sum(self.enqueue(rid) for rid in await self._svc.list_queued_ids())
 
     async def start(self) -> None:
-        orphaned = await self._svc.fail_orphaned_running("interrupted: worker restarted")
+        error = "interrupted: worker restarted"
+        orphaned = await self._svc.fail_orphaned_running(error)
         if orphaned:
-            log.warning("startup recovery: marked %d orphaned running run(s) as failed", orphaned)
+            log.warning("startup recovery: marked %d orphaned running run(s) as failed", len(orphaned))
+        # 补发终态事件：上一个进程没来得及发，正在订阅的客户端靠它结束（SSE 的查库兜底是第二道保险）
+        for run_id in orphaned:
+            await self._emit(run_id, RUN_FAILED, {"error": error})
         await self.sweep()
         self._tasks = [asyncio.create_task(self._worker_loop()) for _ in range(self._concurrency)]
         self._tasks.append(asyncio.create_task(self._sweep_loop()))
@@ -98,20 +111,34 @@ class RunDispatcher:
     async def _process(self, run_id: uuid.UUID) -> None:
         if not await self._svc.claim(run_id):
             return  # 已被别人抢走、或已不是 queued（例如已结束），正常情况
+        await self._emit(run_id, RUN_STARTED, {})
 
         ctx = None
         try:
             ctx = await self._svc.load_context(run_id)
+            sink = self._events.sink(run_id) if self._events else NULL_SINK
+            ctx = dataclasses.replace(ctx, events=sink)
             content = await asyncio.wait_for(self._handler(ctx), timeout=self._run_timeout)
         except asyncio.CancelledError:
             # 关停：run 已是 running，不能留着不管。shield 保证收尾写库不被第二次取消打断
             with contextlib.suppress(Exception):
-                await asyncio.shield(self._svc.fail(run_id, "interrupted: shutdown"))
+                await asyncio.shield(self._fail(run_id, "interrupted: shutdown"))
             raise
         except TimeoutError:
-            await self._svc.fail(run_id, f"timeout after {self._run_timeout}s")
+            await self._fail(run_id, f"timeout after {self._run_timeout}s")
         except Exception as exc:
-            await self._svc.fail(run_id, f"{type(exc).__name__}: {exc}"[:2000])
+            await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000])
         else:
-            if not await self._svc.complete(run_id, ctx.conversation_id, content):
+            message_id = await self._svc.complete(run_id, ctx.conversation_id, content)
+            if message_id is None:
                 log.warning("run %s was no longer running when it finished; result discarded", run_id)
+            else:
+                await self._emit(run_id, RUN_COMPLETED, {"message_id": str(message_id)})
+
+    async def _fail(self, run_id: uuid.UUID, error: str) -> None:
+        if await self._svc.fail(run_id, error):  # 先提交
+            await self._emit(run_id, RUN_FAILED, {"error": error})  # 后发布
+
+    async def _emit(self, run_id: uuid.UUID, type: str, data: dict[str, Any]) -> None:
+        if self._events is not None:
+            await self._events.publish(run_id, type, data)

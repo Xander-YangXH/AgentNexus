@@ -5,24 +5,25 @@
 
 ## 1. 当前位置
 
-**阶段 1「核心骨架」进行中：数据层、API 层、派发与执行、LangGraph chatbot（假模型）已完成，下一步是 1.5「SSE 流式输出」。**
+**阶段 1「核心骨架」进行中：数据层、API 层、派发与执行、LangGraph chatbot、SSE 流式输出已完成，下一步是 1.6「前端页面」。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
-当前做不到的：**真实 LLM 仅验证了 Gemini**（默认仍是假模型）、没有流式输出、没有前端页面、不能取消 run。
+当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
+当前做不到的：没有前端页面、不能取消 run；真实 LLM 仅验证了 Gemini。
 
 ### 完成度（由勾选框统计，粒度不等，仅作参考）
 
 | 模块 | 已完成 | 待本机验证 | 总数 | 完成度 |
 |---|---|---|---|---|
 | M0 工程基础与环境 | 12 | 2 | 14 | 85% |
-| M1 核心骨架与 Agent 引擎 | 29 | 0 | 48 | 60% |
+| M1 核心骨架与 Agent 引擎 | 37 | 0 | 49 | 75% |
 | M2 RAG 知识库 | 0 | 0 | 11 | 0% |
 | M3 知识图谱 | 0 | 0 | 8 | 0% |
 | M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 2 | 0 | 7 | 28% |
-| **合计** | **43** | 2 | **111** | **38%** |
+| **合计** | **51** | 2 | **112** | **45%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -72,7 +73,7 @@
  ⑩ 阶段 4：worker 持租约(lease)+心跳；租约过期的 run 被他人接管，保证“不卡死、不重复执行”
 ```
 
-标注：①②③④⑤⑥⑨ 已完成（单机版；⑥ 的 LangGraph 图已接入，默认假模型；Gemini 真实调用已验证）；⑦⑧ 流式、⑩ 租约未做。
+标注：①~⑨ 已完成（单机版；Gemini 真实调用与流式已验证）；⑩ 租约未做（阶段 4）。完整走读见 `docs/guides/message-lifecycle.md`。
 
 ### 2.3 数据模型
 
@@ -168,16 +169,17 @@
 - [ ] openai 兼容与 anthropic 分支用真实 key 验证（可选，不阻塞）
 - [ ] checkpoint 清理：run 终态后按保留期 `delete_thread`；测量存储增长
 
-**1.5 流式输出** — decisions/0007（草稿）
-- [x] 调研并写 decisions/0007 **草稿**：Redis Streams 作事件通道，数据库为准、事件为视图（含对照实验）
-- [ ] **等你确认 0007**（两个开放问题：方案 B；失败时半截输出的处理）
-- [ ] 假模型补流式（`_astream`），以便测试逐段行为
-- [ ] 事件模型与发布：`RunContext.events`，派发器在提交后发终态事件，`XADD MAXLEN~` + 终态后 `EXPIRE`
-- [ ] ChatbotAgent 改用 `astream(stream_mode="messages")`，逐块 `emit` token，同时累积最终文本
-- [ ] `GET /api/runs/{id}/events`（SSE）：归属校验、`Last-Event-ID` 续传、15s 心跳 + 数据库巡检、合成终态事件
-- [ ] Redis 连接池显式 `max_connections`，写明并发流上限
-- [ ] 测试：逐段顺序、终态在提交之后、续传、晚加入回放、合成终态（流过期 / 丢事件 / 启动恢复）、客户端断开后连接释放、越权 404
-- [ ] 用真实 Gemini 手动验证一次流式端到端
+**1.5 流式输出** — decisions/0007（已实现）；学习导读 `docs/guides/message-lifecycle.md`
+- [x] 调研并写 decisions/0007（含对照实验），用户确认方案 B 与“半截输出不入库”
+- [x] 假模型补流式（`_astream`）
+- [x] 事件契约 `events/types.py` 与 Redis Streams 发布/读取 `events/redis_stream.py`（`MAXLEN~`、终态 `EXPIRE`、发布失败不抛错）
+- [x] 派发器：claim 后发 `run.started`；终态“先提交再发布”；启动恢复补发 `run.failed`
+- [x] ChatbotAgent 改用 `astream(stream_mode=["messages","values"])`，逐块 emit token，最终回复取自最终状态
+- [x] `GET /api/runs/{id}/events`（FastAPI 内置 SSE）：依赖里做归属校验、`Last-Event-ID` 续传、空闲查库并合成终态
+- [x] 两个 Redis 客户端；阻塞读客户端 `socket_timeout` 大于阻塞时长（修复真实环境 bug）
+- [x] 测试 19 个（服务层 + 真实 uvicorn 的 HTTP 层）+ 变异检查
+- [x] 真实 Gemini 端到端验证：推送延迟 4~6ms，token 逐段到达
+- [ ] 产品层处理 LLM 高延迟：超时提示、可重试（Gemini 免费档首块实测 7~173s）
 
 **1.6 前端 `web/`**
 - [ ] Vue3 + Vite + Ant Design Vue 脚手架，接入 compose / 代理

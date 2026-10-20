@@ -79,6 +79,23 @@ async def checkpointer(test_db_url):
     await pool.close()
 
 
+REDIS_TEST_DB = 15  # 与开发用的 0 号库隔离
+
+
+@pytest_asyncio.fixture
+async def redis():
+    from redis.asyncio import Redis
+
+    base = os.environ.get("REDIS_URL")
+    if not base:
+        pytest.skip("需要 REDIS_URL 指向可连接的 Redis")
+    client = Redis.from_url(base.rsplit("/", 1)[0] + f"/{REDIS_TEST_DB}", decode_responses=True)
+    await client.flushdb()
+    yield client
+    await client.flushdb()
+    await client.aclose()
+
+
 @pytest_asyncio.fixture
 async def user(sessionmaker) -> User:
     async with sessionmaker() as session, session.begin():

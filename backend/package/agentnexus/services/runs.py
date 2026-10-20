@@ -45,12 +45,22 @@ class RunService:
                 raise RunNotFound(str(run_id))
             return run
 
+    async def find(self, run_id: uuid.UUID) -> AgentRun | None:
+        """不做归属校验的读取，供内部使用（如 SSE 在已校验归属后轮询状态）。"""
+        async with self.sessionmaker() as session:
+            return await AgentRunRepository(session).get(run_id)
+
     async def claim(self, run_id: uuid.UUID) -> bool:
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).claim(run_id)
 
-    async def complete(self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str) -> bool:
-        """助手回复落库 + run 置为 succeeded，同一事务。run 不在 running 时整体回滚，不留孤儿消息。"""
+    async def complete(
+        self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str
+    ) -> uuid.UUID | None:
+        """助手回复落库 + run 置为 succeeded，同一事务，返回助手消息 id。
+
+        run 不在 running 时整体回滚（不留孤儿消息），返回 None。
+        """
         async with self.sessionmaker() as session, session.begin():
             msg = await MessageRepository(session).add(conversation_id, MessageRole.ASSISTANT, content)
             ok = await AgentRunRepository(session).finish(
@@ -58,7 +68,8 @@ class RunService:
             )
             if not ok:
                 await session.rollback()
-            return ok
+                return None
+            return msg.id
 
     async def fail(self, run_id: uuid.UUID, error: str) -> bool:
         async with self.sessionmaker() as session, session.begin():
@@ -83,6 +94,6 @@ class RunService:
                 history=[ChatMessage(m.role, m.content) for m in history],
             )
 
-    async def fail_orphaned_running(self, error: str) -> int:
+    async def fail_orphaned_running(self, error: str) -> list[uuid.UUID]:
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).fail_all_running(error)
