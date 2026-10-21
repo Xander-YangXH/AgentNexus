@@ -27,7 +27,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **进入阶段 2「RAG 知识库」**：先写向量库与 embedding 选型的 decision 草稿（含实验），再动手。
-3. 待用户决定：何时推送；是否把 README 的阶段 1 勾上（里程碑已达成，收尾项未完成）。
+3. 可选：用真实 key 验证 openai 兼容 / anthropic 分支（需要用户提供密钥）。
 
 ### 本地运行
 - 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
