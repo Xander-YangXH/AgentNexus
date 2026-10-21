@@ -48,7 +48,7 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014（草稿）RAG 选型。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。

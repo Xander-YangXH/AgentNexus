@@ -1,6 +1,6 @@
 # 0014 - RAG 选型：embedding 模型、重排与向量库
 
-**状态**：草稿，待确认（阶段 2 开工前定）。下文“开放问题”需要用户拍板。
+**状态**：已决定（2026-10-21，用户确认三项均按建议：本地 bge-small-zh-v1.5、默认开启重排、Qdrant 作为派生索引）。
 
 **背景**：阶段 2 要让 Agent 基于上传的文档回答，并展示引用了哪些片段。第一步要定三件事：用什么模型把文字变成向量（embedding）、要不要在召回之后再重排、向量存在哪里。约束：
 - **省钱**：用户明确要求尽量减少 API 花销；DeepSeek 官方模型列表只有两个对话模型，没有 embedding 接口。
@@ -112,10 +112,10 @@ DeepSeek 按 token 计费。重排能让第一名基本就是正确答案，于�
 - fastembed 默认把模型下载到**系统临时目录**（实验中已占 2.5GB）；临时目录会被清理、容器重启也会丢。上线时要在**构建镜像时下载模型**，或把缓存目录（`FASTEMBED_CACHE_PATH`）放进持久化数据卷。
 - embedding 与重排都在 CPU 上运行，会占用 api / worker 进程的 CPU。阶段 1 的派发器在 api 进程里；文档入库（批量计算向量）是重活，应放到后台任务里做，不能阻塞请求。
 
-## 开放问题（需要你决定）
-1. embedding 是否采用 **bge-small-zh-v1.5（本地、零 API 费用）**，查询不加前缀。
-2. 是否默认开启**重排**（bge-reranker-v2-m3 int8；多约 0.3 秒，第一名更准，可以少放几段进提示词、省输入 token）。我倾向**开启**。
-3. 向量库选 **Qdrant（PostgreSQL 为事实来源、Qdrant 为可重建的派生索引）**，还是 pgvector。我倾向 **Qdrant**。
+## 开放问题（已决定）
+1. ~~embedding 是否采用 bge-small-zh-v1.5~~ **采用**，查询不加前缀。
+2. ~~是否默认开启重排~~ **默认开启**（bge-reranker-v2-m3 int8）。
+3. ~~向量库选择~~ **Qdrant**：PostgreSQL 为事实来源，Qdrant 为可重建的派生索引。
 
 ## 验证（草稿阶段已做的）
 - `backend/eval/eval_embeddings.py`、`eval_rerank.py`、`bench_vector_store.py` 均可复现；评测集 `retrieval_zh_v0.json`。

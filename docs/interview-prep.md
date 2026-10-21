@@ -135,7 +135,7 @@ Agent 能读写文件、执行命令，如果直接在宿主进程里跑，一�
 - 0011：统一错误格式、request-id 与结构化日志
 - 0012：对话管理（归档而非删除、按最近活动排序、消息游标分页）
 - 0013：模型供应商 DeepSeek（Anthropic 兼容格式），默认关闭思考模式
-- 0014（草稿）：RAG 选型——本地 bge-small-zh embedding、bge-reranker 重排、Qdrant 作为可重建的派生索引
+- 0014：RAG 选型——本地 bge-small-zh embedding、bge-reranker 重排、Qdrant 作为可重建的派生索引
 
 ## 模块问答（随开发填充）
 

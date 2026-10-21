@@ -198,7 +198,7 @@
 ### M2 RAG 知识库（阶段 2）
 
 - [x] 写 decision **草稿** 0014：本地 bge-small-zh embedding、bge-reranker 重排、Qdrant（派生索引）vs pgvector，含评测集与基准测试（`backend/eval/`）
-- [ ] **等你确认 0014 的三个开放问题**
+- [x] 0014 已确认：本地 bge-small-zh-v1.5、默认开启重排、Qdrant（PostgreSQL 为事实来源）
 - [ ] compose 加入 qdrant、minio；`storage/` 增加对应连接管理
 - [ ] 表：knowledge_bases / documents / chunks；文档上传落 MinIO，元数据落 Postgres
 - [ ] 文档解析 `knowledge/parser`：PDF / Word / Markdown（pypdf、python-docx、unstructured 三选一起步，写选型理由）
