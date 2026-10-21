@@ -27,7 +27,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **进入阶段 2「RAG 知识库」**：先写向量库与 embedding 选型的 decision 草稿（含实验），再动手。
-3. 可选：用真实 key 验证 openai 兼容 / anthropic 分支（需要用户提供密钥）。
+3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
 - 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
@@ -48,8 +48,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q32。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q36。

@@ -5,28 +5,28 @@
 
 ## 1. 当前位置
 
-**阶段 1 已完成（仅剩可选的 openai / anthropic 真实 key 验证）。下一步：阶段 2「RAG 知识库」，先写向量库与 embedding 选型的 decision 草稿。**
+**阶段 1 已全部完成。模型已切换为 DeepSeek（decisions/0013）。下一步：阶段 2「RAG 知识库」，先写向量库与 embedding 选型的 decision 草稿。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
 打开 `http://localhost:8080` 即可在网页上使用。
 生成中可以“停止”，失败或停止后可一键重试，失败原因以友好文案显示且刷新后仍在。
 对话可改名、归档 / 恢复，列表按最近活动排序，长对话分页加载。
-当前做不到的：真实 LLM 仅验证了 Gemini；还没有知识库、工具和多 Agent；没有真正的登录（`X-User-Id` 占位）。
+当前做不到的：还没有知识库、工具和多 Agent；没有真正的登录（`X-User-Id` 占位）。真实模型验证过 Gemini 与 DeepSeek（两种格式）。
 
 ### 完成度（由勾选框统计，粒度不等，仅作参考）
 
 | 模块 | 已完成 | 待本机验证 | 总数 | 完成度 |
 |---|---|---|---|---|
 | M0 工程基础与环境 | 12 | 2 | 14 | 85% |
-| M1 核心骨架与 Agent 引擎 | 52 | 0 | 53 | 98% |
+| M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
 | M2 RAG 知识库 | 0 | 0 | 11 | 0% |
 | M3 知识图谱 | 0 | 0 | 8 | 0% |
 | M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 3 | 0 | 7 | 42% |
-| **合计** | **67** | 2 | **116** | **57%** |
+| **合计** | **68** | 2 | **116** | **58%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -169,7 +169,7 @@
 - [x] compose 传递 LLM / 执行器配置并在容器内验证
 - [x] 新增 `google`（Gemini）provider + 冒烟脚本 `backend/scripts/check_llm.py`（假 key 验证了路径与错误处理）
 - [x] **Gemini 真实调用已验证**（`gemini-3.8-flash`）：非流式/流式（长回答 12 个分块逐段到达）/完整服务路径两轮对话；首块延迟约 7.6s 需前端处理
-- [ ] openai 兼容与 anthropic 分支用真实 key 验证（可选，不阻塞）
+- [x] openai 兼容与 anthropic 分支用真实 key 验证：用 DeepSeek 的两种兼容接口实测；默认 Anthropic 格式 + 关闭思考（decisions/0013）
 - [x] checkpoint 清理：结束 24 小时后 `adelete_thread`，`checkpoint_purged_at` 记账 + 部分索引；实测平方增长（decisions/0010）
 
 **1.5 流式输出** — decisions/0007（已实现）；学习导读 `docs/guides/message-lifecycle.md`

@@ -17,6 +17,9 @@ class Settings:
     llm_model: str = ""
     llm_api_key: str | None = None
     llm_base_url: str | None = None
+    # 思考模式：None = 用供应商默认（DeepSeek 默认开启且强度高）；"enabled" / "disabled"。
+    # 实测思考 token 按输出计费（回答“1+1”时 30 个输出 token 里 28 个是思考），聊天场景关闭可明显省钱
+    llm_thinking: str | None = None
     llm_fake_stream_delay: float = 0.0  # 假模型每块之间的间隔（秒），本地演示流式效果用
     # checkpoint 清理（decisions/0010）：run 结束后保留多久，以及多久检查一次
     checkpoint_retention_hours: float = 24.0
@@ -44,6 +47,7 @@ def get_settings() -> Settings:
         llm_model=os.environ.get("LLM_MODEL", ""),
         llm_api_key=os.environ.get("LLM_API_KEY") or None,
         llm_base_url=os.environ.get("LLM_BASE_URL") or None,
+        llm_thinking=os.environ.get("LLM_THINKING") or None,
         llm_fake_stream_delay=float(os.environ.get("LLM_FAKE_STREAM_DELAY", 0)),
         checkpoint_retention_hours=float(os.environ.get("CHECKPOINT_RETENTION_HOURS", 24)),
         checkpoint_janitor_interval_seconds=float(os.environ.get("CHECKPOINT_JANITOR_INTERVAL_SECONDS", 600)),

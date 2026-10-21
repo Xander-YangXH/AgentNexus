@@ -97,6 +97,23 @@ def test_factory_rejects_bad_config(kw):
         build_chat_model(_settings(**kw))
 
 
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+def test_thinking_switch_reaches_the_request_payload(provider):
+    """思考开关最终要出现在发给供应商的请求体里（不联网，只检查请求参数）。"""
+    m = build_chat_model(_settings(llm_provider=provider, llm_model="m", llm_api_key="k", llm_thinking="disabled"))
+    payload = m._get_request_payload([("human", "hi")])
+    thinking = payload["extra_body"]["thinking"] if provider == "openai" else payload["thinking"]
+    assert thinking == {"type": "disabled"}
+    default = build_chat_model(_settings(llm_provider=provider, llm_model="m", llm_api_key="k"))._get_request_payload([("human", "hi")])
+    assert "thinking" not in default and "thinking" not in (default.get("extra_body") or {})  # 不设置就不发，用供应商默认
+
+
+@pytest.mark.parametrize("kw", [{"llm_provider": "openai", "llm_thinking": "maybe"}, {"llm_provider": "google", "llm_thinking": "disabled"}])
+def test_thinking_switch_rejects_bad_values(kw):
+    with pytest.raises(ModelConfigError):
+        build_chat_model(_settings(llm_model="m", llm_api_key="k", **kw))
+
+
 def test_factory_builds_real_provider_clients_without_network():
     from langchain_anthropic import ChatAnthropic
     from langchain_openai import ChatOpenAI
@@ -104,6 +121,10 @@ def test_factory_builds_real_provider_clients_without_network():
     m = build_chat_model(_settings(llm_provider="openai", llm_model="m", llm_api_key="k", llm_base_url="http://localhost:1/v1"))
     assert isinstance(m, ChatOpenAI) and m.openai_api_base == "http://localhost:1/v1"
     assert isinstance(build_chat_model(_settings(llm_provider="anthropic", llm_model="m", llm_api_key="k")), ChatAnthropic)
+    compat = build_chat_model(
+        _settings(llm_provider="anthropic", llm_model="m", llm_api_key="k", llm_base_url="https://api.deepseek.com/anthropic")
+    )
+    assert compat.anthropic_api_url == "https://api.deepseek.com/anthropic"  # Anthropic 兼容接口（如 DeepSeek）
 
     from langchain_google_genai import ChatGoogleGenerativeAI
 

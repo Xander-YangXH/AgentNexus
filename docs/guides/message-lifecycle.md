@@ -146,7 +146,7 @@ docker compose exec postgres psql -U agentnexus -c "select id, status from agent
 - **最终回复取自最终状态，而不是把 token 拼起来**：状态是图认定的结果，token 只是过程中的视图。
 - **Agent 的签名一直是 `run(ctx) -> str`**：流式只是“边执行边 emit”。派发器、回声 Agent、旧测试都不需要改。
 
-**模型从哪来**：[`build_chat_model`](../../backend/package/agentnexus/models/factory.py) 按环境变量 `LLM_PROVIDER` 选：`fake`（默认，确定性回声，支持流式）、`openai`（任意 OpenAI 兼容接口）、`anthropic`、`google`（Gemini，已用真实 key 验证）。
+**模型从哪来**：[`build_chat_model`](../../backend/package/agentnexus/models/factory.py) 按环境变量 `LLM_PROVIDER` 选：`fake`（默认，确定性回声，支持流式）、`openai`（任意 OpenAI 兼容接口）、`anthropic`（任意 Anthropic 兼容接口）、`google`（Gemini）。当前使用 DeepSeek 的 Anthropic 兼容接口并关闭思考模式（决策 0013）；四个分支中除 `fake` 外都用真实 key 验证过。
 
 ---
 
