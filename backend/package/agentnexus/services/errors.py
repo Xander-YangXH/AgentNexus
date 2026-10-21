@@ -24,3 +24,38 @@ class RunNotRetryable(Exception):
 
 class ConversationArchived(Exception):
     """对话已归档，恢复后才能继续发消息或重试。"""
+
+
+# ---------- 知识库（阶段 2） ----------
+
+
+class KnowledgeBaseNotFound(Exception):
+    """知识库不存在或不属于当前用户（对外不区分）。"""
+
+
+class KnowledgeBaseExists(Exception):
+    pass
+
+
+class DocumentNotFound(Exception):
+    pass
+
+
+class DocumentExists(Exception):
+    """同一知识库里已经有内容完全相同的文件。"""
+
+    def __init__(self, existing_id):
+        super().__init__(str(existing_id))
+        self.existing_id = existing_id
+
+
+class UnsupportedFileType(Exception):
+    pass
+
+
+class FileTooLarge(Exception):
+    pass
+
+
+class EmptyFile(Exception):
+    pass

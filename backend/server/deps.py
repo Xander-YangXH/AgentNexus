@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.repositories.users import UserRepository
+from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.storage.postgres import AgentRun
 from agentnexus.services.conversations import ConversationService
@@ -23,6 +24,10 @@ def get_dispatcher(request: Request) -> RunDispatcher:
 
 def get_event_streamer(request: Request) -> RunEventStreamer:
     return request.app.state.event_streamer
+
+
+def get_knowledge_service(request: Request) -> KnowledgeService:
+    return request.app.state.knowledge_service
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]

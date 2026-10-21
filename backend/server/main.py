@@ -11,6 +11,8 @@ from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
+from agentnexus.services.knowledge import KnowledgeService
+from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -18,7 +20,7 @@ from redis.asyncio import Redis
 from agentnexus.observability.logging import configure_logging
 from server.errors import install_error_handlers
 from server.middleware import RequestContextMiddleware
-from server.routers import conversations, events, health, users
+from server.routers import conversations, events, health, knowledge, users
 
 
 @asynccontextmanager
@@ -58,6 +60,11 @@ async def lifespan(app: FastAPI):
     app.state.event_streamer = RunEventStreamer(
         app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
+    app.state.knowledge_service = KnowledgeService(
+        app.state.sessionmaker,
+        LocalBlobStore(settings.blob_root),
+        max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+    )
     await app.state.dispatcher.start()
     janitor.start()
     yield
@@ -76,6 +83,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.include_router(users.router)
     app.include_router(conversations.router)
     app.include_router(events.router)
+    app.include_router(knowledge.router)
     # 服务层只抛领域异常，HTTP 状态码与统一错误格式在这里映射（server/errors.py）
     install_error_handlers(app)
     # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式

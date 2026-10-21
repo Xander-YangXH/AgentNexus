@@ -4,6 +4,8 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Integer,
+    UniqueConstraint,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -129,3 +131,66 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 该 run 的 LangGraph checkpoint 何时被清理（decisions/0010）；用我们自己的列记账，不去查 LangGraph 的内部表
     checkpoint_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------- 知识库（阶段 2，decisions/0014、0015） ----------------
+
+
+class DocumentStatus(enum.StrEnum):
+    PENDING = "pending"  # 已上传，等待处理
+    PROCESSING = "processing"  # 正在解析 / 分块（2.2 起还包括计算向量、写入 Qdrant）
+    READY = "ready"
+    FAILED = "failed"
+
+
+class KnowledgeBase(Base):
+    __tablename__ = "knowledge_bases"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_knowledge_bases_user_name"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    # 阶段 5 前按用户归属；之后改为部门 / 角色可见性
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    __table_args__ = (
+        CheckConstraint(_in_list("status", DocumentStatus), name="ck_documents_status"),
+        # 同一知识库里同一份文件（按内容哈希）只存一次，避免检索时同一段内容出现两遍
+        UniqueConstraint("knowledge_base_id", "sha256", name="uq_documents_kb_sha256"),
+        Index("ix_documents_kb_created", "knowledge_base_id", "created_at"),
+        Index("ix_documents_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)  # 由应用生成：写原件时就要用到 id
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id"))
+    filename: Mapped[str] = mapped_column(String(255))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    blob_key: Mapped[str] = mapped_column(String(300))  # 原件在文件存储里的 key
+    status: Mapped[str] = mapped_column(String(16), default=DocumentStatus.PENDING)
+    error: Mapped[str | None] = mapped_column(Text)  # 原始报错，只供排查
+    error_code: Mapped[str | None] = mapped_column(String(32))  # 对外的错误码
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentChunk(Base):
+    """分块是检索的事实来源（含原文）；Qdrant 只是从这里派生出来的向量索引，可以随时重建（decisions/0014）。"""
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (UniqueConstraint("document_id", "seq", name="uq_document_chunks_doc_seq"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    # 冗余存一份知识库 id：检索时按知识库过滤，不必再连表
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    token_count: Mapped[int] = mapped_column(Integer)
+    page: Mapped[int | None] = mapped_column(Integer)  # PDF 页码，用于标注引用出处
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

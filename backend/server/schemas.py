@@ -58,3 +58,38 @@ class RunOut(_Out):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+# ---------- 知识库（阶段 2） ----------
+
+
+class KnowledgeBaseCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class KnowledgeBaseOut(_Out):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    created_at: datetime
+
+
+class DocumentOut(_Out):
+    id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    filename: str
+    size_bytes: int
+    status: str
+    error_code: str | None  # 原始报错不对外
+    chunk_count: int
+    created_at: datetime
+    processed_at: datetime | None
+
+
+class ChunkOut(_Out):
+    id: uuid.UUID
+    seq: int
+    text: str
+    token_count: int
+    page: int | None

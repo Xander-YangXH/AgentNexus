@@ -14,6 +14,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentnexus.services.errors import (
+    DocumentExists,
+    DocumentNotFound,
+    EmptyFile,
+    FileTooLarge,
+    KnowledgeBaseExists,
+    KnowledgeBaseNotFound,
+    UnsupportedFileType,
     ConversationArchived,
     ConversationNotFound,
     RunAlreadyFinished,
@@ -34,6 +41,12 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     UserExists: (409, "user_exists", "user name already exists"),
     RunAlreadyFinished: (409, "run_already_finished", "run already finished"),
     RunNotRetryable: (409, "run_not_retryable", "run cannot be retried"),
+    KnowledgeBaseNotFound: (404, "knowledge_base_not_found", "knowledge base not found"),
+    KnowledgeBaseExists: (409, "knowledge_base_exists", "knowledge base name already exists"),
+    DocumentNotFound: (404, "document_not_found", "document not found"),
+    UnsupportedFileType: (415, "unsupported_file_type", "supported: .txt .md .markdown .pdf .docx"),
+    FileTooLarge: (413, "file_too_large", "file is too large"),
+    EmptyFile: (400, "empty_file", "file is empty"),
 }
 
 _HTTP_CODES = {
@@ -81,6 +94,12 @@ def install_error_handlers(app: FastAPI) -> None:
         log.error("unhandled error", exc_info=exc, extra={"request_id": _request_id(request)})
         return error_response(request, 500, "internal_error", "internal server error")
 
+    async def document_exists(request: Request, exc: DocumentExists):
+        # 告诉调用方已有的是哪一份，前端可以直接跳过去
+        return error_response(request, 409, "document_exists", "same file already exists in this knowledge base",
+                              {"existing_document_id": str(exc.existing_id) if exc.existing_id else None})
+
+    app.add_exception_handler(DocumentExists, document_exists)
     app.add_exception_handler(StarletteHTTPException, http_error)
     app.add_exception_handler(RequestValidationError, validation_error)
     app.add_exception_handler(Exception, unhandled)

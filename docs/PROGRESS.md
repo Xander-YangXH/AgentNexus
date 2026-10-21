@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 1 已全部完成，模型已切换为 DeepSeek（0013）。阶段 2 选型草稿 0014 已写好（含评测与基准实验），等确认后开始实现。**
+**阶段 2「RAG 知识库」进行中：选型（0014）已定；2.1 文档入口（表、上传、解析、分块，0015）已完成；下一步 2.2 入库流水线（向量化 + Qdrant）。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -20,13 +20,13 @@
 |---|---|---|---|---|
 | M0 工程基础与环境 | 12 | 2 | 14 | 85% |
 | M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
-| M2 RAG 知识库 | 1 | 0 | 12 | 8% |
+| M2 RAG 知识库 | 5 | 0 | 12 | 41% |
 | M3 知识图谱 | 0 | 0 | 8 | 0% |
 | M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
-| 贯穿：质量与文档 | 3 | 0 | 7 | 42% |
-| **合计** | **69** | 2 | **117** | **58%** |
+| 贯穿：质量与文档 | 3 | 0 | 8 | 37% |
+| **合计** | **73** | 2 | **118** | **61%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -199,10 +199,10 @@
 
 - [x] 写 decision **草稿** 0014：本地 bge-small-zh embedding、bge-reranker 重排、Qdrant（派生索引）vs pgvector，含评测集与基准测试（`backend/eval/`）
 - [x] 0014 已确认：本地 bge-small-zh-v1.5、默认开启重排、Qdrant（PostgreSQL 为事实来源）
-- [ ] compose 加入 qdrant、minio；`storage/` 增加对应连接管理
-- [ ] 表：knowledge_bases / documents / chunks；文档上传落 MinIO，元数据落 Postgres
-- [ ] 文档解析 `knowledge/parser`：PDF / Word / Markdown（pypdf、python-docx、unstructured 三选一起步，写选型理由）
-- [ ] 分块 `knowledge/chunking`：段落/语义边界切分 + token 统计；重叠与大小可配置
+- [ ] compose 加入 qdrant；`storage/` 增加连接管理（MinIO 暂缓：原件先用 `BlobStore` 接口 + 本地数据卷，见 0015）
+- [x] 表：knowledge_bases / documents / document_chunks（迁移 0006）；上传接口（校验 → 写原件 → 插记录，内容哈希去重，202）；原件存本地数据卷（decisions/0015）
+- [x] 文档解析 `knowledge/parsing.py`：txt / md（UTF-8、GB18030）、pdf（pypdf，带页码）、docx（含表格）；失败按原因给错误码
+- [x] 分块 `knowledge/chunking.py`：按中文句子边界、目标 300 / 上限 480 token、整句重叠；token 计数可注入（2.2 换成 bge 分词器）
 - [ ] 入库流水线（异步任务，复用 AgentRun 式的“先落库再投递”）：解析 → 分块 → embedding → 写 Qdrant，状态可查、失败可重试
 - [ ] 检索：向量召回 + 标量过滤，（可选）rerank
 - [ ] 检索测试页面：输入 query，看召回片段与分数
@@ -259,6 +259,7 @@
 - [x] 集成测试跑真实 Postgres
 - [ ] CI（GitHub Actions）：起 Postgres 服务跑测试 + 构建镜像
 - [ ] lint / 格式化 / 类型检查（ruff、mypy 或 pyright）
+- [ ] 后端依赖加锁文件（目前是 `>=` 范围、每次构建可能不同；前端已有锁文件）
 - [x] 日志与可观测性：结构化日志（text/json）、request-id 与 run_id 贯穿（decisions/0011）
 - [ ] 安全清单：密钥管理、依赖扫描、沙盒逃逸面
 - [ ] 每个阶段结束回填 interview-prep 的占位小节

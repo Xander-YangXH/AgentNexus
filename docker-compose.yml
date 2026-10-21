@@ -25,6 +25,7 @@ x-backend: &backend
     CHECKPOINT_JANITOR_INTERVAL_SECONDS: ${CHECKPOINT_JANITOR_INTERVAL_SECONDS:-600}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     LOG_FORMAT: ${LOG_FORMAT:-text}
+    MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
 
 services:
   postgres:
@@ -71,6 +72,8 @@ services:
 
   api:
     <<: *backend
+    volumes:
+      - blob_data:/data/blobs  # 知识库文档原件（不放进数据库）
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -105,5 +108,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  blob_data:
   pg_data:
   redis_data:
