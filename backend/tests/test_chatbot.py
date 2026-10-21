@@ -78,6 +78,7 @@ def _settings(**kw):
 
 def test_factory_default_is_fake():
     assert isinstance(build_chat_model(_settings()), FakeEchoChatModel)
+    assert build_chat_model(_settings(llm_fake_stream_delay=0.1)).stream_delay == 0.1
 
 
 @pytest.mark.parametrize(

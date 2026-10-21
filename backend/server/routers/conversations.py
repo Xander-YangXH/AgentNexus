@@ -57,6 +57,14 @@ async def send_message(
     return run
 
 
+@router.get("/conversations/{conversation_id}/active-run", response_model=RunOut | None)
+async def get_active_run(
+    conversation_id: uuid.UUID, user_id: CurrentUser, svc: RunService = Depends(get_run_service)
+):
+    """对话正在排队/执行的 run，没有则返回 null。前端刷新后用它重新订阅事件流（从头回放已生成的部分）。"""
+    return await svc.active_for_conversation(user_id, conversation_id)
+
+
 @router.get("/runs/{run_id}", response_model=RunOut)
 async def get_run(
     run_id: uuid.UUID, user_id: CurrentUser, svc: RunService = Depends(get_run_service)

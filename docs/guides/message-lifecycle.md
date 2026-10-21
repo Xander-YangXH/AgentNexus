@@ -2,7 +2,7 @@
 
 > 学习导读：跟着一条用户消息，从发出请求到浏览器里逐字显示，走一遍 AgentNexus 目前的核心链路。
 > 每一步都写了**发生了什么、代码在哪、为什么这样设计、出了故障会怎样**。读完应该能对着代码讲清楚整条链路。
-> 对应阶段：ROADMAP 阶段 1（核心骨架）。相关决策：[0004](../decisions/0004-data-layer-sqlalchemy-alembic.md)、[0005](../decisions/0005-in-process-dispatcher-first.md)、[0006](../decisions/0006-history-source-of-truth.md)、[0007](../decisions/0007-streaming-events.md)。
+> 对应阶段：ROADMAP 阶段 1（核心骨架）。相关决策：[0008](../decisions/0008-frontend-integration.md)（前端）、[0004](../decisions/0004-data-layer-sqlalchemy-alembic.md)、[0005](../decisions/0005-in-process-dispatcher-first.md)、[0006](../decisions/0006-history-source-of-truth.md)、[0007](../decisions/0007-streaming-events.md)。
 
 ---
 
@@ -236,6 +236,20 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>"
 curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-Event-ID: <某个 id>"
 ```
 
+### 6.1 前端怎么消费事件流（`web/`，决策 0008）
+
+**代码**：[`web/src/api/sse.ts`](../../web/src/api/sse.ts)、[`web/src/composables/pendingReply.ts`](../../web/src/composables/pendingReply.ts)、[`web/src/composables/useChat.ts`](../../web/src/composables/useChat.ts)
+
+1. 点“发送” → `POST .../messages` 拿到 202 和 run → 立刻重新拉一次消息列表（用户消息已落库，以数据库为准）。
+2. 调 `streamRunEvents(run.id)`：用 `fetch` 请求 `/api/runs/{id}/events`，带 `X-User-Id` 头；把响应体按字节交给 `SseParser`。
+3. `SseParser` 按 SSE 规范切行、拼字段、在空行处派发事件。它必须正确处理：数据块在任意位置被切断、`\r\n` 跨块、中文字符的字节被切开、`: ping` 注释行。
+4. 每个事件交给状态机 `applyRunEvent`：`waiting`（显示“等待模型开始输出… N 秒”）→ 收到 token 变 `streaming`（逐段追加、显示光标）→ `completed`（重新拉消息列表，用库里的正式回复替换临时回复）或 `failed`（保留半截文本，标成“生成中断”并显示原因）。
+5. 断线：网络错误或服务端在终态前关闭连接时自动重连，带 `Last-Event-ID`；401/404 不重试。
+6. **刷新页面**：加载对话时调用 `GET /api/conversations/{id}/active-run`，发现活跃 run 就重新订阅；因为事件流从头回放，已经生成的部分立刻补齐，然后继续实时增长。“等待首字”的计时从服务端的 run 创建时间算起。
+7. 渲染：Markdown 渲染禁用原始 HTML，模型输出里的 `<script>` 只会显示成文本。
+
+**部署时**：浏览器访问 Nginx（`http://localhost:8080`），Nginx 提供打包好的页面，并把 `/api` 转发给 api 容器；对 SSE 关闭缓冲。
+
 ---
 
 ## 7. 这一步踩过的最有价值的坑：套接字超时让“流式”变成了“一次性”
@@ -278,6 +292,9 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 9. 为什么前端不能直接用 `EventSource`？
 10. 每个 SSE 客户端占用什么资源？单进程的上限是多少，为什么要用两个 Redis 客户端？
 11. 讲一个你在这条链路上遇到的 bug：现象、怎么定位、根因、怎么修、怎么防止回归。
+12. 前端怎么解析 SSE？数据块被切在任意位置、`\r\n` 跨块、中文字符被切开，分别怎么处理？
+13. 用户在回复生成到一半时刷新页面，发生了什么？为什么已经生成的内容不会丢？
+14. 为什么 Nginx 后面的 SSE 可能变成“一次性输出”？你做了哪两层处理，怎么验证其中一层就够了？
 
 ---
 
@@ -286,6 +303,7 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 - **单进程假设**：api 只能起 1 个实例、uvicorn 不能开多 workers（阶段 4 用 lease 解决）。
 - **被打断的 run 标失败而不是续跑**：checkpoint 已经具备续跑能力，但还没接上。
 - **并发 SSE 流上限约等于阻塞读连接池大小**（默认 200）；更大规模要改成“每个 run 一个读取协程 + 进程内扇出”。
-- **取消 run、前端页面还没做**。
+- **取消 run 还没做**，所以前端也没有“停止生成”按钮。
+- **失败的回复刷新后看不到失败原因**：失败信息在 `agent_runs.error`，界面只在当次会话里显示；而且目前直接显示供应商的原始报错，面向真实用户前要改成友好提示。
 - **Gemini 免费档延迟波动很大**：实测首块从 7 秒到 173 秒不等，`RUN_TIMEOUT_SECONDS=300` 离上限不远；这是外部服务的问题，但需要在产品上考虑（超时提示、可重试）。
 - **测试套件出现过一次原因不明的失败**：发生在一次变异检查还原之后，之后连续 23 次全量通过，未能复现（见 dev-log 问题索引）。

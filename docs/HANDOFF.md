@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 1 进行中（阶段 0 已完成）
+## 当前阶段：ROADMAP 阶段 1 里程碑已达成，正在收尾（阶段 0 已完成）
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -20,12 +20,17 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [x] 派发与执行（单机版）：`runtime/dispatcher.py`（enqueue / 扫描补投 / claim / 超时 / 并发上限 / 启动恢复 / 关停收尾）+ 回声 Agent，decisions/0005，22 个测试通过，容器内端到端验证。**单进程假设：api 只能起 1 个实例、uvicorn 不能开多 workers**
 - [x] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套 + `agent.py`）、`models/` 工厂（默认假模型）、AsyncPostgresSaver（`thread_id=run_id`，表由 migrate 服务建）、decisions/0006 已确认（方案 A）。37 个测试通过，容器内两轮对话验证。**真实 LLM 仅 Gemini 验证过**
 - [x] SSE 流式推送：`GET /api/runs/{id}/events`（Redis Streams + FastAPI 内置 SSE），decisions/0007 已确认并实现；59 个测试通过；真实 Gemini 端到端推送延迟 4~6ms。学习导读：`docs/guides/message-lifecycle.md`
-- [ ] 最小 Vue3 页面
+- [x] 前端页面（`web/`，decisions/0008）：fetch 读取 SSE、刷新接上生成中的回复、Nginx 部署（`http://localhost:8080`）。前端 17 个测试、后端 61 个测试；浏览器实测通过
 
 ## 下一步
-1. **1.6 前端页面**（Vue3 + Vite + Ant Design Vue）：发消息、用 fetch 流式读取 SSE（不能用原生 EventSource，因为要带 `X-User-Id` 头）、断线续传、失败时把半截输出标成“生成中断”、等待首字的状态（Gemini 首块可能很久）。
-2. 取消 run；checkpoint 清理；LLM 高延迟的产品处理（超时提示、重试）。
-3. 阶段 1 收尾：README 截图、回填 interview-prep 占位。
+1. 阶段 1 收尾（可挑选）：取消 run（含前端“停止生成”）；失败原因刷新后可见、错误提示友好化；checkpoint 清理；对话改标题/删除。
+2. 进入阶段 2「RAG 知识库」：先写向量库与 embedding 选型的 decision 草稿（含实验），再动手。
+3. 待用户决定：何时推送；是否把 README 的阶段 1 勾上（里程碑已达成，收尾项未完成）。
+
+### 本地运行
+- 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
+- 只想看流式效果、不消耗模型额度：`.env` 里设 `LLM_PROVIDER=fake`、`LLM_FAKE_STREAM_DELAY=0.1`。
+- 前端开发：见 `web/README.md`（`npm run dev`，端口 5173）。
 
 ### 跑测试
 集成测试用真实 Postgres 和 Redis（先 `docker compose up -d postgres redis`）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
@@ -43,4 +48,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q27。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q28。

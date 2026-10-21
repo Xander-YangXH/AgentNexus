@@ -10,6 +10,10 @@ class UserService:
     def __init__(self, sessionmaker: async_sessionmaker):
         self.sessionmaker = sessionmaker
 
+    async def list(self) -> list[User]:
+        async with self.sessionmaker() as session:
+            return await UserRepository(session).list_all()
+
     async def create(self, name: str) -> User:
         try:
             async with self.sessionmaker() as session, session.begin():

@@ -23,6 +23,14 @@ class AgentRunRepository:
     async def get(self, run_id: uuid.UUID) -> AgentRun | None:
         return await self.session.get(AgentRun, run_id)
 
+    async def get_active(self, conversation_id: uuid.UUID) -> AgentRun | None:
+        """该对话正在排队或执行的 run（部分唯一索引保证至多一个）。"""
+        stmt = select(AgentRun).where(
+            AgentRun.conversation_id == conversation_id,
+            AgentRun.status.in_([RunStatus.QUEUED, RunStatus.RUNNING]),
+        )
+        return (await self.session.scalars(stmt)).one_or_none()
+
     async def list_queued(self, limit: int = 100) -> list[AgentRun]:
         """补投递扫描用：队列丢了任务时，靠库里的 queued 记录重新派发。"""
         stmt = (

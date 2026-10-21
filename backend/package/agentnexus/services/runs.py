@@ -45,6 +45,14 @@ class RunService:
                 raise RunNotFound(str(run_id))
             return run
 
+    async def active_for_conversation(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> AgentRun | None:
+        """对话当前活跃的 run；没有则 None。前端刷新页面时用它找回“正在生成”的回复并重新订阅。"""
+        async with self.sessionmaker() as session:
+            conv = await ConversationRepository(session).get(conversation_id)
+            if conv is None or conv.user_id != user_id:
+                raise ConversationNotFound(str(conversation_id))
+            return await AgentRunRepository(session).get_active(conversation_id)
+
     async def find(self, run_id: uuid.UUID) -> AgentRun | None:
         """不做归属校验的读取，供内部使用（如 SSE 在已校验归属后轮询状态）。"""
         async with self.sessionmaker() as session:

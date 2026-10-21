@@ -14,7 +14,7 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
     provider = settings.llm_provider.lower()
 
     if provider == "fake":
-        return FakeEchoChatModel()
+        return FakeEchoChatModel(stream_delay=settings.llm_fake_stream_delay)
 
     if provider in ("openai", "anthropic", "google"):
         if not settings.llm_model:

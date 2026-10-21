@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentnexus.storage.postgres import User
@@ -17,3 +18,6 @@ class UserRepository:
 
     async def get(self, user_id: uuid.UUID) -> User | None:
         return await self.session.get(User, user_id)
+
+    async def list_all(self) -> list[User]:
+        return list((await self.session.scalars(select(User).order_by(User.created_at))).all())

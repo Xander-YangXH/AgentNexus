@@ -1,0 +1,160 @@
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import type { Message } from '../api/types'
+import type { PendingReply } from '../composables/pendingReply'
+import { renderMarkdown } from '../utils/markdown'
+
+const props = defineProps<{ messages: Message[]; pending: PendingReply | null; error: string | null; busy: boolean }>()
+const emit = defineEmits<{ send: [text: string] }>()
+
+const input = ref('')
+const scroller = ref<HTMLElement | null>(null)
+
+// “等待首字”计时：真实模型首字可能要几十秒（Gemini 免费档实测 7~173 秒），要让用户知道页面没卡死
+const now = ref(Date.now())
+const timer = setInterval(() => (now.value = Date.now()), 1000)
+onBeforeUnmount(() => clearInterval(timer))
+// 起点是服务端的 run 创建时间；浏览器与服务端的时钟可能有偏差，所以不显示负数
+const waitedSeconds = computed(() =>
+  props.pending ? Math.max(0, Math.floor((now.value - props.pending.startedAt) / 1000)) : 0,
+)
+
+function submit() {
+  const text = input.value.trim()
+  if (!text || props.busy) return
+  emit('send', text)
+  input.value = ''
+}
+
+function onKeydown(e: KeyboardEvent) {
+  // Enter 发送，Shift+Enter 换行；输入法组字时（isComposing）按 Enter 是确认候选词，不能发送
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    submit()
+  }
+}
+
+// 有新内容时滚到底部
+watch(
+  () => [props.messages.length, props.pending?.text],
+  async () => {
+    await nextTick()
+    scroller.value?.scrollTo({ top: scroller.value.scrollHeight })
+  },
+)
+</script>
+
+<template>
+  <div class="panel">
+    <div ref="scroller" class="messages">
+      <div v-for="m in messages" :key="m.id" :class="['row', m.role]">
+        <div v-if="m.role === 'assistant'" class="bubble md" v-html="renderMarkdown(m.content)" />
+        <div v-else class="bubble plain">{{ m.content }}</div>
+      </div>
+
+      <div v-if="pending" class="row assistant">
+        <div v-if="pending.status === 'waiting'" class="bubble waiting">
+          <a-spin size="small" /> 等待模型开始输出… {{ waitedSeconds }} 秒
+        </div>
+        <div v-else-if="pending.text" :class="['bubble', 'md', { interrupted: pending.status === 'failed' }]">
+          <div v-html="renderMarkdown(pending.text)" />
+          <span v-if="pending.status === 'streaming'" class="cursor">▍</span>
+        </div>
+      </div>
+      <a-alert
+        v-if="pending?.status === 'failed'"
+        type="error"
+        show-icon
+        class="alert"
+        :message="`生成中断：${pending.error}`"
+:description="pending.text ? '已显示的部分没有保存。可以重新发送这条消息。' : '模型没有返回内容。可以重新发送这条消息。'"
+      />
+    </div>
+
+    <a-alert v-if="error" type="warning" show-icon class="alert" :message="error" />
+    <div class="composer">
+      <a-textarea
+        v-model:value="input"
+        :auto-size="{ minRows: 2, maxRows: 6 }"
+        placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+        @keydown="onKeydown"
+      />
+      <a-button type="primary" :loading="busy" :disabled="!input.trim()" @click="submit">发送</a-button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+.row {
+  display: flex;
+  margin-bottom: 12px;
+}
+.row.user {
+  justify-content: flex-end;
+}
+.bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.user .bubble {
+  background: #1677ff;
+  color: #fff;
+}
+.assistant .bubble {
+  background: #f5f5f5;
+}
+.plain {
+  white-space: pre-wrap;
+}
+.md :deep(p) {
+  margin: 0 0 8px;
+}
+.md :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.md :deep(pre) {
+  background: #272822;
+  color: #f8f8f2;
+  padding: 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.waiting {
+  color: #888;
+}
+.interrupted {
+  border: 1px dashed #ff4d4f;
+  background: #fff1f0;
+}
+.cursor {
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.alert {
+  margin: 0 24px 12px;
+}
+.composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 24px 20px;
+  border-top: 1px solid #f0f0f0;
+}
+</style>

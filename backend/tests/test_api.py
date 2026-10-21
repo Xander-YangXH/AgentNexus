@@ -99,3 +99,32 @@ async def test_validation(client):
         await client.post(f"/api/conversations/{cid}/messages", json={"content": ""}, headers=h)
     ).status_code == 422
     assert (await client.get("/api/conversations/not-a-uuid/messages", headers=h)).status_code == 422
+
+
+async def test_list_users_returns_created_users_in_order(client):
+    await client.post("/api/users", json={"name": "u-first"})
+    await client.post("/api/users", json={"name": "u-second"})
+    names = [u["name"] for u in (await client.get("/api/users")).json()]
+    assert names == ["u-first", "u-second"]
+
+
+async def test_active_run_lifecycle_and_ownership(client, sessionmaker):
+    h = await _make_user(client)
+    other = await _make_user(client)
+    cid = await _make_conv(client, h)
+    assert (await client.get(f"/api/conversations/{cid}/active-run", headers=h)).json() is None
+
+    run = (await client.post(f"/api/conversations/{cid}/messages", json={"content": "q"}, headers=h)).json()
+    active = (await client.get(f"/api/conversations/{cid}/active-run", headers=h)).json()
+    assert active["id"] == run["id"] and active["status"] == "queued"
+
+    # 别人的对话：与不存在一样 404
+    assert (await client.get(f"/api/conversations/{cid}/active-run", headers=other)).status_code == 404
+
+    # run 结束后不再是活跃的
+    from agentnexus.services.runs import RunService
+
+    svc = RunService(sessionmaker)
+    await svc.claim(uuid.UUID(run["id"]))
+    await svc.fail(uuid.UUID(run["id"]), "x")
+    assert (await client.get(f"/api/conversations/{cid}/active-run", headers=h)).json() is None

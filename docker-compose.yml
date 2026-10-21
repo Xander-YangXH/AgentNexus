@@ -1,4 +1,4 @@
-# postgres + redis + migrate（一次性）+ api。后续阶段在此基础上叠加 qdrant / minio / neo4j / worker。
+# postgres + redis + migrate（一次性）+ api + web。后续阶段在此基础上叠加 qdrant / minio / neo4j / worker。
 name: agentnexus
 
 # api 与 migrate 共用同一个镜像和环境变量
@@ -19,6 +19,7 @@ x-backend: &backend
     LLM_MODEL: ${LLM_MODEL:-}
     LLM_API_KEY: ${LLM_API_KEY:-}
     LLM_BASE_URL: ${LLM_BASE_URL:-}
+    LLM_FAKE_STREAM_DELAY: ${LLM_FAKE_STREAM_DELAY:-0}
 
 services:
   postgres:
@@ -79,6 +80,23 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+    restart: unless-stopped
+
+  # 前端：Nginx 提供打包后的静态文件，并把 /api 转发给 api（同源，不需要 CORS）
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
 volumes:

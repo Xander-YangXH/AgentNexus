@@ -2,7 +2,9 @@
 .idea
 .venv
 **/__pycache__
-node_modules
+# 写成 **/ 才能匹配子目录（如 web/node_modules）；只写 node_modules 只匹配根目录
+**/node_modules
+web/dist
 learning
 docs
 .env

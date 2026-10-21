@@ -22,6 +22,16 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 | 工具沙盒 | Docker SDK 容器隔离（内置于 worker） |
 | 部署 | Docker Compose |
 
+## 快速开始
+
+```bash
+cp .env.template .env              # 修改 POSTGRES_PASSWORD；默认 LLM_PROVIDER=fake，无需任何密钥
+docker compose up -d --build
+```
+
+打开 http://localhost:8080 ：创建一个用户 → 新对话 → 发消息，回复会逐字出现。
+接入真实模型：在 `.env` 里设置 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`（说明见 `.env.template`），然后 `docker compose up -d api`。
+
 ## 文档索引
 
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
@@ -59,7 +69,7 @@ AgentNexus/
 ## 当前进度
 
 - [x] 阶段 0：环境与技术选型
-- [ ] 阶段 1：核心骨架与 Agent 编排引擎
+- [ ] 阶段 1：核心骨架与 Agent 编排引擎（里程碑已达成：网页流式聊天、刷新不丢；收尾项见 PROGRESS）
 - [ ] 阶段 2：RAG 知识库
 - [ ] 阶段 3：知识图谱
 - [ ] 阶段 4：多智能体、工具与扩展生态
