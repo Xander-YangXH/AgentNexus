@@ -20,6 +20,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [x] 派发与执行（单机版）：`runtime/dispatcher.py`（enqueue / 扫描补投 / claim / 超时 / 并发上限 / 启动恢复 / 关停收尾）+ 回声 Agent，decisions/0005，22 个测试通过，容器内端到端验证。**单进程假设：api 只能起 1 个实例、uvicorn 不能开多 workers**
 - [x] 执行：LangGraph chatbot（`agents/buildin/chatbot/` 四件套 + `agent.py`）、`models/` 工厂（默认假模型）、AsyncPostgresSaver（`thread_id=run_id`，表由 migrate 服务建）、decisions/0006 已确认（方案 A）。37 个测试通过，容器内两轮对话验证。**真实 LLM 仅 Gemini 验证过**
 - [x] SSE 流式推送：`GET /api/runs/{id}/events`（Redis Streams + FastAPI 内置 SSE），decisions/0007 已确认并实现；59 个测试通过；真实 Gemini 端到端推送延迟 4~6ms。学习导读：`docs/guides/message-lifecycle.md`
+- [x] 收尾第一批（decisions/0009）：取消（排队中 200 / 执行中 202 / 已结束 409）、重试（复用输入消息）、错误码（原始报错不对外）、刷新后可见、等待过久提示；迁移 0002/0003。后端 83 个、前端 23 个测试
 - [x] 前端页面（`web/`，decisions/0008）：fetch 读取 SSE、刷新接上生成中的回复、Nginx 部署（`http://localhost:8080`）。前端 17 个测试、后端 61 个测试；浏览器实测通过
 
 ## 下一步
