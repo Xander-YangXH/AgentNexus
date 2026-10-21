@@ -61,11 +61,23 @@ class Conversation(Base):
     """对话。历史消息的事实来源是 messages 表；LangGraph 的 thread_id 用 run_id，不用本表 id（见 decisions/0006）。"""
 
     __tablename__ = "conversations"
+    __table_args__ = (
+        Index(
+            "ix_conversations_user_recent_active",
+            "user_id",
+            text("last_activity_at DESC"),
+            postgresql_where=text("archived_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 归档而不是删除（decisions/0012）：隐藏、可恢复；真正删除要连带清理消息、run、checkpoint、事件流
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 最近活动时间：用户发消息时在同一事务里更新，对话列表按它倒序
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Message(Base):

@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentnexus.services.errors import (
+    ConversationArchived,
     ConversationNotFound,
     RunAlreadyFinished,
     RunConflict,
@@ -27,6 +28,7 @@ log = logging.getLogger(__name__)
 # 领域异常 -> (HTTP 状态码, 错误码, 说明)。服务层只抛领域异常，HTTP 语义只在这里出现
 DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     ConversationNotFound: (404, "conversation_not_found", "conversation not found"),
+    ConversationArchived: (409, "conversation_archived", "conversation is archived"),
     RunNotFound: (404, "run_not_found", "run not found"),
     RunConflict: (409, "run_conflict", "conversation already has an active run"),
     UserExists: (409, "user_exists", "user name already exists"),

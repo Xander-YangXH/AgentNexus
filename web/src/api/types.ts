@@ -9,10 +9,13 @@ export interface Conversation {
   id: string
   title: string | null
   created_at: string
+  last_activity_at: string
+  archived_at: string | null
 }
 
 export interface Message {
   id: string
+  seq: number // 分页游标
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   created_at: string

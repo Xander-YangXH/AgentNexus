@@ -46,7 +46,7 @@ export function authHeaders(): Record<string, string> {
   return currentUserId ? { 'X-User-Id': currentUserId } : {}
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function send(method: string, path: string, body?: unknown): Promise<{ data: unknown; res: Response }> {
   // 相对路径：开发时由 Vite 代理、部署时由 Nginx 转发到后端，浏览器只看到一个源，不需要 CORS
   const res = await fetch(path, {
     method,
@@ -55,15 +55,34 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   })
   const text = await res.text()
   if (!res.ok) throw new HttpError(res.status, parseErrorBody(text))
-  return (text ? JSON.parse(text) : null) as T
+  return { data: text ? JSON.parse(text) : null, res }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return (await send(method, path, body)).data as T
+}
+
+export interface MessagePage {
+  items: Message[]
+  hasMore: boolean // 来自响应头 X-Has-More
+}
+
+async function listMessagesPage(cid: string, beforeSeq?: number, limit = 50): Promise<MessagePage> {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (beforeSeq !== undefined) q.set('before_seq', String(beforeSeq))
+  const { data, res } = await send('GET', `/api/conversations/${cid}/messages?${q}`)
+  return { items: data as Message[], hasMore: res.headers.get('X-Has-More') === 'true' }
 }
 
 export const api = {
   listUsers: () => request<User[]>('GET', '/api/users'),
   createUser: (name: string) => request<User>('POST', '/api/users', { name }),
-  listConversations: () => request<Conversation[]>('GET', '/api/conversations'),
+  listConversations: (archived = false) =>
+    request<Conversation[]>('GET', `/api/conversations${archived ? '?archived=true' : ''}`),
+  updateConversation: (cid: string, patch: { title?: string | null; archived?: boolean }) =>
+    request<Conversation>('PATCH', `/api/conversations/${cid}`, patch),
   createConversation: (title: string | null) => request<Conversation>('POST', '/api/conversations', { title }),
-  listMessages: (cid: string) => request<Message[]>('GET', `/api/conversations/${cid}/messages`),
+  listMessagesPage,
   sendMessage: (cid: string, content: string) => request<Run>('POST', `/api/conversations/${cid}/messages`, { content }),
   activeRun: (cid: string) => request<Run | null>('GET', `/api/conversations/${cid}/active-run`),
   listRuns: (cid: string) => request<Run[]>('GET', `/api/conversations/${cid}/runs`),

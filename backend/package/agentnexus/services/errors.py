@@ -20,3 +20,7 @@ class RunAlreadyFinished(Exception):
 
 class RunNotRetryable(Exception):
     """只有失败或已取消、且输入是对话最后一条消息的 run 才能重试。"""
+
+
+class ConversationArchived(Exception):
+    """对话已归档，恢复后才能继续发消息或重试。"""

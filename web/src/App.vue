@@ -32,8 +32,12 @@ function run(action: Promise<unknown>) {
         v-if="chat.userId.value"
         :conversations="chat.conversations.value"
         :active-id="chat.conversationId.value"
+        :show-archived="chat.showArchived.value"
         @select="(id: string) => run(chat.selectConversation(id))"
         @create="run(chat.newConversation())"
+        @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
+        @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
+        @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
       />
     </a-layout-sider>
     <a-layout-content class="content">
@@ -44,9 +48,13 @@ function run(action: Promise<unknown>) {
         :pending="chat.pending.value"
         :error="chat.error.value"
         :busy="chat.busy.value"
+        :has-more="chat.hasMore.value"
+        :archived="!!chat.conversation.value?.archived_at"
         @send="(text: string) => run(chat.send(text))"
         @stop="run(chat.stop())"
         @retry="(runId: string) => run(chat.retry(runId))"
+        @load-older="run(chat.loadOlder())"
+        @unarchive="run(chat.setArchived(chat.conversationId.value!, false))"
       />
       <a-empty v-else class="empty" :description="chat.userId.value ? '新建或选择一个对话' : '先选择或创建一个用户'" />
     </a-layout-content>

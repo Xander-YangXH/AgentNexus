@@ -3,6 +3,7 @@ import { api, authHeaders, HttpError, setCurrentUser } from '../api/http'
 import { streamRunEvents } from '../api/sse'
 import type { Conversation, Message, Run, User } from '../api/types'
 import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
+import { mergeMessages } from './messagePages'
 import { computeNotices } from './runNotices'
 
 const USER_KEY = 'agentnexus.userId'
@@ -27,8 +28,12 @@ export function useChat() {
   const users = ref<User[]>([])
   const userId = ref<string | null>(null)
   const conversations = ref<Conversation[]>([])
+  const showArchived = ref(false)
   const conversationId = ref<string | null>(null)
+  // 当前对话对象可能不在列表里（例如刚归档、而列表显示的是未归档的），所以单独保存
+  const conversation = ref<Conversation | null>(null)
   const messages = ref<Message[]>([])
+  const hasMore = ref(false)
   const runs = ref<Run[]>([])
   const pending = ref<PendingReply | null>(null)
   const error = ref<string | null>(null)
@@ -39,13 +44,47 @@ export function useChat() {
   const busy = computed(() => sending.value || isActive(pending.value))
   const notices = computed(() => computeNotices(messages.value, runs.value))
 
-  // 以数据库为准刷新：消息和 run 一起拉
-  async function reload(cid: string) {
-    const [m, r] = await Promise.all([api.listMessages(cid), api.listRuns(cid)])
-    if (conversationId.value === cid) {
-      messages.value = m
-      runs.value = r
-    }
+  // 以数据库为准刷新：最近一页消息 + run 一起拉；与已加载的更早消息合并，不丢用户翻出来的旧消息
+  async function reload(cid: string, { reset = false } = {}) {
+    const [page, r] = await Promise.all([api.listMessagesPage(cid), api.listRuns(cid)])
+    if (conversationId.value !== cid) return
+    messages.value = reset ? page.items : mergeMessages(messages.value, page.items)
+    if (reset) hasMore.value = page.hasMore
+    runs.value = r
+  }
+
+  async function loadOlder() {
+    const cid = conversationId.value
+    if (!cid || !messages.value.length) return
+    const page = await api.listMessagesPage(cid, messages.value[0].seq)
+    if (conversationId.value !== cid) return
+    messages.value = mergeMessages(messages.value, page.items)
+    hasMore.value = page.hasMore
+  }
+
+  async function loadConversations() {
+    conversations.value = await api.listConversations(showArchived.value)
+  }
+
+  async function toggleArchivedView(value: boolean) {
+    showArchived.value = value
+    await loadConversations()
+  }
+
+  async function rename(cid: string, title: string | null) {
+    const c = await api.updateConversation(cid, { title })
+    replaceConversation(c)
+  }
+
+  async function setArchived(cid: string, archived: boolean) {
+    const c = await api.updateConversation(cid, { archived })
+    if (conversationId.value === cid) conversation.value = c
+    await loadConversations() // 归档后从当前列表消失 / 恢复后回到未归档列表
+  }
+
+  function replaceConversation(c: Conversation) {
+    conversations.value = conversations.value.map((x) => (x.id === c.id ? c : x))
+    if (conversationId.value === c.id) conversation.value = c
   }
 
   function stopStream() {
@@ -71,10 +110,12 @@ export function useChat() {
     setCurrentUser(id)
     storeUser(id)
     conversationId.value = null
+    conversation.value = null
     messages.value = []
     runs.value = []
     pending.value = null
-    conversations.value = await api.listConversations()
+    showArchived.value = false
+    await loadConversations()
     if (conversations.value.length) await selectConversation(conversations.value[0].id)
   }
 
@@ -87,9 +128,12 @@ export function useChat() {
   async function selectConversation(id: string) {
     stopStream()
     conversationId.value = id
+    conversation.value = conversations.value.find((c) => c.id === id) ?? null
+    messages.value = []
+    hasMore.value = false
     pending.value = null
     error.value = null
-    await reload(id)
+    await reload(id, { reset: true })
     // 刷新页面或切回来时，这个对话可能还有正在生成的回复：找回来并重新订阅。
     // 事件流从头回放（decisions/0007），所以已经生成的部分会立刻补齐。
     const active = await api.activeRun(id)
@@ -104,8 +148,9 @@ export function useChat() {
     error.value = null
     try {
       const run = await api.sendMessage(cid, content)
-      // 用户消息已落库：重新拉取列表，而不是在前端手动拼一条（以数据库为准）
-      await reload(cid)
+      // 用户消息已落库：重新拉取，而不是在前端手动拼一条（以数据库为准）；
+      // 对话列表也刷新：最近活动时间变了（排到最前），第一条消息还可能自动成了标题
+      await Promise.all([reload(cid), loadConversations()])
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
       error.value =
@@ -168,7 +213,14 @@ export function useChat() {
     users,
     userId,
     conversations,
+    showArchived,
+    conversation,
     conversationId,
+    hasMore,
+    loadOlder,
+    toggleArchivedView,
+    rename,
+    setArchived,
     messages,
     notices,
     pending,

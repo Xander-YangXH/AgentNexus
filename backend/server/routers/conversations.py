@@ -1,7 +1,9 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, Response
 
 from agentnexus.services.conversations import ConversationService
 from agentnexus.services.runs import RunService
@@ -12,6 +14,7 @@ from server.deps import CurrentUser, OwnedRun, get_conversation_service, get_dis
 from server.schemas import (
     ConversationCreate,
     ConversationOut,
+    ConversationUpdate,
     MessageCreate,
     MessageOut,
     RunOut,
@@ -32,18 +35,44 @@ async def create_conversation(
 
 @router.get("/conversations", response_model=list[ConversationOut])
 async def list_conversations(
-    user_id: CurrentUser, svc: ConversationService = Depends(get_conversation_service)
+    user_id: CurrentUser,
+    archived: bool = False,
+    svc: ConversationService = Depends(get_conversation_service),
 ):
-    return await svc.list_for_user(user_id)
+    """按最近活动倒序。默认只列未归档的；archived=true 列出已归档的。"""
+    return await svc.list_for_user(user_id, archived=archived)
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
+async def update_conversation(
+    conversation_id: uuid.UUID,
+    body: ConversationUpdate,
+    user_id: CurrentUser,
+    svc: ConversationService = Depends(get_conversation_service),
+):
+    """改标题、归档 / 恢复。只改请求里出现的字段。"""
+    kwargs = {"archived": body.archived}
+    if "title" in body.model_fields_set:  # 区分“没传 title”和“title 传了 null（清空）”
+        kwargs["title"] = body.title
+    return await svc.update(user_id, conversation_id, **kwargs)
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageOut])
 async def list_messages(
     conversation_id: uuid.UUID,
     user_id: CurrentUser,
+    response: Response,
+    before_seq: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
     svc: ConversationService = Depends(get_conversation_service),
 ):
-    return await svc.messages(user_id, conversation_id)
+    """游标分页：返回 before_seq 之前（不含）的最近 limit 条，按时间正序。
+
+    是否还有更早的消息放在响应头 X-Has-More（true/false）里，保持响应体仍是列表、不破坏已有调用方。
+    """
+    items, has_more = await svc.messages(user_id, conversation_id, before_seq=before_seq, limit=limit)
+    response.headers["X-Has-More"] = "true" if has_more else "false"
+    return items
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=RunOut, status_code=202)

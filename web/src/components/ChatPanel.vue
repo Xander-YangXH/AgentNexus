@@ -12,8 +12,10 @@ const props = defineProps<{
   pending: PendingReply | null
   error: string | null
   busy: boolean
+  hasMore: boolean
+  archived: boolean
 }>()
-const emit = defineEmits<{ send: [text: string]; stop: []; retry: [runId: string] }>()
+const emit = defineEmits<{ send: [text: string]; stop: []; retry: [runId: string]; loadOlder: []; unarchive: [] }>()
 
 const SLOW_HINT_SECONDS = 20 // Gemini 免费档首字实测 7~173 秒；超过这个时间提示用户可以停止
 
@@ -39,7 +41,7 @@ const waitedSeconds = computed(() =>
 
 function submit() {
   const text = input.value.trim()
-  if (!text || props.busy) return
+  if (!text || props.busy || props.archived) return
   emit('send', text)
   input.value = ''
 }
@@ -52,12 +54,20 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// 有新内容时滚到底部
+// 滚动策略：
+// - 最后一条消息变了、或正在生成的回复有新内容 → 滚到底部；
+// - 只是最前面多了消息（“加载更早的消息”）→ 保持用户正在看的位置，不能把人弹回底部。
+// 注意要用“多个源”的写法：如果写成 watch(() => [a, b])，getter 每次返回新数组，
+// Vue 按引用比较会认为每次都变了（第一版就是这样，导致加载更早后被拉回底部）。
 watch(
-  () => [props.messages.length, props.pending?.text],
-  async () => {
+  [() => props.messages[0]?.id, () => props.messages[props.messages.length - 1]?.id, () => props.pending?.text],
+  async ([first, last, text], [prevFirst, prevLast, prevText]) => {
+    const el = scroller.value
+    if (!el) return
+    const heightBefore = el.scrollHeight // 侦听器在 DOM 更新之前运行，这里是插入前的高度
     await nextTick()
-    scroller.value?.scrollTo({ top: scroller.value.scrollHeight })
+    if (last !== prevLast || text !== prevText) el.scrollTo({ top: el.scrollHeight })
+    else if (first !== prevFirst) el.scrollTop += el.scrollHeight - heightBefore
   },
 )
 </script>
@@ -65,6 +75,9 @@ watch(
 <template>
   <div class="panel">
     <div ref="scroller" class="messages">
+      <div v-if="hasMore" class="older">
+        <a-button size="small" @click="emit('loadOlder')">加载更早的消息</a-button>
+      </div>
       <template v-for="m in messages" :key="m.id">
         <div :class="['row', m.role]">
           <div v-if="m.role === 'assistant'" class="bubble md" v-html="renderMarkdown(m.content)" />
@@ -108,16 +121,22 @@ watch(
     </div>
 
     <a-alert v-if="error" type="warning" show-icon class="alert" :message="error" />
+    <a-alert v-if="archived" type="info" show-icon class="alert" message="这个对话已归档，恢复后才能继续对话。">
+      <template #action>
+        <a-button size="small" @click="emit('unarchive')">恢复</a-button>
+      </template>
+    </a-alert>
     <div class="composer">
       <a-textarea
         v-model:value="input"
+        :disabled="archived"
         :auto-size="{ minRows: 2, maxRows: 6 }"
         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
         @keydown="onKeydown"
       />
       <!-- 生成中：“发送”变成“停止”。停止的结果以随后到达的 run.cancelled 事件为准 -->
       <a-button v-if="isActive(pending)" danger @click="emit('stop')">停止</a-button>
-      <a-button v-else type="primary" :loading="busy" :disabled="!input.trim()" @click="submit">发送</a-button>
+      <a-button v-else type="primary" :loading="busy" :disabled="!input.trim() || archived" @click="submit">发送</a-button>
     </div>
   </div>
 </template>
@@ -172,6 +191,10 @@ watch(
 }
 .waiting {
   color: #888;
+}
+.older {
+  text-align: center;
+  margin-bottom: 12px;
 }
 .slow {
   margin-top: 6px;

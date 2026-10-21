@@ -3,7 +3,7 @@ import type { Message, Run } from '../api/types'
 import { computeNotices } from '../composables/runNotices'
 import { describeError } from '../utils/errors'
 
-const msg = (id: string, role: Message['role'] = 'user'): Message => ({ id, role, content: id, created_at: '' })
+const msg = (id: string, role: Message['role'] = 'user'): Message => ({ id, seq: 0, role, content: id, created_at: '' })
 const run = (id: string, input: string, status: Run['status'], created_at: string, error_code: string | null = null): Run => ({
   id,
   conversation_id: 'c',

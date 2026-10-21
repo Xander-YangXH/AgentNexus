@@ -6,6 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agentnexus.storage.postgres import Conversation, Message, MessageRole
 
 
+def conversations_list_stmt(user_id: uuid.UUID, *, archived: bool = False):
+    # 未归档时必须带 archived_at IS NULL，规划器才能用部分索引 ix_conversations_user_recent_active；
+    # 抽成函数是为了让测试对“生产代码真正执行的这条查询”做 EXPLAIN，而不是测试里另写一条
+    stmt = select(Conversation).where(
+        Conversation.user_id == user_id,
+        Conversation.archived_at.is_not(None) if archived else Conversation.archived_at.is_(None),
+    )
+    return stmt.order_by(Conversation.last_activity_at.desc(), Conversation.id)
+
+
 class ConversationRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -19,13 +29,8 @@ class ConversationRepository:
     async def get(self, conversation_id: uuid.UUID) -> Conversation | None:
         return await self.session.get(Conversation, conversation_id)
 
-    async def list_by_user(self, user_id: uuid.UUID) -> list[Conversation]:
-        stmt = (
-            select(Conversation)
-            .where(Conversation.user_id == user_id)
-            .order_by(Conversation.created_at.desc())
-        )
-        return list((await self.session.scalars(stmt)).all())
+    async def list_by_user(self, user_id: uuid.UUID, *, archived: bool = False) -> list[Conversation]:
+        return list((await self.session.scalars(conversations_list_stmt(user_id, archived=archived))).all())
 
 
 class MessageRepository:
@@ -40,6 +45,20 @@ class MessageRepository:
 
     async def get(self, message_id: uuid.UUID) -> Message | None:
         return await self.session.get(Message, message_id)
+
+    async def list_page(
+        self, conversation_id: uuid.UUID, *, before_seq: int | None, limit: int
+    ) -> tuple[list[Message], bool]:
+        """游标分页：取 before_seq 之前（不含）的最近 limit 条，按时间正序返回，并告知是否还有更早的。
+
+        多取一条用来判断 has_more，省去一次 count 查询。走 (conversation_id, seq) 索引，翻到多早都一样快。
+        """
+        stmt = select(Message).where(Message.conversation_id == conversation_id)
+        if before_seq is not None:
+            stmt = stmt.where(Message.seq < before_seq)
+        rows = list((await self.session.scalars(stmt.order_by(Message.seq.desc()).limit(limit + 1))).all())
+        has_more = len(rows) > limit
+        return list(reversed(rows[:limit])), has_more
 
     async def list_by_conversation(
         self, conversation_id: uuid.UUID, up_to_seq: int | None = None

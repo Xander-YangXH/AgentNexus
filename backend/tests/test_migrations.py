@@ -86,3 +86,27 @@ def test_0003_backfills_error_code_from_raw_error_text(fresh_db):
     assert got[ok] is None  # 非失败行不动
 
     command.upgrade(cfg, "head")  # 再执行一次不会出错（已在 head，无操作）
+
+
+def test_0005_backfills_last_activity_from_messages(fresh_db):
+    cfg = _alembic(fresh_db)
+    command.upgrade(cfg, "0004")
+    with psycopg.connect(fresh_db, autocommit=True) as conn:
+        uid, with_msgs, empty = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        conn.execute("INSERT INTO users (id, name) VALUES (%s, 'm')", (uid,))
+        conn.execute(
+            "INSERT INTO conversations (id, user_id, created_at) VALUES (%s, %s, '2026-01-01T00:00:00Z'), (%s, %s, '2026-02-01T00:00:00Z')",
+            (with_msgs, uid, empty, uid),
+        )
+        conn.execute(
+            "INSERT INTO messages (conversation_id, role, content, created_at) VALUES "
+            "(%s, 'user', 'a', '2026-03-01T00:00:00Z'), (%s, 'assistant', 'b', '2026-03-05T00:00:00Z')",
+            (with_msgs, with_msgs),
+        )
+    command.upgrade(cfg, "head")
+    with psycopg.connect(fresh_db) as conn:
+        got = dict(conn.execute("SELECT id, to_char(last_activity_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM conversations").fetchall())
+        archived = conn.execute("SELECT count(*) FROM conversations WHERE archived_at IS NOT NULL").fetchone()[0]
+    assert got[with_msgs] == "2026-03-05"  # 最后一条消息的时间
+    assert got[empty] == "2026-02-01"  # 没有消息：用创建时间
+    assert archived == 0

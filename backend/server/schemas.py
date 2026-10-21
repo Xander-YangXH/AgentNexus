@@ -21,10 +21,19 @@ class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
 
 
+class ConversationUpdate(BaseModel):
+    """只改传了的字段。title 传 null 表示清空标题；archived 为 true/false 表示归档/恢复。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    archived: bool | None = None
+
+
 class ConversationOut(_Out):
     id: uuid.UUID
     title: str | None
     created_at: datetime
+    last_activity_at: datetime
+    archived_at: datetime | None
 
 
 class MessageCreate(BaseModel):
@@ -33,6 +42,7 @@ class MessageCreate(BaseModel):
 
 class MessageOut(_Out):
     id: uuid.UUID
+    seq: int  # 分页游标：GET .../messages?before_seq=<最早一条的 seq> 取更早的
     role: str
     content: str
     created_at: datetime

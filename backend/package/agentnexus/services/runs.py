@@ -7,8 +7,28 @@ from agentnexus.agents.types import ChatMessage, RunContext
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
 from agentnexus.runtime.failures import ErrorCode
-from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, RunNotRetryable
+from sqlalchemy import func
+
+from agentnexus.services.errors import (
+    ConversationArchived,
+    ConversationNotFound,
+    RunConflict,
+    RunNotFound,
+    RunNotRetryable,
+)
 from agentnexus.storage.postgres import AgentRun, MessageRole, RunStatus
+
+
+AUTO_TITLE_MAX = 30
+
+
+def auto_title(content: str) -> str | None:
+    """新对话的第一条消息自动成为标题：取第一行、去空白，超长截断并加省略号。全是空白则不设标题。"""
+    stripped = content.strip()
+    if not stripped:
+        return None
+    first_line = stripped.splitlines()[0].strip()
+    return first_line if len(first_line) <= AUTO_TITLE_MAX else first_line[:AUTO_TITLE_MAX] + "…"
 
 
 class RunService:
@@ -28,6 +48,11 @@ class RunService:
                 # 归属校验放在服务层：查不到和不属于自己对外同一个错误，不泄露 id 是否存在
                 if conv is None or conv.user_id != user_id:
                     raise ConversationNotFound(str(conversation_id))
+                if conv.archived_at is not None:
+                    raise ConversationArchived(str(conversation_id))
+                if conv.title is None:
+                    conv.title = auto_title(content)
+                conv.last_activity_at = func.now()  # 与消息同一事务：列表排序与消息内容不会不一致
                 msg = await MessageRepository(session).add(conversation_id, MessageRole.USER, content)
                 return await AgentRunRepository(session).create(conversation_id, msg.id)
         except IntegrityError as exc:
@@ -115,6 +140,8 @@ class RunService:
                 conv = await ConversationRepository(session).get(run.conversation_id) if run else None
                 if run is None or conv is None or conv.user_id != user_id:
                     raise RunNotFound(str(run_id))
+                if conv.archived_at is not None:
+                    raise ConversationArchived(str(run.conversation_id))
                 if run.status not in (RunStatus.FAILED, RunStatus.CANCELLED):
                     raise RunNotRetryable("only failed or cancelled runs can be retried")
                 messages = await MessageRepository(session).list_by_conversation(run.conversation_id)
