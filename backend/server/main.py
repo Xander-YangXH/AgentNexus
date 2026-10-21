@@ -6,7 +6,10 @@ from fastapi.responses import JSONResponse
 from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
 from agentnexus.config import get_settings
 from agentnexus.models import build_chat_model
+from datetime import timedelta
+
 from agentnexus.runtime.dispatcher import RunDispatcher
+from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.services.errors import (
     ConversationNotFound,
     RunAlreadyFinished,
@@ -31,9 +34,13 @@ async def lifespan(app: FastAPI):
     app.state.sessionmaker = make_sessionmaker(engine)
     # checkpoint 表由 migrate 服务建好；这里只负责连接
     checkpoint_pool = await open_pool(settings.database_url)
-    agent = ChatbotAgent(
-        ChatbotContext(model=build_chat_model(settings)),
-        checkpointer=AsyncPostgresSaver(checkpoint_pool),
+    checkpointer = AsyncPostgresSaver(checkpoint_pool)
+    agent = ChatbotAgent(ChatbotContext(model=build_chat_model(settings)), checkpointer=checkpointer)
+    janitor = CheckpointJanitor(
+        app.state.sessionmaker,
+        checkpointer,
+        retention=timedelta(hours=settings.checkpoint_retention_hours),
+        interval_seconds=settings.checkpoint_janitor_interval_seconds,
     )
     # 两个 Redis 客户端：发布与订阅分开。SSE 每个客户端占一个阻塞连接，
     # 如果共用一个连接池，订阅者一多就会把连接占满，导致执行方的事件发不出去
@@ -57,7 +64,9 @@ async def lifespan(app: FastAPI):
         app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
     await app.state.dispatcher.start()
+    janitor.start()
     yield
+    await janitor.stop()
     await app.state.dispatcher.stop()
     await sse_redis.aclose()
     await publish_redis.aclose()

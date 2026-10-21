@@ -98,6 +98,11 @@ class AgentRun(Base):
             postgresql_where=text(_in_list("status", ACTIVE_STATUSES)),
         ),
         Index("ix_agent_runs_status", "status"),
+        Index(
+            "ix_agent_runs_checkpoint_purge_candidates",
+            "finished_at",
+            postgresql_where=text("finished_at IS NOT NULL AND checkpoint_purged_at IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -110,3 +115,5 @@ class AgentRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 该 run 的 LangGraph checkpoint 何时被清理（decisions/0010）；用我们自己的列记账，不去查 LangGraph 的内部表
+    checkpoint_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

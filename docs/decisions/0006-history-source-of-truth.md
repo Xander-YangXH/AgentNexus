@@ -49,7 +49,7 @@
 
 ## 实现备注（2026-10-17）
 
-已在 1.4 落地：`ChatbotAgent.run` 把 `ctx.history`（表为准）转成 LangChain 消息整体喂给图，`thread_id=str(run_id)`；系统提示词调用时拼接、不写入 state；checkpoint 表由 `python -m agentnexus.storage.checkpoint` 在 migrate 服务里建。测试覆盖：thread 是 run_id 且 conversation_id 查不到、同一对话多个 run 不叠加、失败后同 thread `invoke(None)` 续跑、第二轮模型看到的是表里的历史。清理（`delete_thread`）与存储增长测量仍未做。
+已在 1.4 落地：`ChatbotAgent.run` 把 `ctx.history`（表为准）转成 LangChain 消息整体喂给图，`thread_id=str(run_id)`；系统提示词调用时拼接、不写入 state；checkpoint 表由 `python -m agentnexus.storage.checkpoint` 在 migrate 服务里建。测试覆盖：thread 是 run_id 且 conversation_id 查不到、同一对话多个 run 不叠加、失败后同 thread `invoke(None)` 续跑、第二轮模型看到的是表里的历史。清理与存储增长测量已在 0010 完成：实测总量随轮数平方增长，结束 24 小时后清理。
 
 ## 验证
 

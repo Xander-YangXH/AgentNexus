@@ -1,9 +1,25 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentnexus.storage.postgres import AgentRun, RunStatus
+
+
+def purge_candidates_stmt(finished_before: datetime, limit: int):
+    # WHERE 必须包含部分索引 ix_agent_runs_checkpoint_purge_candidates 的条件
+    # （finished_at IS NOT NULL AND checkpoint_purged_at IS NULL），规划器才能使用该索引；测试用 EXPLAIN 验证
+    return (
+        select(AgentRun.id)
+        .where(
+            AgentRun.finished_at.is_not(None),
+            AgentRun.finished_at < finished_before,
+            AgentRun.checkpoint_purged_at.is_(None),
+        )
+        .order_by(AgentRun.finished_at)
+        .limit(limit)
+    )
 
 
 class AgentRunRepository:
@@ -91,6 +107,18 @@ class AgentRunRepository:
             .order_by(AgentRun.created_at)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def list_checkpoint_purge_candidates(self, finished_before: datetime, limit: int) -> list[uuid.UUID]:
+        """已结束超过保留期、checkpoint 还没清理的 run。"""
+        return list((await self.session.scalars(purge_candidates_stmt(finished_before, limit))).all())
+
+    async def mark_checkpoint_purged(self, run_ids: list[uuid.UUID]) -> int:
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.id.in_(run_ids), AgentRun.checkpoint_purged_at.is_(None))
+            .values(checkpoint_purged_at=func.now())
+        )
+        return (await self.session.execute(stmt)).rowcount
 
     async def fail_all_running(self, error: str, error_code: str) -> list[uuid.UUID]:
         """把所有 running 的 run 置为 failed，返回它们的 id。仅用于单进程部署的启动恢复。"""
