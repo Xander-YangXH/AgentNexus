@@ -58,6 +58,7 @@ class AgentRunRepository:
         *,
         output_message_id: uuid.UUID | None = None,
         error: str | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """running -> 终态。只允许从 running 转出，防止已结束的 run 被覆盖。"""
         stmt = (
@@ -67,18 +68,36 @@ class AgentRunRepository:
                 status=status,
                 output_message_id=output_message_id,
                 error=error,
+                error_code=error_code,
                 finished_at=func.now(),
             )
         )
         result = await self.session.execute(stmt)
         return result.rowcount == 1
 
-    async def fail_all_running(self, error: str) -> list[uuid.UUID]:
+    async def cancel_queued(self, run_id: uuid.UUID) -> bool:
+        """queued -> cancelled 的原子转换。与 claim 用同一个条件（status='queued'），两者并发时只有一个能成功。"""
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.QUEUED)
+            .values(status=RunStatus.CANCELLED, finished_at=func.now())
+        )
+        return (await self.session.execute(stmt)).rowcount == 1
+
+    async def list_by_conversation(self, conversation_id: uuid.UUID) -> list[AgentRun]:
+        stmt = (
+            select(AgentRun)
+            .where(AgentRun.conversation_id == conversation_id)
+            .order_by(AgentRun.created_at)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def fail_all_running(self, error: str, error_code: str) -> list[uuid.UUID]:
         """把所有 running 的 run 置为 failed，返回它们的 id。仅用于单进程部署的启动恢复。"""
         stmt = (
             update(AgentRun)
             .where(AgentRun.status == RunStatus.RUNNING)
-            .values(status=RunStatus.FAILED, error=error, finished_at=func.now())
+            .values(status=RunStatus.FAILED, error=error, error_code=error_code, finished_at=func.now())
             .returning(AgentRun.id)
         )
         return list((await self.session.execute(stmt)).scalars().all())

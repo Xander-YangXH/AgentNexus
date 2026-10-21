@@ -6,8 +6,8 @@ from typing import Any, Protocol
 RUN_STARTED = "run.started"
 TOKEN = "token"  # data: {"text": "..."}
 RUN_COMPLETED = "run.completed"  # data: {"message_id": "..."}
-RUN_FAILED = "run.failed"  # data: {"error": "..."}
-RUN_CANCELLED = "run.cancelled"  # 预留：取消 run 还未实现
+RUN_FAILED = "run.failed"  # data: {"error_code": "..."}（错误码见 runtime/failures.py；原始报错不对外）
+RUN_CANCELLED = "run.cancelled"  # data: {}
 TERMINAL_EVENTS = frozenset({RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED})
 
 

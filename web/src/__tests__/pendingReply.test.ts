@@ -18,12 +18,25 @@ describe('pending reply state machine', () => {
 
   it('failed keeps the partial text and the error', () => {
     let p = applyRunEvent(newPending('r', 0), tok('半截'))
-    p = applyRunEvent(p, { type: 'run.failed', data: { error: 'timeout after 300s' }, id: null })
-    expect([p.status, p.text, p.error]).toEqual(['failed', '半截', 'timeout after 300s'])
+    p = applyRunEvent(p, { type: 'run.failed', data: { error_code: 'timeout' }, id: null })
+    expect([p.status, p.text, p.errorCode]).toEqual(['failed', '半截', 'timeout'])
   })
 
   it('ignores events after a terminal state', () => {
-    const done = applyRunEvent(newPending('r', 0), { type: 'run.failed', data: { error: 'x' }, id: null })
+    const done = applyRunEvent(newPending('r', 0), { type: 'run.failed', data: { error_code: 'x' }, id: null })
     expect(applyRunEvent(done, tok('late'))).toBe(done)
+  })
+})
+
+describe('cancel and error codes', () => {
+  it('cancelled keeps partial text', () => {
+    let p = applyRunEvent(newPending('r', 0), tok('半'))
+    p = applyRunEvent(p, { type: 'run.cancelled', data: {}, id: null })
+    expect([p.status, p.text]).toEqual(['cancelled', '半'])
+  })
+
+  it('failed stores the error code, defaulting to internal', () => {
+    const p = applyRunEvent(newPending('r', 0), { type: 'run.failed', data: { error_code: null }, id: null })
+    expect([p.status, p.errorCode]).toEqual(['failed', 'internal'])
   })
 })

@@ -1,11 +1,29 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Message } from '../api/types'
-import type { PendingReply } from '../composables/pendingReply'
+import { isActive, type PendingReply } from '../composables/pendingReply'
+import type { RunNotice } from '../composables/runNotices'
+import { describeError } from '../utils/errors'
 import { renderMarkdown } from '../utils/markdown'
 
-const props = defineProps<{ messages: Message[]; pending: PendingReply | null; error: string | null; busy: boolean }>()
-const emit = defineEmits<{ send: [text: string] }>()
+const props = defineProps<{
+  messages: Message[]
+  notices: Map<string, RunNotice>
+  pending: PendingReply | null
+  error: string | null
+  busy: boolean
+}>()
+const emit = defineEmits<{ send: [text: string]; stop: []; retry: [runId: string] }>()
+
+const SLOW_HINT_SECONDS = 20 // Gemini 免费档首字实测 7~173 秒；超过这个时间提示用户可以停止
+
+function noticeText(n: RunNotice) {
+  return n.kind === 'cancelled' ? '已停止生成' : `回复失败：${describeError(n.errorCode)}`
+}
+// 当前这条回复对应的标注放在半截内容下面，其余的放在各自的用户消息下面
+const pendingNotice = computed(() =>
+  props.pending ? [...props.notices.values()].find((n) => n.runId === props.pending!.runId) ?? null : null,
+)
 
 const input = ref('')
 const scroller = ref<HTMLElement | null>(null)
@@ -47,28 +65,46 @@ watch(
 <template>
   <div class="panel">
     <div ref="scroller" class="messages">
-      <div v-for="m in messages" :key="m.id" :class="['row', m.role]">
-        <div v-if="m.role === 'assistant'" class="bubble md" v-html="renderMarkdown(m.content)" />
-        <div v-else class="bubble plain">{{ m.content }}</div>
-      </div>
+      <template v-for="m in messages" :key="m.id">
+        <div :class="['row', m.role]">
+          <div v-if="m.role === 'assistant'" class="bubble md" v-html="renderMarkdown(m.content)" />
+          <div v-else class="bubble plain">{{ m.content }}</div>
+        </div>
+        <div
+          v-if="notices.get(m.id) && notices.get(m.id)!.runId !== pending?.runId"
+          :class="['notice', notices.get(m.id)!.kind]"
+        >
+          {{ noticeText(notices.get(m.id)!) }}
+          <a-button
+            v-if="notices.get(m.id)!.retryable"
+            size="small"
+            :disabled="busy"
+            @click="emit('retry', notices.get(m.id)!.runId)"
+          >
+            重试
+          </a-button>
+        </div>
+      </template>
 
       <div v-if="pending" class="row assistant">
         <div v-if="pending.status === 'waiting'" class="bubble waiting">
           <a-spin size="small" /> 等待模型开始输出… {{ waitedSeconds }} 秒
+          <div v-if="waitedSeconds >= SLOW_HINT_SECONDS" class="slow">模型响应较慢，可以继续等待，或点击“停止”。</div>
         </div>
-        <div v-else-if="pending.text" :class="['bubble', 'md', { interrupted: pending.status === 'failed' }]">
+        <div
+          v-else-if="pending.text"
+          :class="['bubble', 'md', { interrupted: pending.status === 'failed' || pending.status === 'cancelled' }]"
+        >
           <div v-html="renderMarkdown(pending.text)" />
           <span v-if="pending.status === 'streaming'" class="cursor">▍</span>
         </div>
       </div>
-      <a-alert
-        v-if="pending?.status === 'failed'"
-        type="error"
-        show-icon
-        class="alert"
-        :message="`生成中断：${pending.error}`"
-:description="pending.text ? '已显示的部分没有保存。可以重新发送这条消息。' : '模型没有返回内容。可以重新发送这条消息。'"
-      />
+      <div v-if="pendingNotice" :class="['notice', pendingNotice.kind]">
+        {{ noticeText(pendingNotice) }}<template v-if="pending?.text">（已显示的部分没有保存）</template>
+        <a-button v-if="pendingNotice.retryable" size="small" :disabled="busy" @click="emit('retry', pendingNotice.runId)">
+          重试
+        </a-button>
+      </div>
     </div>
 
     <a-alert v-if="error" type="warning" show-icon class="alert" :message="error" />
@@ -79,7 +115,9 @@ watch(
         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
         @keydown="onKeydown"
       />
-      <a-button type="primary" :loading="busy" :disabled="!input.trim()" @click="submit">发送</a-button>
+      <!-- 生成中：“发送”变成“停止”。停止的结果以随后到达的 run.cancelled 事件为准 -->
+      <a-button v-if="isActive(pending)" danger @click="emit('stop')">停止</a-button>
+      <a-button v-else type="primary" :loading="busy" :disabled="!input.trim()" @click="submit">发送</a-button>
     </div>
   </div>
 </template>
@@ -133,6 +171,24 @@ watch(
   overflow-x: auto;
 }
 .waiting {
+  color: #888;
+}
+.slow {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin: -4px 0 12px;
+  font-size: 12px;
+}
+.notice.failed {
+  color: #cf1322;
+}
+.notice.cancelled {
   color: #888;
 }
 .interrupted {

@@ -105,7 +105,8 @@ class AgentRun(Base):
     input_message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id"))
     output_message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("messages.id"))
     status: Mapped[str] = mapped_column(String(16), default=RunStatus.QUEUED)
-    error: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)  # 原始报错，只供排查，不对外
+    error_code: Mapped[str | None] = mapped_column(String(32))  # 对外的错误码（runtime/failures.py）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

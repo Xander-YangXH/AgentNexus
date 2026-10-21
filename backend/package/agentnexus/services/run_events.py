@@ -31,7 +31,7 @@ def _synthesize(run: AgentRun) -> RunEvent:
         return RunEvent(RUN_COMPLETED, {"message_id": str(run.output_message_id), "synthesized": True})
     if run.status == RunStatus.CANCELLED:
         return RunEvent(RUN_CANCELLED, {"synthesized": True})
-    return RunEvent(RUN_FAILED, {"error": run.error, "synthesized": True})
+    return RunEvent(RUN_FAILED, {"error_code": run.error_code or "internal", "synthesized": True})
 
 
 class RunEventStreamer:

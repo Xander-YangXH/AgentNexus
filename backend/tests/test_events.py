@@ -134,7 +134,9 @@ async def test_failure_emits_failed_with_same_error_as_db(sessionmaker, user, re
     finally:
         await d.stop()
     assert _types(seen) == [RUN_STARTED, RUN_FAILED]
-    assert seen[-1].data["error"] == (await _run(sessionmaker, run.id)).error == "RuntimeError: llm down"
+    got = await _run(sessionmaker, run.id)
+    assert seen[-1].data == {"error_code": "internal"}  # 对外只有错误码
+    assert (got.error, got.error_code) == ("RuntimeError: llm down", "internal")  # 原始报错只在数据库
 
 
 async def test_startup_recovery_emits_failed_for_orphaned_runs(sessionmaker, user, redis):
@@ -146,7 +148,7 @@ async def test_startup_recovery_emits_failed_for_orphaned_runs(sessionmaker, use
     await d.start()
     await d.stop()
     events = await RunEventReader(redis).read(run.id, "0-0", block_ms=None)
-    assert _types(events) == [RUN_FAILED] and "restarted" in events[0].data["error"]
+    assert _types(events) == [RUN_FAILED] and events[0].data == {"error_code": "interrupted"}
 
 
 async def test_run_still_succeeds_when_redis_is_down(sessionmaker, user):
@@ -224,7 +226,7 @@ async def test_lost_terminal_event_is_synthesized_while_waiting(sessionmaker, us
     asyncio.create_task(fail_silently_later())
     events = await _collect(streamer.stream(run.id), timeout=3)
     assert _types(events) == [RUN_STARTED, RUN_FAILED]
-    assert events[-1].data == {"error": "crashed", "synthesized": True}
+    assert events[-1].data == {"error_code": "internal", "synthesized": True}
 
 
 async def test_streamer_falls_back_to_db_polling_when_redis_is_down(sessionmaker, user):

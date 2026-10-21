@@ -2,7 +2,7 @@
 
 > 学习导读：跟着一条用户消息，从发出请求到浏览器里逐字显示，走一遍 AgentNexus 目前的核心链路。
 > 每一步都写了**发生了什么、代码在哪、为什么这样设计、出了故障会怎样**。读完应该能对着代码讲清楚整条链路。
-> 对应阶段：ROADMAP 阶段 1（核心骨架）。相关决策：[0008](../decisions/0008-frontend-integration.md)（前端）、[0004](../decisions/0004-data-layer-sqlalchemy-alembic.md)、[0005](../decisions/0005-in-process-dispatcher-first.md)、[0006](../decisions/0006-history-source-of-truth.md)、[0007](../decisions/0007-streaming-events.md)。
+> 对应阶段：ROADMAP 阶段 1（核心骨架）。相关决策：[0009](../decisions/0009-cancel-retry-error-codes.md)（取消/重试/错误码）、[0008](../decisions/0008-frontend-integration.md)（前端）、[0004](../decisions/0004-data-layer-sqlalchemy-alembic.md)、[0005](../decisions/0005-in-process-dispatcher-first.md)、[0006](../decisions/0006-history-source-of-truth.md)、[0007](../decisions/0007-streaming-events.md)。
 
 ---
 
@@ -250,6 +250,16 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 
 **部署时**：浏览器访问 Nginx（`http://localhost:8080`），Nginx 提供打包好的页面，并把 `/api` 转发给 api 容器；对 SSE 关闭缓冲。
 
+### 6.2 停止、失败与重试（决策 0009）
+
+- **停止**：生成中“发送”变成“停止”，点击后 `POST /api/runs/{id}/cancel`。排队中的 run 直接在库里改为 `cancelled`（200）；执行中的 run 由派发器取消执行 Agent 的任务（202），随后事件流里出现 `run.cancelled`，界面显示“已停止生成”。
+- **失败原因**：事件和接口里只有错误码，前端翻译成“模型服务暂时不可用”之类的文案；原始报错只在数据库 `agent_runs.error` 和服务端日志里。
+- **刷新后仍可见**：加载对话时一起取回 `GET /api/conversations/{id}/runs`，每条用户消息看它最新的 run，失败或已停止就在下方标注。
+- **重试**：最后一条消息的标注旁有“重试”，调用 `POST /api/runs/{id}/retry`，对同一条输入消息新建 run，历史里不会出现重复提问。
+- **等待过久**：等待首字超过 20 秒提示“可以继续等待或停止”。
+
+**派发器里取消的实现**（[`dispatcher.py`](../../backend/package/agentnexus/runtime/dispatcher.py) 的 `cancel` 与 `_process`）：每个 run 的 Agent 在独立任务里执行；取消先登记再取消任务（覆盖“已认领、任务未创建”的空档）；用 `Task.cancelling()` 区分“用户取消”和“服务关停”。
+
 ---
 
 ## 7. 这一步踩过的最有价值的坑：套接字超时让“流式”变成了“一次性”
@@ -295,6 +305,9 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 12. 前端怎么解析 SSE？数据块被切在任意位置、`\r\n` 跨块、中文字符被切开，分别怎么处理？
 13. 用户在回复生成到一半时刷新页面，发生了什么？为什么已经生成的内容不会丢？
 14. 为什么 Nginx 后面的 SSE 可能变成“一次性输出”？你做了哪两层处理，怎么验证其中一层就够了？
+15. 用户点“停止”时，排队中和执行中的 run 分别怎么处理？为什么执行中的返回 202？
+16. 用户取消和服务关停在代码里都是 `CancelledError`，怎么区分？区分错了会发生什么？
+17. 为什么失败原因对外只给错误码？重试为什么不新增用户消息、为什么只能重试最后一条？
 
 ---
 
@@ -303,7 +316,7 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 - **单进程假设**：api 只能起 1 个实例、uvicorn 不能开多 workers（阶段 4 用 lease 解决）。
 - **被打断的 run 标失败而不是续跑**：checkpoint 已经具备续跑能力，但还没接上。
 - **并发 SSE 流上限约等于阻塞读连接池大小**（默认 200）；更大规模要改成“每个 run 一个读取协程 + 进程内扇出”。
-- **取消 run 还没做**，所以前端也没有“停止生成”按钮。
-- **失败的回复刷新后看不到失败原因**：失败信息在 `agent_runs.error`，界面只在当次会话里显示；而且目前直接显示供应商的原始报错，面向真实用户前要改成友好提示。
+- **取消信号不跨进程**：阶段 4 拆出独立 worker 后要改成 Redis 或数据库信号。
+- **取消和失败时的半截内容都不保存**：这是产品取舍（决策 0009），可调整。
 - **Gemini 免费档延迟波动很大**：实测首块从 7 秒到 173 秒不等，`RUN_TIMEOUT_SECONDS=300` 离上限不远；这是外部服务的问题，但需要在产品上考虑（超时提示、可重试）。
 - **测试套件出现过一次原因不明的失败**：发生在一次变异检查还原之后，之后连续 23 次全量通过，未能复现（见 dev-log 问题索引）。

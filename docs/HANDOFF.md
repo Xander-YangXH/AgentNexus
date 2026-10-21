@@ -23,7 +23,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - [x] 前端页面（`web/`，decisions/0008）：fetch 读取 SSE、刷新接上生成中的回复、Nginx 部署（`http://localhost:8080`）。前端 17 个测试、后端 61 个测试；浏览器实测通过
 
 ## 下一步
-1. 阶段 1 收尾（可挑选）：取消 run（含前端“停止生成”）；失败原因刷新后可见、错误提示友好化；checkpoint 清理；对话改标题/删除。
+1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：checkpoint 清理与存储测量、统一错误响应与请求日志/request-id；第三批：对话改标题/归档、消息分页。
 2. 进入阶段 2「RAG 知识库」：先写向量库与 embedding 选型的 decision 草稿（含实验），再动手。
 3. 待用户决定：何时推送；是否把 README 的阶段 1 勾上（里程碑已达成，收尾项未完成）。
 
@@ -44,8 +44,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q28。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q29。

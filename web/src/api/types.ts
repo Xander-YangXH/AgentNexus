@@ -26,7 +26,7 @@ export interface Run {
   input_message_id: string
   output_message_id: string | null
   status: RunStatus
-  error: string | null
+  error_code: string | null // 原始报错不对外，只有错误码（decisions/0009）
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -37,7 +37,7 @@ export type RunEvent =
   | { type: 'run.started'; data: Record<string, never>; id: string | null }
   | { type: 'token'; data: { text: string }; id: string | null }
   | { type: 'run.completed'; data: { message_id: string; synthesized?: boolean }; id: string | null }
-  | { type: 'run.failed'; data: { error: string | null; synthesized?: boolean }; id: string | null }
+  | { type: 'run.failed'; data: { error_code: string | null; synthesized?: boolean }; id: string | null }
   | { type: 'run.cancelled'; data: { synthesized?: boolean }; id: string | null }
 
 export const TERMINAL_EVENTS = new Set(['run.completed', 'run.failed', 'run.cancelled'])

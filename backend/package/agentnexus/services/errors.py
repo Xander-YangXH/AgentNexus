@@ -12,3 +12,11 @@ class RunConflict(Exception):
 
 class UserExists(Exception):
     pass
+
+
+class RunAlreadyFinished(Exception):
+    """run 已经成功或失败，不能再取消。"""
+
+
+class RunNotRetryable(Exception):
+    """只有失败或已取消、且输入是对话最后一条消息的 run 才能重试。"""

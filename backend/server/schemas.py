@@ -44,7 +44,7 @@ class RunOut(_Out):
     input_message_id: uuid.UUID
     output_message_id: uuid.UUID | None
     status: str
-    error: str | None
+    error_code: str | None  # 原始报错不对外（decisions/0009）
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None

@@ -10,23 +10,37 @@
 
 事件（decisions/0007）：认领后发 run.started；终态事件一律“先提交数据库、再发布”，
 所以客户端收到 run.completed 时助手消息一定已经落库。事件发不出去不影响 run 本身。
+
+取消（decisions/0009）：每个 run 的 Agent 在独立的任务里执行，取消只取消这个任务，不影响 worker 循环。
+“用户取消”和“服务关停”在代码里都是 CancelledError，用 Task.cancelling() 区分：
+外层 worker 任务本身正在被取消 = 关停；否则 = 用户取消。
+单进程限制：取消信号只在本进程内传递，阶段 4 拆出独立 worker 后要改成跨进程信号（Redis 或数据库标记）。
 """
 
 import asyncio
 import contextlib
 import dataclasses
 import logging
+import enum
 import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.agents.types import RunHandler
-from agentnexus.events import NULL_SINK, RUN_COMPLETED, RUN_FAILED, RUN_STARTED
+from agentnexus.events import NULL_SINK, RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RUN_STARTED
 from agentnexus.events.redis_stream import RunEventPublisher
+from agentnexus.runtime.failures import ErrorCode, classify
 from agentnexus.services.runs import RunService
+from agentnexus.storage.postgres import RunStatus
 
 log = logging.getLogger(__name__)
+
+
+class CancelOutcome(enum.StrEnum):
+    CANCELLED = "cancelled"  # 还在排队，已直接取消
+    REQUESTED = "requested"  # 正在执行，已发出取消信号；最终结果以 run.cancelled 事件 / 数据库状态为准
+    FINISHED = "finished"  # 已经结束（成功、失败或早已取消），无需取消
 
 
 class RunDispatcher:
@@ -50,6 +64,9 @@ class RunDispatcher:
         # 已入队或正在处理的 run：避免“提交时入队”和“扫描补投”重复排队（正确性仍由 claim 兜底）
         self._pending: set[uuid.UUID] = set()
         self._tasks: list[asyncio.Task] = []
+        # 正在执行的 run -> 执行它的任务；以及“已请求取消”的 run（覆盖“已认领、任务还没建”的空档）
+        self._inflight: dict[uuid.UUID, asyncio.Task] = {}
+        self._cancel_requested: set[uuid.UUID] = set()
 
     # ---------- 对外接口 ----------
 
@@ -66,16 +83,32 @@ class RunDispatcher:
         return sum(self.enqueue(rid) for rid in await self._svc.list_queued_ids())
 
     async def start(self) -> None:
-        error = "interrupted: worker restarted"
-        orphaned = await self._svc.fail_orphaned_running(error)
+        orphaned = await self._svc.fail_orphaned_running("interrupted: worker restarted", ErrorCode.INTERRUPTED)
         if orphaned:
             log.warning("startup recovery: marked %d orphaned running run(s) as failed", len(orphaned))
         # 补发终态事件：上一个进程没来得及发，正在订阅的客户端靠它结束（SSE 的查库兜底是第二道保险）
         for run_id in orphaned:
-            await self._emit(run_id, RUN_FAILED, {"error": error})
+            await self._emit(run_id, RUN_FAILED, {"error_code": ErrorCode.INTERRUPTED})
         await self.sweep()
         self._tasks = [asyncio.create_task(self._worker_loop()) for _ in range(self._concurrency)]
         self._tasks.append(asyncio.create_task(self._sweep_loop()))
+
+    async def cancel(self, run_id: uuid.UUID) -> CancelOutcome:
+        """请求取消一个 run。调用方负责归属校验。"""
+        # 1) 还在排队：直接在数据库里 queued -> cancelled。与 claim 用同一个条件，二者并发只有一个成功
+        if await self._svc.cancel_queued(run_id):
+            await self._emit(run_id, RUN_CANCELLED, {})
+            return CancelOutcome.CANCELLED
+        # 2) 没取消成功：要么刚被认领（running），要么已经结束
+        run = await self._svc.find(run_id)
+        if run is None or run.status != RunStatus.RUNNING:
+            return CancelOutcome.FINISHED
+        # 3) 正在执行：先登记，再取消任务。登记是为了覆盖“已认领、任务还没创建”的空档（_process 会检查）
+        self._cancel_requested.add(run_id)
+        task = self._inflight.get(run_id)
+        if task is not None:
+            task.cancel()
+        return CancelOutcome.REQUESTED
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -110,34 +143,49 @@ class RunDispatcher:
 
     async def _process(self, run_id: uuid.UUID) -> None:
         if not await self._svc.claim(run_id):
-            return  # 已被别人抢走、或已不是 queued（例如已结束），正常情况
+            self._cancel_requested.discard(run_id)
+            return  # 已被别人抢走、或已不是 queued（例如已结束、已取消），正常情况
         await self._emit(run_id, RUN_STARTED, {})
 
-        ctx = None
         try:
             ctx = await self._svc.load_context(run_id)
             sink = self._events.sink(run_id) if self._events else NULL_SINK
             ctx = dataclasses.replace(ctx, events=sink)
-            content = await asyncio.wait_for(self._handler(ctx), timeout=self._run_timeout)
+            task = asyncio.create_task(self._handler(ctx))
+            self._inflight[run_id] = task
+            if run_id in self._cancel_requested:  # 取消请求在任务创建之前就到了
+                task.cancel()
+            content = await asyncio.wait_for(task, timeout=self._run_timeout)
         except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if run_id in self._cancel_requested and current is not None and current.cancelling() == 0:
+                # 用户取消：外层 worker 任务没有被取消，被取消的只是执行 Agent 的那个任务。收尾后不再向上抛
+                if await self._svc.cancel_running(run_id):
+                    await self._emit(run_id, RUN_CANCELLED, {})
+                return
             # 关停：run 已是 running，不能留着不管。shield 保证收尾写库不被第二次取消打断
             with contextlib.suppress(Exception):
-                await asyncio.shield(self._fail(run_id, "interrupted: shutdown"))
+                await asyncio.shield(self._fail(run_id, "interrupted: shutdown", ErrorCode.INTERRUPTED))
             raise
         except TimeoutError:
-            await self._fail(run_id, f"timeout after {self._run_timeout}s")
+            await self._fail(run_id, f"timeout after {self._run_timeout}s", ErrorCode.TIMEOUT)
         except Exception as exc:
-            await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000])
+            log.warning("run %s failed", run_id, exc_info=True)  # 原始异常写日志，便于排查
+            await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000], classify(exc))
         else:
             message_id = await self._svc.complete(run_id, ctx.conversation_id, content)
             if message_id is None:
                 log.warning("run %s was no longer running when it finished; result discarded", run_id)
             else:
                 await self._emit(run_id, RUN_COMPLETED, {"message_id": str(message_id)})
+        finally:
+            self._inflight.pop(run_id, None)
+            self._cancel_requested.discard(run_id)
 
-    async def _fail(self, run_id: uuid.UUID, error: str) -> None:
-        if await self._svc.fail(run_id, error):  # 先提交
-            await self._emit(run_id, RUN_FAILED, {"error": error})  # 后发布
+    async def _fail(self, run_id: uuid.UUID, error: str, error_code: ErrorCode) -> None:
+        # 原始报错只进数据库（error 列）；事件里只放错误码
+        if await self._svc.fail(run_id, error, error_code):  # 先提交
+            await self._emit(run_id, RUN_FAILED, {"error_code": error_code})  # 后发布
 
     async def _emit(self, run_id: uuid.UUID, type: str, data: dict[str, Any]) -> None:
         if self._events is not None:

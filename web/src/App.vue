@@ -37,10 +37,13 @@ function run(action: Promise<unknown>) {
       <ChatPanel
         v-if="chat.conversationId.value"
         :messages="chat.messages.value"
+        :notices="chat.notices.value"
         :pending="chat.pending.value"
         :error="chat.error.value"
         :busy="chat.busy.value"
         @send="(text: string) => run(chat.send(text))"
+        @stop="run(chat.stop())"
+        @retry="(runId: string) => run(chat.retry(runId))"
       />
       <a-empty v-else class="empty" :description="chat.userId.value ? '新建或选择一个对话' : '先选择或创建一个用户'" />
     </a-layout-content>

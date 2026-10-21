@@ -1,8 +1,9 @@
 import { computed, ref, shallowRef } from 'vue'
 import { api, authHeaders, HttpError, setCurrentUser } from '../api/http'
 import { streamRunEvents } from '../api/sse'
-import type { Conversation, Message, User } from '../api/types'
-import { applyRunEvent, newPending, type PendingReply } from './pendingReply'
+import type { Conversation, Message, Run, User } from '../api/types'
+import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
+import { computeNotices } from './runNotices'
 
 const USER_KEY = 'agentnexus.userId'
 
@@ -28,15 +29,24 @@ export function useChat() {
   const conversations = ref<Conversation[]>([])
   const conversationId = ref<string | null>(null)
   const messages = ref<Message[]>([])
+  const runs = ref<Run[]>([])
   const pending = ref<PendingReply | null>(null)
   const error = ref<string | null>(null)
   const sending = ref(false)
   // 当前订阅的事件流；切换对话或用户时中止，避免旧流把 token 写进新对话
   const streamAbort = shallowRef<AbortController | null>(null)
 
-  const busy = computed(
-    () => sending.value || pending.value?.status === 'waiting' || pending.value?.status === 'streaming',
-  )
+  const busy = computed(() => sending.value || isActive(pending.value))
+  const notices = computed(() => computeNotices(messages.value, runs.value))
+
+  // 以数据库为准刷新：消息和 run 一起拉
+  async function reload(cid: string) {
+    const [m, r] = await Promise.all([api.listMessages(cid), api.listRuns(cid)])
+    if (conversationId.value === cid) {
+      messages.value = m
+      runs.value = r
+    }
+  }
 
   function stopStream() {
     streamAbort.value?.abort()
@@ -62,6 +72,7 @@ export function useChat() {
     storeUser(id)
     conversationId.value = null
     messages.value = []
+    runs.value = []
     pending.value = null
     conversations.value = await api.listConversations()
     if (conversations.value.length) await selectConversation(conversations.value[0].id)
@@ -78,7 +89,7 @@ export function useChat() {
     conversationId.value = id
     pending.value = null
     error.value = null
-    messages.value = await api.listMessages(id)
+    await reload(id)
     // 刷新页面或切回来时，这个对话可能还有正在生成的回复：找回来并重新订阅。
     // 事件流从头回放（decisions/0007），所以已经生成的部分会立刻补齐。
     const active = await api.activeRun(id)
@@ -94,7 +105,7 @@ export function useChat() {
     try {
       const run = await api.sendMessage(cid, content)
       // 用户消息已落库：重新拉取列表，而不是在前端手动拼一条（以数据库为准）
-      messages.value = await api.listMessages(cid)
+      await reload(cid)
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
       error.value =
@@ -119,16 +130,38 @@ export function useChat() {
     })
       .then(async (terminal) => {
         if (conversationId.value !== cid) return
-        if (terminal.type === 'run.completed') {
-          messages.value = await api.listMessages(cid) // 用库里的最终回复替换临时回复
-          pending.value = null
-        }
-        // 失败时保留 pending（status=failed），界面显示半截文本 + “生成中断”
+        await reload(cid) // 完成：用库里的最终回复替换临时回复；失败/取消：拿到 run 的终态，显示原因与重试入口
+        if (terminal.type === 'run.completed') pending.value = null
+        // 失败/取消时保留 pending，界面继续显示已收到的半截文本
       })
       .catch((e) => {
         if (controller.signal.aborted) return // 主动切换对话，不算错误
         error.value = `与服务端的连接中断：${String(e)}`
       })
+  }
+
+  async function stop() {
+    const runId = pending.value?.runId
+    if (!runId || !isActive(pending.value)) return
+    try {
+      // 200（排队中已取消）或 202（执行中已发信号）：结果以随后到达的 run.cancelled 事件为准
+      await api.cancelRun(runId)
+    } catch (e) {
+      if (!(e instanceof HttpError && e.status === 409)) error.value = `停止失败：${String(e)}` // 409：恰好已经结束
+    }
+  }
+
+  async function retry(runId: string) {
+    const cid = conversationId.value
+    if (!cid) return
+    error.value = null
+    try {
+      const run = await api.retryRun(runId)
+      await reload(cid)
+      follow(run.id, cid, Date.parse(run.created_at))
+    } catch (e) {
+      error.value = e instanceof HttpError && e.status === 409 ? '这条消息现在不能重试' : `重试失败：${String(e)}`
+    }
   }
 
   return {
@@ -137,6 +170,7 @@ export function useChat() {
     conversations,
     conversationId,
     messages,
+    notices,
     pending,
     error,
     busy,
@@ -146,5 +180,7 @@ export function useChat() {
     newConversation,
     selectConversation,
     send,
+    stop,
+    retry,
   }
 }

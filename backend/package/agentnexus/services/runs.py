@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from agentnexus.agents.types import ChatMessage, RunContext
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
-from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound
+from agentnexus.runtime.failures import ErrorCode
+from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, RunNotRetryable
 from agentnexus.storage.postgres import AgentRun, MessageRole, RunStatus
 
 
@@ -79,9 +80,51 @@ class RunService:
                 return None
             return msg.id
 
-    async def fail(self, run_id: uuid.UUID, error: str) -> bool:
+    async def fail(self, run_id: uuid.UUID, error: str, error_code: str = ErrorCode.INTERNAL) -> bool:
         async with self.sessionmaker() as session, session.begin():
-            return await AgentRunRepository(session).finish(run_id, RunStatus.FAILED, error=error)
+            return await AgentRunRepository(session).finish(
+                run_id, RunStatus.FAILED, error=error, error_code=error_code
+            )
+
+    async def cancel_queued(self, run_id: uuid.UUID) -> bool:
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).cancel_queued(run_id)
+
+    async def cancel_running(self, run_id: uuid.UUID) -> bool:
+        """running -> cancelled。与 complete/fail 一样只允许从 running 转出，先到者赢。"""
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).finish(run_id, RunStatus.CANCELLED)
+
+    async def list_for_conversation(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> list[AgentRun]:
+        async with self.sessionmaker() as session:
+            conv = await ConversationRepository(session).get(conversation_id)
+            if conv is None or conv.user_id != user_id:
+                raise ConversationNotFound(str(conversation_id))
+            return await AgentRunRepository(session).list_by_conversation(conversation_id)
+
+    async def retry(self, user_id: uuid.UUID, run_id: uuid.UUID) -> AgentRun:
+        """对同一条输入消息新建一个 run，不新增用户消息（历史里不会出现重复提问）。
+
+        只允许重试“对话的最后一条消息”：load_context 取的是截止到输入消息的历史，
+        如果后面已经有别的消息，新回复会被追加到最后，顺序就乱了。
+        """
+        try:
+            async with self.sessionmaker() as session, session.begin():
+                runs = AgentRunRepository(session)
+                run = await runs.get(run_id)
+                conv = await ConversationRepository(session).get(run.conversation_id) if run else None
+                if run is None or conv is None or conv.user_id != user_id:
+                    raise RunNotFound(str(run_id))
+                if run.status not in (RunStatus.FAILED, RunStatus.CANCELLED):
+                    raise RunNotRetryable("only failed or cancelled runs can be retried")
+                messages = await MessageRepository(session).list_by_conversation(run.conversation_id)
+                if not messages or messages[-1].id != run.input_message_id:
+                    raise RunNotRetryable("only the latest message can be retried")
+                return await runs.create(run.conversation_id, run.input_message_id)
+        except IntegrityError as exc:
+            if "uq_agent_runs_one_active_per_conversation" in str(exc.orig):
+                raise RunConflict(str(run_id)) from exc
+            raise
 
     async def list_queued_ids(self, limit: int = 1000) -> list[uuid.UUID]:
         async with self.sessionmaker() as session:
@@ -102,6 +145,6 @@ class RunService:
                 history=[ChatMessage(m.role, m.content) for m in history],
             )
 
-    async def fail_orphaned_running(self, error: str) -> list[uuid.UUID]:
+    async def fail_orphaned_running(self, error: str, error_code: str) -> list[uuid.UUID]:
         async with self.sessionmaker() as session, session.begin():
-            return await AgentRunRepository(session).fail_all_running(error)
+            return await AgentRunRepository(session).fail_all_running(error, error_code)

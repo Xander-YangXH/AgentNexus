@@ -7,7 +7,14 @@ from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
 from agentnexus.config import get_settings
 from agentnexus.models import build_chat_model
 from agentnexus.runtime.dispatcher import RunDispatcher
-from agentnexus.services.errors import ConversationNotFound, RunConflict, RunNotFound, UserExists
+from agentnexus.services.errors import (
+    ConversationNotFound,
+    RunAlreadyFinished,
+    RunConflict,
+    RunNotFound,
+    RunNotRetryable,
+    UserExists,
+)
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.storage.checkpoint import open_pool
@@ -77,6 +84,8 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.add_exception_handler(RunNotFound, _error(404, "run not found"))
     app.add_exception_handler(RunConflict, _error(409, "conversation already has an active run"))
     app.add_exception_handler(UserExists, _error(409, "user name already exists"))
+    app.add_exception_handler(RunAlreadyFinished, _error(409, "run already finished"))
+    app.add_exception_handler(RunNotRetryable, _error(409, "run cannot be retried"))
     return app
 
 

@@ -39,4 +39,7 @@ export const api = {
   listMessages: (cid: string) => request<Message[]>('GET', `/api/conversations/${cid}/messages`),
   sendMessage: (cid: string, content: string) => request<Run>('POST', `/api/conversations/${cid}/messages`, { content }),
   activeRun: (cid: string) => request<Run | null>('GET', `/api/conversations/${cid}/active-run`),
+  listRuns: (cid: string) => request<Run[]>('GET', `/api/conversations/${cid}/runs`),
+  cancelRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/cancel`),
+  retryRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/retry`),
 }
