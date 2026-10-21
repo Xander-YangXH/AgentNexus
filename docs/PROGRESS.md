@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 1 已全部完成。模型已切换为 DeepSeek（decisions/0013）。下一步：阶段 2「RAG 知识库」，先写向量库与 embedding 选型的 decision 草稿。**
+**阶段 1 已全部完成，模型已切换为 DeepSeek（0013）。阶段 2 选型草稿 0014 已写好（含评测与基准实验），等确认后开始实现。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -20,13 +20,13 @@
 |---|---|---|---|---|
 | M0 工程基础与环境 | 12 | 2 | 14 | 85% |
 | M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
-| M2 RAG 知识库 | 0 | 0 | 11 | 0% |
+| M2 RAG 知识库 | 1 | 0 | 12 | 8% |
 | M3 知识图谱 | 0 | 0 | 8 | 0% |
 | M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 3 | 0 | 7 | 42% |
-| **合计** | **68** | 2 | **116** | **58%** |
+| **合计** | **69** | 2 | **117** | **58%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -197,7 +197,8 @@
 
 ### M2 RAG 知识库（阶段 2）
 
-- [ ] 写 decision：向量库选型（Qdrant）与 embedding / rerank 模型接入方式
+- [x] 写 decision **草稿** 0014：本地 bge-small-zh embedding、bge-reranker 重排、Qdrant（派生索引）vs pgvector，含评测集与基准测试（`backend/eval/`）
+- [ ] **等你确认 0014 的三个开放问题**
 - [ ] compose 加入 qdrant、minio；`storage/` 增加对应连接管理
 - [ ] 表：knowledge_bases / documents / chunks；文档上传落 MinIO，元数据落 Postgres
 - [ ] 文档解析 `knowledge/parser`：PDF / Word / Markdown（pypdf、python-docx、unstructured 三选一起步，写选型理由）
