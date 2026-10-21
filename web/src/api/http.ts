@@ -1,11 +1,39 @@
 import type { Conversation, Message, Run, User } from './types'
 
+// 后端统一错误格式（decisions/0011）：{"error": {"code", "message", "request_id", "details"?}}
+export interface ApiErrorBody {
+  code: string
+  message: string
+  request_id: string | null
+  details?: unknown
+}
+
 export class HttpError extends Error {
   constructor(
     public status: number,
-    public detail: unknown,
+    public body: ApiErrorBody | null,
   ) {
-    super(`HTTP ${status}`)
+    super(body ? `${body.code}: ${body.message}` : `HTTP ${status}`)
+  }
+
+  get code(): string | null {
+    return this.body?.code ?? null
+  }
+
+  /** 给用户看的说明：服务端错误时附上请求编号，报告问题时提供它就能在日志里定位 */
+  describe(): string {
+    if (this.status >= 500 && this.body?.request_id) return `服务出错了（请求编号 ${this.body.request_id}）`
+    return this.body?.message ?? `HTTP ${this.status}`
+  }
+}
+
+/** 解析错误响应体；不是预期格式（例如代理返回的 HTML 错误页）时返回 null */
+export function parseErrorBody(text: string): ApiErrorBody | null {
+  try {
+    const data = JSON.parse(text)
+    return data && typeof data.error === 'object' ? (data.error as ApiErrorBody) : null
+  } catch {
+    return null
   }
 }
 
@@ -26,9 +54,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await res.text()
-  const data = text ? JSON.parse(text) : null
-  if (!res.ok) throw new HttpError(res.status, data?.detail ?? data)
-  return data as T
+  if (!res.ok) throw new HttpError(res.status, parseErrorBody(text))
+  return (text ? JSON.parse(text) : null) as T
 }
 
 export const api = {

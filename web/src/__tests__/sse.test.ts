@@ -112,10 +112,11 @@ describe('streamRunEvents', () => {
   })
 
   it('does not retry client errors such as 404', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response('{"detail":"run not found"}', { status: 404 }))
-    await expect(streamRunEvents('r', { headers: {}, onEvent: () => {}, fetchImpl, retryDelayMs: 1 })).rejects.toBeInstanceOf(
-      HttpError,
-    )
+    const body = { error: { code: 'run_not_found', message: 'run not found', request_id: 'r1' } }
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 404 }))
+    const err = await streamRunEvents('r', { headers: {}, onEvent: () => {}, fetchImpl, retryDelayMs: 1 }).catch((e) => e)
+    expect(err).toBeInstanceOf(HttpError)
+    expect(err.code).toBe('run_not_found') // 解析了统一错误格式
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 

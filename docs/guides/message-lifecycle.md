@@ -260,6 +260,16 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 
 **派发器里取消的实现**（[`dispatcher.py`](../../backend/package/agentnexus/runtime/dispatcher.py) 的 `cancel` 与 `_process`）：每个 run 的 Agent 在独立任务里执行；取消先登记再取消任务（覆盖“已认领、任务未创建”的空档）；用 `Task.cancelling()` 区分“用户取消”和“服务关停”。
 
+### 6.3 出了问题怎么查（决策 0011）
+
+- 每个响应都带 `X-Request-ID`；错误响应体是 `{"error": {"code", "message", "request_id"}}`，服务端错误时前端会把请求编号显示给用户。
+- 按编号查日志（`LOG_FORMAT=json` 时一行一个 JSON）：
+  ```bash
+  docker compose logs api --no-log-prefix | grep '"<request_id>"'      # 这次请求：访问日志 + “run submitted”（含 run_id）
+  docker compose logs api --no-log-prefix | grep '"run_id": "<run_id>"'  # 这次执行：开始、结束（结局 + 耗时）、失败堆栈
+  ```
+- 访问日志不记查询串，`/health` 只在 DEBUG 级别记录。
+
 ---
 
 ## 7. 这一步踩过的最有价值的坑：套接字超时让“流式”变成了“一次性”
@@ -308,6 +318,7 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 15. 用户点“停止”时，排队中和执行中的 run 分别怎么处理？为什么执行中的返回 202？
 16. 用户取消和服务关停在代码里都是 `CancelledError`，怎么区分？区分错了会发生什么？
 17. 为什么失败原因对外只给错误码？重试为什么不新增用户消息、为什么只能重试最后一条？
+18. 用户说“刚才出错了”，你怎么找到那次请求和它触发的后台执行的日志？request-id 是怎么传到执行 Agent 的任务里的？
 
 ---
 

@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Response
@@ -17,6 +18,7 @@ from server.schemas import (
 )
 
 router = APIRouter(prefix="/api", tags=["conversations"])
+log = logging.getLogger(__name__)
 
 
 @router.post("/conversations", response_model=ConversationOut, status_code=201)
@@ -54,6 +56,8 @@ async def send_message(
 ):
     """202 Accepted：消息和 run 已落库，执行是异步的，用 run 的 id 查进度。"""
     run = await svc.submit(user_id, conversation_id, body.content)
+    # 这条日志自动带 request_id，同时写出 run_id：从一次请求追到一次执行（执行期间的日志都带 run_id）
+    log.info("run submitted", extra={"run_id": str(run.id), "conversation_id": str(conversation_id)})
     # 投递在提交成功之后；即使这里什么都没发生，周期扫描也会把 queued 的 run 补投
     dispatcher.enqueue(run.id)
     return run

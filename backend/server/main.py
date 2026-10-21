@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
 from agentnexus.config import get_settings
@@ -10,26 +9,22 @@ from datetime import timedelta
 
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
-from agentnexus.services.errors import (
-    ConversationNotFound,
-    RunAlreadyFinished,
-    RunConflict,
-    RunNotFound,
-    RunNotRetryable,
-    UserExists,
-)
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from redis.asyncio import Redis
+from agentnexus.observability.logging import configure_logging
+from server.errors import install_error_handlers
+from server.middleware import RequestContextMiddleware
 from server.routers import conversations, events, health, users
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
     engine = make_engine(settings.database_url, pool_pre_ping=True)
     app.state.sessionmaker = make_sessionmaker(engine)
     # checkpoint 表由 migrate 服务建好；这里只负责连接
@@ -74,13 +69,6 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-def _error(status: int, message: str):
-    async def handler(request: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(status_code=status, content={"detail": message})
-
-    return handler
-
-
 def create_app(*, with_lifespan: bool = True) -> FastAPI:
     """with_lifespan=False 供测试使用：不连接真实环境，由测试自己往 app.state 里放依赖。"""
     app = FastAPI(title="AgentNexus", lifespan=lifespan if with_lifespan else None)
@@ -88,13 +76,10 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.include_router(users.router)
     app.include_router(conversations.router)
     app.include_router(events.router)
-    # 服务层只抛领域异常，HTTP 状态码在这里统一映射
-    app.add_exception_handler(ConversationNotFound, _error(404, "conversation not found"))
-    app.add_exception_handler(RunNotFound, _error(404, "run not found"))
-    app.add_exception_handler(RunConflict, _error(409, "conversation already has an active run"))
-    app.add_exception_handler(UserExists, _error(409, "user name already exists"))
-    app.add_exception_handler(RunAlreadyFinished, _error(409, "run already finished"))
-    app.add_exception_handler(RunNotRetryable, _error(409, "run cannot be retried"))
+    # 服务层只抛领域异常，HTTP 状态码与统一错误格式在这里映射（server/errors.py）
+    install_error_handlers(app)
+    # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式
+    app.add_middleware(RequestContextMiddleware)
     return app
 
 

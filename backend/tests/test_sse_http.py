@@ -114,6 +114,7 @@ async def test_sse_wire_format_and_full_flow(live):
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/event-stream")
         assert r.headers["cache-control"] == "no-cache"
+        assert r.headers["x-request-id"]  # 经过请求上下文中间件后仍是流式响应，且带 request id
         events = await _read_sse(r)
 
     assert events[0]["event"] == "run.started" and events[-1]["event"] == "run.completed"

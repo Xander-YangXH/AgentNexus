@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
 import { onMounted } from 'vue'
+import { HttpError } from './api/http'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
 import UserPicker from './components/UserPicker.vue'
@@ -8,10 +9,12 @@ import { useChat } from './composables/useChat'
 
 const chat = useChat()
 
-onMounted(() => chat.init().catch((e) => message.error(`加载失败：${String(e)}`)))
+const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
+
+onMounted(() => chat.init().catch((e) => message.error(`加载失败：${describe(e)}`)))
 
 function run(action: Promise<unknown>) {
-  action.catch((e) => message.error(String(e)))
+  action.catch((e) => message.error(describe(e)))
 }
 </script>
 

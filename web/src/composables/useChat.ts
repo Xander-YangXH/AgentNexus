@@ -109,7 +109,7 @@ export function useChat() {
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
       error.value =
-        e instanceof HttpError && e.status === 409 ? '上一条回复还在生成中，请稍候' : `发送失败：${String(e)}`
+        e instanceof HttpError && e.status === 409 ? '上一条回复还在生成中，请稍候' : `发送失败：${e instanceof HttpError ? e.describe() : String(e)}`
     } finally {
       sending.value = false
     }
@@ -136,7 +136,7 @@ export function useChat() {
       })
       .catch((e) => {
         if (controller.signal.aborted) return // 主动切换对话，不算错误
-        error.value = `与服务端的连接中断：${String(e)}`
+        error.value = `与服务端的连接中断：${e instanceof HttpError ? e.describe() : String(e)}`
       })
   }
 
@@ -147,7 +147,7 @@ export function useChat() {
       // 200（排队中已取消）或 202（执行中已发信号）：结果以随后到达的 run.cancelled 事件为准
       await api.cancelRun(runId)
     } catch (e) {
-      if (!(e instanceof HttpError && e.status === 409)) error.value = `停止失败：${String(e)}` // 409：恰好已经结束
+      if (!(e instanceof HttpError && e.status === 409)) error.value = `停止失败：${e instanceof HttpError ? e.describe() : String(e)}` // 409：恰好已经结束
     }
   }
 
@@ -160,7 +160,7 @@ export function useChat() {
       await reload(cid)
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
-      error.value = e instanceof HttpError && e.status === 409 ? '这条消息现在不能重试' : `重试失败：${String(e)}`
+      error.value = e instanceof HttpError && e.status === 409 ? '这条消息现在不能重试' : `重试失败：${e instanceof HttpError ? e.describe() : String(e)}`
     }
   }
 

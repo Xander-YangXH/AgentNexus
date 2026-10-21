@@ -22,6 +22,7 @@ import contextlib
 import dataclasses
 import logging
 import enum
+import time
 import uuid
 from typing import Any
 
@@ -30,6 +31,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from agentnexus.agents.types import RunHandler
 from agentnexus.events import NULL_SINK, RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RUN_STARTED
 from agentnexus.events.redis_stream import RunEventPublisher
+from agentnexus.observability.context import run_id_var
 from agentnexus.runtime.failures import ErrorCode, classify
 from agentnexus.services.runs import RunService
 from agentnexus.storage.postgres import RunStatus
@@ -142,10 +144,21 @@ class RunDispatcher:
                 self._queue.task_done()
 
     async def _process(self, run_id: uuid.UUID) -> None:
+        # 这段时间内的所有日志（包括 Agent 任务里的：create_task 会复制当前上下文）都自动带上 run_id
+        token = run_id_var.set(str(run_id))
+        try:
+            await self._process_claimed(run_id)
+        finally:
+            run_id_var.reset(token)
+
+    async def _process_claimed(self, run_id: uuid.UUID) -> None:
         if not await self._svc.claim(run_id):
             self._cancel_requested.discard(run_id)
             return  # 已被别人抢走、或已不是 queued（例如已结束、已取消），正常情况
         await self._emit(run_id, RUN_STARTED, {})
+        log.info("run started")  # run_id 由上下文自动带上
+        started = time.perf_counter()
+        outcome = "succeeded"  # 结束时记一条带结局与耗时的日志，以后做 Dashboard 可直接统计
 
         try:
             ctx = await self._svc.load_context(run_id)
@@ -160,27 +173,34 @@ class RunDispatcher:
             current = asyncio.current_task()
             if run_id in self._cancel_requested and current is not None and current.cancelling() == 0:
                 # 用户取消：外层 worker 任务没有被取消，被取消的只是执行 Agent 的那个任务。收尾后不再向上抛
+                outcome = "cancelled"
                 if await self._svc.cancel_running(run_id):
                     await self._emit(run_id, RUN_CANCELLED, {})
                 return
             # 关停：run 已是 running，不能留着不管。shield 保证收尾写库不被第二次取消打断
+            outcome = ErrorCode.INTERRUPTED
             with contextlib.suppress(Exception):
                 await asyncio.shield(self._fail(run_id, "interrupted: shutdown", ErrorCode.INTERRUPTED))
             raise
         except TimeoutError:
+            outcome = ErrorCode.TIMEOUT
             await self._fail(run_id, f"timeout after {self._run_timeout}s", ErrorCode.TIMEOUT)
         except Exception as exc:
-            log.warning("run %s failed", run_id, exc_info=True)  # 原始异常写日志，便于排查
-            await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000], classify(exc))
+            outcome = classify(exc)
+            log.warning("run failed", exc_info=True)  # 原始异常写日志，便于排查（run_id 由上下文带上）
+            await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000], outcome)
         else:
             message_id = await self._svc.complete(run_id, ctx.conversation_id, content)
             if message_id is None:
-                log.warning("run %s was no longer running when it finished; result discarded", run_id)
+                outcome = "discarded"
+                log.warning("run was no longer running when it finished; result discarded")
             else:
                 await self._emit(run_id, RUN_COMPLETED, {"message_id": str(message_id)})
         finally:
             self._inflight.pop(run_id, None)
             self._cancel_requested.discard(run_id)
+            duration_ms = round((time.perf_counter() - started) * 1000, 1)
+            log.info("run finished: %s", outcome, extra={"outcome": str(outcome), "duration_ms": duration_ms})
 
     async def _fail(self, run_id: uuid.UUID, error: str, error_code: ErrorCode) -> None:
         # 原始报错只进数据库（error 列）；事件里只放错误码

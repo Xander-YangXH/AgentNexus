@@ -8,7 +8,7 @@
  * - SseParser：按 WHATWG 规范把字节流解析成事件。纯逻辑、可单测；能处理任意位置被切断的数据块。
  * - streamRunEvents：负责连接、断线重连（带 Last-Event-ID 续传）、收到终态事件后结束。
  */
-import { HttpError } from './http'
+import { HttpError, parseErrorBody } from './http'
 import { TERMINAL_EVENTS, type RunEvent } from './types'
 
 export interface SseMessage {
@@ -115,7 +115,7 @@ export async function streamRunEvents(runId: string, opts: StreamOptions): Promi
         },
         signal: opts.signal,
       })
-      if (res.status >= 400 && res.status < 500) throw new HttpError(res.status, await res.text())
+      if (res.status >= 400 && res.status < 500) throw new HttpError(res.status, parseErrorBody(await res.text()))
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
 
       const parser = new SseParser()

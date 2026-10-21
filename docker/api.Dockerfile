@@ -15,4 +15,5 @@ COPY backend backend
 
 EXPOSE 8000
 # 容器内必须监听 0.0.0.0，否则宿主机映射的端口访问不到
-CMD ["uvicorn", "server.main:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8000"]
+# --no-access-log：访问日志由 RequestContextMiddleware 记录（带 request_id、耗时），避免同一请求记两行
+CMD ["uvicorn", "server.main:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
