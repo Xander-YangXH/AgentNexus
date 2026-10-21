@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,9 +12,13 @@ from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
+from agentnexus.knowledge.embedding import FastEmbedder
+from agentnexus.runtime.ingest import IngestDispatcher
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.checkpoint import open_pool
+from agentnexus.storage.vectors import ChunkIndex
+from qdrant_client import AsyncQdrantClient
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from redis.asyncio import Redis
@@ -60,16 +65,32 @@ async def lifespan(app: FastAPI):
     app.state.event_streamer = RunEventStreamer(
         app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
+    # 加载 embedding 模型要读文件、建 ONNX 会话，放到线程里；模型在构建镜像时已下载，这里不联网
+    embedder = await asyncio.to_thread(FastEmbedder, settings.embedding_model)
+    qdrant = AsyncQdrantClient(url=settings.qdrant_url, timeout=10)
+    index = ChunkIndex(qdrant, settings.qdrant_collection, embedder.dim)
+    await index.ensure()  # 维度对不上（换了模型）直接启动失败，比悄悄写坏索引好
     app.state.knowledge_service = KnowledgeService(
         app.state.sessionmaker,
         LocalBlobStore(settings.blob_root),
+        embedder,
+        index,
         max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+        token_counter=embedder.token_counter(),
+    )
+    app.state.ingest_dispatcher = IngestDispatcher(
+        app.state.knowledge_service,
+        concurrency=settings.ingest_concurrency,
+        sweep_interval=settings.sweep_interval_seconds,
     )
     await app.state.dispatcher.start()
+    await app.state.ingest_dispatcher.start()
     janitor.start()
     yield
     await janitor.stop()
+    await app.state.ingest_dispatcher.stop()
     await app.state.dispatcher.stop()
+    await qdrant.close()
     await sse_redis.aclose()
     await publish_redis.aclose()
     await checkpoint_pool.close()

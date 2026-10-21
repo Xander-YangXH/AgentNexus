@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 2「RAG 知识库」进行中（2.1 完成，下一步 2.2）
+## 当前阶段：ROADMAP 阶段 2「RAG 知识库」进行中（2.1、2.2 完成，下一步 2.3）
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -26,18 +26,20 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
-2. **阶段 2「RAG 知识库」**：0014 已定（本地 bge-small-zh、默认重排、Qdrant 派生索引）；**2.1 已完成**（表 / 上传 / 解析 / 分块，0015）。下一步 2.2：入库后台任务（复用“先落库再投递”）、bge 分词器计 token、embedding、Qdrant 进 compose（v1.19.2）、模型在构建镜像时下载；然后 2.3 检索 + 重排、2.4 `knowledge_search` 工具与引用。
+2. **阶段 2「RAG 知识库」**：0014 已定；**2.1 已完成**（表 / 上传 / 解析 / 分块，0015）；**2.2 已完成**（后台入库、bge 分词器 + 字符下限、本地 embedding、Qdrant 单集合 + 别名、重建索引命令、依赖锁文件、Nginx 动态解析，0016）。下一步 2.3：检索（向量召回 + 按知识库过滤 + 回库取原文 + bge-reranker 重排，重排模型同样在构建时下载）与检索测试页面；然后 2.4 `knowledge_search` 工具与引用、用评测集做端到端评估。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
 - 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
 - 只想看流式效果、不消耗模型额度：`.env` 里设 `LLM_PROVIDER=fake`、`LLM_FAKE_STREAM_DELAY=0.1`。
 - 前端开发：见 `web/README.md`（`npm run dev`，端口 5173）。
+- 重建向量索引（换模型、Qdrant 数据丢失时）：`docker compose exec api python -m agentnexus.knowledge.reindex`。
+- 依赖：改了 `backend/requirements.txt` 要重新生成锁文件（命令写在 requirements.txt 顶部），镜像和测试环境都按 `requirements.lock` 安装。
 - 排查问题：响应头 `X-Request-ID` → `docker compose logs api | grep <id>`；`LOG_FORMAT=json` 时每行一个 JSON。
 - **iCloud 提醒**：项目在 iCloud 同步的桌面上，会产生 `xxx 2.py` 之类的冲突副本（已在 `.gitignore` 拦截）；建议移到不同步的目录。
 
 ### 跑测试
-集成测试用真实 Postgres 和 Redis（先 `docker compose up -d postgres redis`）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
+集成测试用真实 Postgres 和 Redis（先 `docker compose up -d postgres redis`）；Qdrant 用进程内模式，不需要起服务；两个真实模型测试在本机有模型缓存时才跑（离线加载，没有就跳过）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
 ```bash
 cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis://localhost:6379/0 pytest -q
@@ -48,8 +50,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q38。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q39。

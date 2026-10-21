@@ -8,8 +8,9 @@ import pytest_asyncio
 
 from agentnexus.services.knowledge import KnowledgeService, clean_filename
 from agentnexus.storage.blobs import BlobNotFound, LocalBlobStore
-from server.deps import get_sessionmaker
+from server.deps import get_ingest_dispatcher, get_sessionmaker
 from server.main import create_app
+from tests.fakes import FakeEmbedder
 
 KB_TEXT = "退货政策：签收后 7 天内可以无理由退货。定制商品不支持退货。\n\n退款到账：入库检验后 1 到 3 个工作日原路退回。"
 
@@ -44,11 +45,13 @@ def test_clean_filename(raw, expected):
 # ---------- 接口与处理 ----------
 
 @pytest_asyncio.fixture
-async def kb_api(sessionmaker, tmp_path):
+async def kb_api(sessionmaker, tmp_path, chunk_index):
     app = create_app(with_lifespan=False)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
-    svc = KnowledgeService(sessionmaker, LocalBlobStore(tmp_path), max_upload_bytes=2048)
+    svc = KnowledgeService(sessionmaker, LocalBlobStore(tmp_path), FakeEmbedder(), chunk_index, max_upload_bytes=2048)
     app.state.knowledge_service = svc
+    # 这里的测试手动调用 svc.process，所以上传后的投递用一个什么都不做的替身（后台派发器见 test_ingest.py）
+    app.dependency_overrides[get_ingest_dispatcher] = lambda: _NoopDispatcher()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c, svc, tmp_path
 
@@ -61,6 +64,11 @@ async def _kb(c, h, name="客服知识库"):
     r = await c.post("/api/knowledge-bases", json={"name": name}, headers=h)
     assert r.status_code == 201
     return r.json()["id"]
+
+
+class _NoopDispatcher:
+    def enqueue(self, document_id):
+        return True
 
 
 def _file(name, data):
@@ -166,11 +174,11 @@ async def test_chunks_are_rolled_back_if_the_document_cannot_be_marked_ready(kb_
         assert await ChunkRepository(session).list_by_document(uuid.UUID(doc["id"])) == []
 
 
-async def test_service_validates_size_before_writing_even_without_the_http_guard(sessionmaker, user, tmp_path):
+async def test_service_validates_size_before_writing_even_without_the_http_guard(sessionmaker, user, tmp_path, chunk_index):
     """接口层会先挡住超大文件；服务层自己的检查是纵深防御（例如以后 worker 直接调用服务），也必须在写文件之前。"""
     from agentnexus.services.errors import FileTooLarge
 
-    svc = KnowledgeService(sessionmaker, LocalBlobStore(tmp_path), max_upload_bytes=10)
+    svc = KnowledgeService(sessionmaker, LocalBlobStore(tmp_path), FakeEmbedder(), chunk_index, max_upload_bytes=10)
     kb = await svc.create_kb(user.id, "kb", None)
     with pytest.raises(FileTooLarge):
         await svc.upload(user.id, kb.id, "a.txt", b"x" * 11)

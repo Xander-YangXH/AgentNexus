@@ -22,6 +22,13 @@ async def _check_postgres(url: str) -> None:
         await conn.execute("SELECT 1")
 
 
+async def _check_qdrant(url: str) -> None:
+    import httpx  # qdrant-client 的依赖；这里只需要它的就绪接口，不必建客户端
+
+    async with httpx.AsyncClient(timeout=CHECK_TIMEOUT) as client:
+        (await client.get(f"{url.rstrip('/')}/readyz")).raise_for_status()
+
+
 async def _check_redis(url: str) -> None:
     client = aioredis.from_url(url, socket_connect_timeout=CHECK_TIMEOUT)
     try:
@@ -32,11 +39,12 @@ async def _check_redis(url: str) -> None:
 
 @router.get("/health/ready")
 async def ready() -> dict:
-    """就绪探针：真去连 Postgres 和 Redis，任一失败返回 503。"""
+    """就绪探针：真去连 Postgres、Redis 和 Qdrant，任一失败返回 503。"""
     settings = get_settings()
     checks = {
         "postgres": _check_postgres(settings.database_url),
         "redis": _check_redis(settings.redis_url),
+        "qdrant": _check_qdrant(settings.qdrant_url),
     }
     results = await asyncio.gather(*checks.values(), return_exceptions=True)
     status = {

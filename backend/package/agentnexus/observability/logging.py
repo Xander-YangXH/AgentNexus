@@ -57,3 +57,7 @@ def configure_logging(level: str = "INFO", fmt: str = "text") -> None:
     handler.setFormatter(JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT))
     root.addHandler(handler)
     root.setLevel(level.upper())
+    # httpx 每个请求记一行 INFO（Qdrant 客户端、模型 SDK 都用它）：处理一个文档就是几十行，淹没业务日志。
+    # 只保留警告以上；调试时把 LOG_LEVEL 设成 DEBUG 也不会打开它，需要时单独调这里
+    for noisy in ("httpx", "httpx2"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)

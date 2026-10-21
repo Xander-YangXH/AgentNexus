@@ -102,3 +102,18 @@ async def user(sessionmaker) -> User:
         u = User(name=f"u-{uuid.uuid4().hex[:8]}")
         session.add(u)
     return u
+
+
+@pytest_asyncio.fixture
+async def chunk_index():
+    """Qdrant 的进程内模式（不需要起服务）。payload 索引在这个模式下不生效，不影响正确性测试。"""
+    from qdrant_client import AsyncQdrantClient
+
+    from agentnexus.storage.vectors import ChunkIndex
+    from tests.fakes import FakeEmbedder
+
+    client = AsyncQdrantClient(location=":memory:")
+    index = ChunkIndex(client, "chunks", FakeEmbedder.dim)
+    await index.ensure()
+    yield index
+    await client.close()

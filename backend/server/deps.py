@@ -5,6 +5,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.runtime.dispatcher import RunDispatcher
+from agentnexus.runtime.ingest import IngestDispatcher
 from agentnexus.repositories.users import UserRepository
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.run_events import RunEventStreamer
@@ -28,6 +29,10 @@ def get_event_streamer(request: Request) -> RunEventStreamer:
 
 def get_knowledge_service(request: Request) -> KnowledgeService:
     return request.app.state.knowledge_service
+
+
+def get_ingest_dispatcher(request: Request) -> IngestDispatcher:
+    return request.app.state.ingest_dispatcher
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]

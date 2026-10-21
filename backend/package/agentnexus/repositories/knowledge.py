@@ -49,6 +49,18 @@ class DocumentRepository:
         )
         return (await self.session.execute(stmt)).rowcount == 1
 
+    async def list_ids_by_status(self, status: DocumentStatus) -> list[uuid.UUID]:
+        stmt = select(Document.id).where(Document.status == status).order_by(Document.created_at)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def reset(self, from_status: DocumentStatus, *, document_id: uuid.UUID | None = None) -> list[uuid.UUID]:
+        """把文档从 from_status 改回 pending（重新处理），返回被改的 id。document_id 为空时改所有符合条件的。"""
+        stmt = update(Document).where(Document.status == from_status)
+        if document_id is not None:
+            stmt = stmt.where(Document.id == document_id)
+        stmt = stmt.values(status=DocumentStatus.PENDING, error=None, error_code=None, processed_at=None)
+        return list((await self.session.scalars(stmt.returning(Document.id))).all())
+
     async def finish(
         self, document_id: uuid.UUID, status: DocumentStatus, *, chunk_count: int = 0,
         error: str | None = None, error_code: str | None = None,

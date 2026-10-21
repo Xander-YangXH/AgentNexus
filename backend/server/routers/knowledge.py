@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, UploadFile
 
 from agentnexus.services.errors import FileTooLarge
 from agentnexus.services.knowledge import KnowledgeService
-from server.deps import CurrentUser, get_knowledge_service
+from agentnexus.runtime.ingest import IngestDispatcher
+from server.deps import CurrentUser, get_ingest_dispatcher, get_knowledge_service
 from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut
 
 router = APIRouter(prefix="/api", tags=["knowledge"])
@@ -29,14 +30,21 @@ async def get_knowledge_base(kb_id: uuid.UUID, user_id: CurrentUser, svc: Knowle
 
 @router.post("/knowledge-bases/{kb_id}/documents", response_model=DocumentOut, status_code=202)
 async def upload_document(
-    kb_id: uuid.UUID, file: UploadFile, user_id: CurrentUser, svc: KnowledgeService = Depends(get_knowledge_service)
+    kb_id: uuid.UUID,
+    file: UploadFile,
+    user_id: CurrentUser,
+    svc: KnowledgeService = Depends(get_knowledge_service),
+    ingest: IngestDispatcher = Depends(get_ingest_dispatcher),
 ):
-    """上传文档：先落库（pending），解析、分块、入库是异步的（2.2 起由后台任务处理），用文档 id 查进度。"""
+    """上传文档：先落库（pending）再投递给后台处理（解析、分块、向量化），用文档 id 查进度。
+    投递丢了也没关系，后台扫描会补上（数据库为准）。"""
     # 最多只读“上限 + 1”字节：超出就拒绝，不把一个超大文件完整读进内存
     data = await file.read(svc.max_upload_bytes + 1)
     if len(data) > svc.max_upload_bytes:
         raise FileTooLarge(file.filename or "")
-    return await svc.upload(user_id, kb_id, file.filename or "", data)
+    doc = await svc.upload(user_id, kb_id, file.filename or "", data)
+    ingest.enqueue(doc.id)
+    return doc
 
 
 @router.get("/knowledge-bases/{kb_id}/documents", response_model=list[DocumentOut])
@@ -47,6 +55,19 @@ async def list_documents(kb_id: uuid.UUID, user_id: CurrentUser, svc: KnowledgeS
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 async def get_document(document_id: uuid.UUID, user_id: CurrentUser, svc: KnowledgeService = Depends(get_knowledge_service)):
     return await svc.get_document(user_id, document_id)
+
+
+@router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
+async def reprocess_document(
+    document_id: uuid.UUID,
+    user_id: CurrentUser,
+    svc: KnowledgeService = Depends(get_knowledge_service),
+    ingest: IngestDispatcher = Depends(get_ingest_dispatcher),
+):
+    """重新处理失败的文档（例如处理时向量库暂时不可用）。只允许 failed 的文档。"""
+    doc = await svc.reprocess(user_id, document_id)
+    ingest.enqueue(doc.id)
+    return doc
 
 
 @router.get("/documents/{document_id}/chunks", response_model=list[ChunkOut])

@@ -16,9 +16,10 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 | 向量检索 | Qdrant |
 | 关系型存储 | PostgreSQL |
 | 缓存 / 队列 | Redis + ARQ |
-| 对象存储 | MinIO |
+| 对象存储 | 本地数据卷（`BlobStore` 接口，可换 MinIO / S3） |
 | 知识图谱 | Neo4j |
-| 文档解析 | pypdf / python-docx / unstructured |
+| 文档解析 | pypdf / python-docx |
+| Embedding | bge-small-zh-v1.5（fastembed / ONNX，本地运行） |
 | 工具沙盒 | Docker SDK 容器隔离（内置于 worker） |
 | 部署 | Docker Compose |
 
@@ -56,7 +57,7 @@ AgentNexus/
 │       ├── workspace/           # 用户工作区 / 沙盒文件路径管理
 │       ├── services/            # 用例层
 │       ├── repositories/        # 持久化访问层
-│       ├── storage/             # postgres/redis/minio/neo4j 连接管理
+│       ├── storage/             # postgres / 原件存储 / 向量索引（qdrant）等连接管理
 │       ├── models/              # 模型供应商适配
 │       └── config/              # 系统 / 用户配置
 ├── web/                         # Vue3 前端

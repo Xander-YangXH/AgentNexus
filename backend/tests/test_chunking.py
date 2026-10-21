@@ -97,3 +97,30 @@ def test_overlap_never_copies_the_whole_previous_chunk():
     long_sentence = "长" * 98 + "。"  # 3 + 99 = 102 > 目标 100：短句被单独输出
     chunks = chunk_sections([Section(short + long_sentence)], LenCounter(), target_tokens=100, hard_limit=150, overlap_tokens=30)
     assert [c.text for c in chunks] == [short, long_sentence]
+
+
+class WordPieceLikeCounter:
+    """模仿 bge 的 WordPiece：按空白分词，超过 100 个字符的词整体算 1 个 [UNK]。记录被要求计数的最长文本。"""
+
+    def __init__(self):
+        self.longest = 0
+
+    def count(self, text):
+        self.longest = max(self.longest, len(text))
+        return sum(1 if len(w) > 100 else len(w) for w in text.split())
+
+
+def test_giant_word_is_split_by_characters_even_if_the_model_counts_it_as_one_token():
+    """实测踩到：3MB 的连续字符被模型记成 1 个 token，整段成了一块。分块必须有字符上限。"""
+    text = "a" * 1_000_000
+    counter = WordPieceLikeCounter()
+    chunks = chunk_sections([Section(text)], counter, target_tokens=300, hard_limit=480, overlap_tokens=0)
+    assert max(len(c.text) for c in chunks) <= 480 * 6
+    assert "".join(c.text for c in chunks) == text
+    # 性能：每次只对不超过“上限 × 6”个字符的文本计数，而不是每切一段都把剩下的几 MB 重新分词
+    assert counter.longest <= 480 * 6
+
+
+def test_stored_token_count_is_the_models_own_count():
+    chunks = chunk_sections([Section("b" * 1000)], WordPieceLikeCounter(), target_tokens=300, hard_limit=480, overlap_tokens=0)
+    assert [c.token_count for c in chunks] == [1]  # 1000 个字符 < 2880：一块；记录的是模型真实看到的 token 数

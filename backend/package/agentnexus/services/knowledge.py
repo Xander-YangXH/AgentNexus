@@ -1,10 +1,12 @@
-"""知识库用例（阶段 2.1）：创建知识库、上传文档、解析与分块。
+"""知识库用例：创建知识库、上传文档；后台处理（解析 → 分块 → 向量化 → 写入 Qdrant → 标记 ready）。
 
-2.2 会在 process() 里加上“计算向量、写入 Qdrant”，并由后台派发器调用（沿用“先落库再投递”）。
+处理由 runtime/ingest.py 的后台派发器调用（沿用“先落库再投递”，decisions/0016）。
 """
 
+import asyncio
 import hashlib
 import logging
+import time
 import uuid
 from pathlib import PurePosixPath
 
@@ -12,13 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from agentnexus.knowledge.chunking import chunk_sections
+from agentnexus.knowledge.chunking import Chunk, chunk_sections
+from agentnexus.knowledge.embedding import Embedder
 from agentnexus.knowledge.parsing import SUPPORTED_EXTENSIONS, ParseError, extension_of, parse
 from agentnexus.knowledge.tokens import EstimatingCounter, TokenCounter
 from agentnexus.repositories.knowledge import ChunkRepository, DocumentRepository, KnowledgeBaseRepository
 from agentnexus.services.errors import (
     DocumentExists,
     DocumentNotFound,
+    DocumentNotRetryable,
     EmptyFile,
     FileTooLarge,
     KnowledgeBaseExists,
@@ -27,6 +31,7 @@ from agentnexus.services.errors import (
 )
 from agentnexus.storage.blobs import BlobStore
 from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase
+from agentnexus.storage.vectors import ChunkIndex, ChunkPoint
 
 log = logging.getLogger(__name__)
 
@@ -42,12 +47,16 @@ class KnowledgeService:
         self,
         sessionmaker: async_sessionmaker,
         blobs: BlobStore,
+        embedder: Embedder,
+        index: ChunkIndex,
         *,
         max_upload_bytes: int = 10 * 1024 * 1024,
         token_counter: TokenCounter | None = None,
     ):
         self.sessionmaker = sessionmaker
         self.blobs = blobs
+        self.embedder = embedder
+        self.index = index
         self.max_upload_bytes = max_upload_bytes
         self.token_counter = token_counter or EstimatingCounter()
 
@@ -132,43 +141,107 @@ class KnowledgeService:
         async with self.sessionmaker() as session:
             return await ChunkRepository(session).list_by_document(document_id)
 
-    # ---------- 处理 ----------
+    async def reprocess(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+        """失败的文档重新排队（例如处理时 Qdrant 暂时不可用）。只允许 failed -> pending。"""
+        await self.get_document(user_id, document_id)
+        async with self.sessionmaker() as session, session.begin():
+            if not await DocumentRepository(session).reset(DocumentStatus.FAILED, document_id=document_id):
+                raise DocumentNotRetryable(str(document_id))
+        return await self.get_document(user_id, document_id)
+
+    # ---------- 处理（后台） ----------
+
+    async def list_pending_ids(self) -> list[uuid.UUID]:
+        async with self.sessionmaker() as session:
+            return await DocumentRepository(session).list_ids_by_status(DocumentStatus.PENDING)
+
+    async def requeue_interrupted(self) -> list[uuid.UUID]:
+        """启动恢复：上一个进程处理到一半的文档改回 pending 重新处理。
+
+        与 run 不同（run 被标为失败，decisions/0009）：文档处理是幂等的、不花钱（本地模型），
+        重做前会先清掉索引里的旧点，所以直接重来即可。单进程假设同 RunDispatcher。
+        """
+        async with self.sessionmaker() as session, session.begin():
+            return await DocumentRepository(session).reset(DocumentStatus.PROCESSING)
 
     async def process(self, document_id: uuid.UUID) -> bool:
-        """解析并分块。返回是否由本次调用处理（被别人抢走或已处理过返回 False）。"""
+        """解析 → 分块 → 向量化 → 写入索引 → 分块落库并标记 ready。返回是否由本次调用处理。
+
+        顺序的理由（PostgreSQL 是事实来源，Qdrant 是派生索引）：
+        - 先写索引、再在一个事务里写分块并标记 ready：ready 的文档一定能被检索到；
+        - 反过来的失败情形是“索引里多了点、数据库里没有对应分块”，检索时按 id 回数据库取原文会自然过滤掉，
+          而且重新处理前会按文档 id 清掉旧点。
+        """
         async with self.sessionmaker() as session, session.begin():
             repo = DocumentRepository(session)
             if not await repo.claim(document_id):
                 return False
             doc = await repo.get(document_id)
+        started = time.perf_counter()
+        outcome, chunk_count = await self._process_claimed(doc)
+        # 每个文档一条带结局、耗时、分块数的日志（与 run 结束时的日志一致），大文件慢在哪里一眼可见。
+        # 文本格式只打印消息本身，所以关键数字也写进消息；JSON 格式另有结构化字段
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        log.info(
+            "document %s processed: %s, %d chunk(s), %.1fs", document_id, outcome, chunk_count, duration_ms / 1000,
+            extra={"document_id": str(document_id), "outcome": outcome, "chunks": chunk_count, "duration_ms": duration_ms},
+        )
+        return outcome != "discarded"
+
+    async def _process_claimed(self, doc: Document) -> tuple[str, int]:
+        """返回（结局, 分块数）。结局：ready / 失败错误码 / discarded（文档已不在 processing，结果丢弃）。"""
+        document_id = doc.id
         try:
             data = await self.blobs.get(doc.blob_key)
-            sections = parse(doc.filename, data)
-            chunks = chunk_sections(sections, self.token_counter)
+            # 解析、分块、向量化都是 CPU 计算，放到线程里，不阻塞事件循环（同进程里还在跑对话和 SSE）
+            chunks, vectors = await asyncio.to_thread(self._prepare, doc.filename, data)
         except ParseError as exc:
             await self._fail(document_id, str(exc), exc.code)
-            return True
+            return exc.code, 0
         except Exception as exc:
             log.warning("processing document %s failed", document_id, exc_info=True)
             await self._fail(document_id, f"{type(exc).__name__}: {exc}"[:2000], "internal")
-            return True
+            return "internal", 0
+
+        rows = [
+            DocumentChunk(
+                id=uuid.uuid4(), document_id=document_id, knowledge_base_id=doc.knowledge_base_id,
+                seq=c.seq, text=c.text, token_count=c.token_count, page=c.page,
+            )
+            for c in chunks
+        ]
+        try:
+            await self.index.delete_document(document_id)  # 上次中断可能留下了点
+            await self.index.upsert(
+                [ChunkPoint(r.id, doc.knowledge_base_id, document_id, v) for r, v in zip(rows, vectors)]
+            )
+        except Exception as exc:
+            log.warning("indexing document %s failed", document_id, exc_info=True)
+            await self._discard_points(document_id)
+            await self._fail(document_id, f"{type(exc).__name__}: {exc}"[:2000], "index_unavailable")
+            return "index_unavailable", 0
 
         # 分块与“完成”在同一事务：要么文档 ready 且分块齐全，要么都没有
         async with self.sessionmaker() as session, session.begin():
-            await ChunkRepository(session).add_all(
-                [
-                    DocumentChunk(
-                        document_id=document_id, knowledge_base_id=doc.knowledge_base_id,
-                        seq=c.seq, text=c.text, token_count=c.token_count, page=c.page,
-                    )
-                    for c in chunks
-                ]
-            )
-            if not await DocumentRepository(session).finish(document_id, DocumentStatus.READY, chunk_count=len(chunks)):
+            await ChunkRepository(session).add_all(rows)
+            finished = await DocumentRepository(session).finish(document_id, DocumentStatus.READY, chunk_count=len(rows))
+            if not finished:
                 await session.rollback()  # 文档已不在 processing（例如被别处改了状态）：分块也不能留下
-                return False
-        return True
+        if not finished:
+            await self._discard_points(document_id)
+            return "discarded", 0
+        return "ready", len(rows)
 
+    def _prepare(self, filename: str, data: bytes) -> tuple[list[Chunk], list[list[float]]]:
+        chunks = chunk_sections(parse(filename, data), self.token_counter)
+        return chunks, self.embedder.embed_documents([c.text for c in chunks])
+
+    async def _discard_points(self, document_id: uuid.UUID) -> None:
+        try:
+            await self.index.delete_document(document_id)
+        except Exception:
+            # 清不掉也不影响正确性：检索时没有对应分块的点会被过滤，重新处理前也会再清一次
+            log.warning("could not remove index points of document %s", document_id, exc_info=True)
     async def _fail(self, document_id: uuid.UUID, error: str, error_code: str) -> None:
         async with self.sessionmaker() as session, session.begin():
             await DocumentRepository(session).finish(document_id, DocumentStatus.FAILED, error=error, error_code=error_code)

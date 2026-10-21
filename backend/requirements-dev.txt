@@ -1,4 +1,4 @@
--r requirements.txt
+-r requirements.lock  # 与镜像装同一套版本
 pytest>=8.0
 pytest-asyncio>=0.24
 httpx

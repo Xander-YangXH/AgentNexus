@@ -1,4 +1,4 @@
-# postgres + redis + migrate（一次性）+ api + web。后续阶段在此基础上叠加 qdrant / minio / neo4j / worker。
+# postgres + redis + qdrant + migrate（一次性）+ api + web。后续阶段在此基础上叠加 neo4j / worker 等。
 name: agentnexus
 
 # api 与 migrate 共用同一个镜像和环境变量
@@ -26,6 +26,10 @@ x-backend: &backend
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     LOG_FORMAT: ${LOG_FORMAT:-text}
     MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+    QDRANT_URL: http://qdrant:6333
+    QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
+    INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
+    # 不在这里覆盖 EMBEDDING_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
 
 services:
   postgres:
@@ -59,6 +63,23 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # 向量索引（decisions/0014、0016）。只是派生索引，数据以 PostgreSQL 为准，丢了可以重建
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"  # 默认会上报匿名使用统计，关掉
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    healthcheck:
+      # 镜像里没有 curl / wget，用 bash 的 /dev/tcp 发一个最简单的 HTTP 请求查就绪接口
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   # 一次性任务：建表/迁移后退出（restart: "no"），api 等它成功后再启动
   # 先跑我们自己的 Alembic 迁移，再建 LangGraph checkpoint 表（那套表由 LangGraph 自己管理）
   migrate:
@@ -80,6 +101,8 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     healthcheck:
       # slim 镜像没有 curl，用标准库探测
@@ -110,4 +133,5 @@ services:
 volumes:
   blob_data:
   pg_data:
+  qdrant_data:
   redis_data:

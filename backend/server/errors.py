@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from agentnexus.services.errors import (
     DocumentExists,
     DocumentNotFound,
+    DocumentNotRetryable,
     EmptyFile,
     FileTooLarge,
     KnowledgeBaseExists,
@@ -44,6 +45,7 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     KnowledgeBaseNotFound: (404, "knowledge_base_not_found", "knowledge base not found"),
     KnowledgeBaseExists: (409, "knowledge_base_exists", "knowledge base name already exists"),
     DocumentNotFound: (404, "document_not_found", "document not found"),
+    DocumentNotRetryable: (409, "document_not_retryable", "only failed documents can be reprocessed"),
     UnsupportedFileType: (415, "unsupported_file_type", "supported: .txt .md .markdown .pdf .docx"),
     FileTooLarge: (413, "file_too_large", "file is too large"),
     EmptyFile: (400, "empty_file", "file is empty"),

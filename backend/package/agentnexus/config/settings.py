@@ -27,6 +27,10 @@ class Settings:
     # 知识库（阶段 2）：原件存储目录（compose 里挂数据卷）与单个文件大小上限
     blob_root: str = "/data/blobs"
     max_upload_mb: int = 10
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "chunks"  # 别名；实际集合名带时间戳，重建索引时切换（storage/vectors.py）
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
     # 流式事件（decisions/0007）。用代码默认值、不开放环境变量，需要时再接入 compose
@@ -56,6 +60,10 @@ def get_settings() -> Settings:
         checkpoint_janitor_interval_seconds=float(os.environ.get("CHECKPOINT_JANITOR_INTERVAL_SECONDS", 600)),
         blob_root=os.environ.get("BLOB_ROOT", "/data/blobs"),
         max_upload_mb=int(os.environ.get("MAX_UPLOAD_MB", 10)),
+        qdrant_url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+        qdrant_collection=os.environ.get("QDRANT_COLLECTION", "chunks"),
+        embedding_model=os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"),
+        ingest_concurrency=int(os.environ.get("INGEST_CONCURRENCY", 1)),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

@@ -49,6 +49,10 @@ class DocumentExists(Exception):
         self.existing_id = existing_id
 
 
+class DocumentNotRetryable(Exception):
+    """只有处理失败的文档才能重新处理。"""
+
+
 class UnsupportedFileType(Exception):
     pass
 
