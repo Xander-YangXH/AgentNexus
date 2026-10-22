@@ -139,3 +139,84 @@ class ChunkOut(_Out):
     text: str
     token_count: int
     page: int | None
+
+
+# ---------- 知识图谱（decisions/0019） ----------
+
+
+class GraphEstimateOut(BaseModel):
+    chunk_count: int  # 参与构建的分块（处理完成的文档）
+    unique_count: int  # 按内容去重后
+    cached_count: int  # 其中已有抽取结果（不再花钱）
+    extract_count: int  # 需要调用模型的数量
+    estimated_cost_usd: float
+    max_extract_count: int  # 单次构建的上限
+
+
+class GraphBuildOut(_Out):
+    id: uuid.UUID
+    status: str
+    chunk_count: int
+    unique_count: int
+    extract_count: int
+    estimated_cost_usd: float
+    done_count: int
+    input_tokens: int
+    cached_tokens: int
+    output_tokens: int
+    cost_usd: float
+    entity_count: int
+    relation_count: int
+    error_code: str | None  # 原始报错不对外
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class GraphNode(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+    mentions: int
+
+
+class GraphEdge(BaseModel):
+    id: uuid.UUID
+    source: uuid.UUID
+    target: uuid.UUID
+    predicate: str
+    weight: int
+
+
+class GraphOut(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+class EntityRelationOut(BaseModel):
+    id: uuid.UUID
+    direction: str  # out：本实体是起点；in：本实体是终点
+    predicate: str
+    description: str
+    other_id: uuid.UUID
+    other_name: str
+    mentions: int
+
+
+class EntityMentionOut(BaseModel):
+    chunk_id: uuid.UUID
+    filename: str
+    page: int | None
+    seq: int
+    text: str
+
+
+class EntityDetailOut(BaseModel):
+    id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    name: str
+    type: str
+    description: str
+    mention_count: int
+    relations: list[EntityRelationOut]
+    mentions: list[EntityMentionOut]

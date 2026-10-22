@@ -34,6 +34,15 @@ class Settings:
     rerank_enabled: bool = True  # 关闭则不加载重排模型（省约 0.8GB 内存），检索只用向量召回
     rerank_model: str = "BAAI/bge-reranker-v2-m3-int8"
     rerank_candidates: int = 10
+    neo4j_url: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str | None = None
+    kg_max_chunks_per_build: int = 2000  # 单次构建最多抽取多少个（去重后的）分块，防止误点花掉一大笔钱
+    kg_extract_concurrency: int = 4
+    # 模型单价（美元 / 百万 token；decisions/0013 的 DeepSeek 高峰价）。用于构建前的费用预估和构建后的实际费用
+    llm_price_input: float = 0.3
+    llm_price_cached_input: float = 0.006
+    llm_price_output: float = 1.2
     knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
     knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
     ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
@@ -75,6 +84,14 @@ def get_settings() -> Settings:
         rerank_model=os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3-int8"),
         rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", 10)),
         knowledge_top_k=int(os.environ.get("KNOWLEDGE_TOP_K", 4)),
+        neo4j_url=os.environ.get("NEO4J_URL", "bolt://localhost:7687"),
+        neo4j_user=os.environ.get("NEO4J_USER", "neo4j"),
+        neo4j_password=os.environ.get("NEO4J_PASSWORD") or None,
+        kg_max_chunks_per_build=int(os.environ.get("KG_MAX_CHUNKS_PER_BUILD", 2000)),
+        kg_extract_concurrency=int(os.environ.get("KG_EXTRACT_CONCURRENCY", 4)),
+        llm_price_input=float(os.environ.get("LLM_PRICE_INPUT", 0.3)),
+        llm_price_cached_input=float(os.environ.get("LLM_PRICE_CACHED_INPUT", 0.006)),
+        llm_price_output=float(os.environ.get("LLM_PRICE_OUTPUT", 1.2)),
         knowledge_prefetch=os.environ.get("KNOWLEDGE_PREFETCH", "true").lower() not in ("0", "false", "no", "off"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),

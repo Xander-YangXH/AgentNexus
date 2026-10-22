@@ -8,6 +8,7 @@ from sqlalchemy import (
     UniqueConstraint,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Index,
@@ -211,3 +212,115 @@ class ConversationKnowledgeBase(Base):
         ForeignKey("knowledge_bases.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------- 知识图谱（decisions/0019）：PostgreSQL 是事实来源，Neo4j 是派生的图查询存储 ----------
+
+
+class GraphBuildStatus(enum.StrEnum):
+    PENDING = "pending"  # 已创建，等待后台执行
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class GraphBuild(Base):
+    """一次“构建图谱”：抽取（有缓存）→ 合并写入 PostgreSQL → 同步到 Neo4j。沿用“先落库再投递 + 原子抢占”。"""
+
+    __tablename__ = "kg_builds"
+    __table_args__ = (
+        CheckConstraint(_in_list("status", GraphBuildStatus), name="ck_kg_builds_status"),
+        # 同一知识库同一时刻最多一个进行中的构建（两次构建同时重写同一张图会互相覆盖）
+        Index(
+            "uq_kg_builds_one_active_per_kb",
+            "knowledge_base_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        Index("ix_kg_builds_kb_created", "knowledge_base_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16), default=GraphBuildStatus.PENDING)
+    # 创建时的预估：参与构建的分块数、去重后的文本数、其中需要调用模型的数量（其余命中抽取缓存）、预估费用
+    chunk_count: Mapped[int] = mapped_column(Integer)
+    unique_count: Mapped[int] = mapped_column(Integer)
+    extract_count: Mapped[int] = mapped_column(Integer)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float)
+    # 执行中 / 执行后的实际值
+    done_count: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    entity_count: Mapped[int] = mapped_column(Integer, default=0)
+    relation_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)  # 原始报错，只进数据库
+    error_code: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GraphExtraction(Base):
+    """抽取缓存：同一知识库里内容相同的分块只调用一次模型；提示词改版（prompt_version 变化）后自然失效。
+
+    构建失败后重试、或文档没变时再次构建，都不再花钱。
+    """
+
+    __tablename__ = "kg_extractions"
+
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), primary_key=True
+    )
+    text_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    prompt_version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)  # {"entities": [...], "relations": [...]}
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GraphEntity(Base):
+    __tablename__ = "kg_entities"
+    __table_args__ = (UniqueConstraint("knowledge_base_id", "key", name="uq_kg_entities_kb_key"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(200))  # 规范化名称：合并的依据（全角转半角、去空白、英文小写）
+    name: Mapped[str] = mapped_column(String(200))  # 显示名称：出现最多的写法
+    type: Mapped[str] = mapped_column(String(32))  # 多数投票
+    description: Mapped[str] = mapped_column(Text)
+    mention_count: Mapped[int] = mapped_column(Integer)
+
+
+class GraphRelation(Base):
+    __tablename__ = "kg_relations"
+    __table_args__ = (UniqueConstraint("source_id", "target_id", "predicate", name="uq_kg_relations_edge"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    # 重建时按知识库整体删除，需要索引
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"))
+    target_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"), index=True)
+    predicate: Mapped[str] = mapped_column(String(32))
+    description: Mapped[str] = mapped_column(Text)
+    mention_count: Mapped[int] = mapped_column(Integer)
+
+
+class GraphMention(Base):
+    """溯源：实体 / 关系出自哪些分块。点开图上的节点时据此展示原文。"""
+
+    __tablename__ = "kg_mentions"
+    __table_args__ = (
+        CheckConstraint("(entity_id IS NULL) <> (relation_id IS NULL)", name="ck_kg_mentions_one_target"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True)
+    # 删除分块（文档重新处理）时级联删除提及：没有索引就要扫全表
+    chunk_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("document_chunks.id", ondelete="CASCADE"), index=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"), index=True)
+    relation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kg_relations.id", ondelete="CASCADE"), index=True)

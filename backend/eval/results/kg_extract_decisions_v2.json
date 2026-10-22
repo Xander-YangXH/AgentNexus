@@ -1,0 +1,6148 @@
+[
+ {
+  "i": 0,
+  "title": "0005 - 阶段 1 先用进程内派发器，阶段 4 再换 ARQ + lease",
+  "text": "# 0005 - 阶段 1 先用进程内派发器，阶段 4 再换 ARQ + lease\n\n**状态**：已决定（阶段 1），阶段 4 将被取代（部分）\n\n**背景**：需要把已落库的 `queued` run 派发出去执行。选项是一开始就上 Redis + ARQ 独立 worker，还是先在 api 进程里用 `asyncio.Queue` 做单机版。\n\n**决定**：\n- 阶段 1 用进程内派发器：`submit` 成功后 `enqueue(run_id)`，N 个 worker 协程消费（`WORKER_CONCURRENCY`，默认 4），单个 run 有超时（`RUN_TIMEOUT_SECONDS`，默认 300）。\n- **队列不是事实来源**。数据库里的 `queued` 才是：周期性扫描（`SWEEP_INTERVAL_SECONDS`，默认 5）把库里 queued 的 run 补投；队列丢了、进程重启了都不丢任务。\n- **正确性靠 `claim` 的原子条件更新**，不靠队列去重。",
+  "seconds": 2.34,
+  "attempts": 1,
+  "failed": false,
+  "input": 1049,
+  "cache_read": 512,
+  "output": 609,
+  "entities": [
+   {
+    "name": "进程内派发器",
+    "type": "技术组件",
+    "description": "阶段 1 采用的方案，在 api 进程内用 asyncio.Queue 派发 run"
+   },
+   {
+    "name": "ARQ + lease",
+    "type": "技术组件",
+    "description": "阶段 4 计划替换进程内派发器的方案，含 Redis 与独立 worker"
+   },
+   {
+    "name": "queued run",
+    "type": "概念术语",
+    "description": "已落库、待派发执行的 run"
+   },
+   {
+    "name": "队列",
+    "type": "技术组件",
+    "description": "仅用于派发，不是事实来源，丢失不影响任务"
+   },
+   {
+    "name": "数据库",
+    "type": "技术组件",
+    "description": "库里的 queued 状态才是事实来源"
+   },
+   {
+    "name": "周期性扫描",
+    "type": "流程操作",
+    "description": "按 SWEEP_INTERVAL_SECONDS 默认 5 秒把库里 queued 的 run 补投"
+   },
+   {
+    "name": "claim 原子条件更新",
+    "type": "流程操作",
+    "description": "保证正确性的机制，不依赖队列去重"
+   },
+   {
+    "name": "worker 协程",
+    "type": "技术组件",
+    "description": "消费队列，数量由 WORKER_CONCURRENCY 控制，默认 4"
+   }
+  ],
+  "relations": [
+   {
+    "source": "进程内派发器",
+    "target": "queued run",
+    "relation": "适用于",
+    "description": "阶段 1 用进程内派发器派发 queued run"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "队列",
+    "relation": "包含",
+    "description": "submit 成功后 enqueue(run_id) 入队"
+   },
+   {
+    "source": "worker 协程",
+    "target": "队列",
+    "relation": "依赖",
+    "description": "N 个 worker 协程消费队列中的 run"
+   },
+   {
+    "source": "周期性扫描",
+    "target": "数据库",
+    "relation": "依赖",
+    "description": "扫描库里 queued 的 run 并补投"
+   },
+   {
+    "source": "周期性扫描",
+    "target": "队列",
+    "relation": "替代",
+    "description": "队列丢失或进程重启时由扫描补投任务"
+   },
+   {
+    "source": "claim 原子条件更新",
+    "target": "queued run",
+    "relation": "限制",
+    "description": "通过原子条件更新保证 run 派发的正确性"
+   },
+   {
+    "source": "ARQ + lease",
+    "target": "进程内派发器",
+    "relation": "替代",
+    "description": "阶段 4 用 ARQ + lease 取代进程内派发器"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 1,
+  "title": "0005 - 阶段 1 先用进程内派发器，阶段 4 再换 ARQ + lease",
+  "text": "队列丢了、进程重启了都不丢任务。\n- **正确性靠 `claim` 的原子条件更新**，不靠队列去重。内存里的 `_pending` 集合只是避免重复排队的优化（去掉后测试依然通过，已验证）。\n- 启动恢复：把遗留的 `running` 置为 `failed(\"interrupted: worker restarted\")`，对话随之解锁。关停时在途 run 同样收尾为 `failed(\"interrupted: shutdown\")`。\n- 先用回声 Agent 打通链路，LLM 在 1.4 接入。\n\n**为什么不一开始就上 ARQ**：ARQ 要解决的是“多 worker 之间的任务分发与存活判定”，这是阶段 4 的问题。现在只有一个进程，先把“落库→派发→抢占→执行→回写→失败收尾”的语义想清楚并测透，再换传输层，换的时候只改派发器，链路语义不变。",
+  "seconds": 2.35,
+  "attempts": 1,
+  "failed": false,
+  "input": 1005,
+  "cache_read": 512,
+  "output": 604,
+  "entities": [
+   {
+    "name": "进程内派发器",
+    "type": "技术组件",
+    "description": "阶段 1 使用的任务派发方式，只有一个进程"
+   },
+   {
+    "name": "ARQ",
+    "type": "技术组件",
+    "description": "阶段 4 才替换上的传输层，解决多 worker 任务分发与存活判定"
+   },
+   {
+    "name": "claim 原子条件更新",
+    "type": "流程操作",
+    "description": "保证任务正确性的机制，不依赖队列去重"
+   },
+   {
+    "name": "_pending 集合",
+    "type": "技术组件",
+    "description": "内存中的集合，仅用于避免重复排队的优化"
+   },
+   {
+    "name": "启动恢复",
+    "type": "流程操作",
+    "description": "把遗留 running 置为 failed 并解锁对话"
+   },
+   {
+    "name": "关停收尾",
+    "type": "流程操作",
+    "description": "关停时把在途 run 收尾为 failed"
+   },
+   {
+    "name": "回声 Agent",
+    "type": "技术组件",
+    "description": "先用来打通链路的 Agent，LLM 在 1.4 接入"
+   },
+   {
+    "name": "任务链路语义",
+    "type": "概念术语",
+    "description": "落库→派发→抢占→执行→回写→失败收尾，换传输层时保持不变"
+   }
+  ],
+  "relations": [
+   {
+    "source": "进程内派发器",
+    "target": "ARQ",
+    "relation": "替代",
+    "description": "阶段 4 用 ARQ 替换进程内派发器，只改派发器"
+   },
+   {
+    "source": "claim 原子条件更新",
+    "target": "任务链路语义",
+    "relation": "属于",
+    "description": "claim 的原子条件更新是任务正确性的保障"
+   },
+   {
+    "source": "_pending 集合",
+    "target": "claim 原子条件更新",
+    "relation": "不适用于",
+    "description": "正确性不靠 _pending 去重，它只是优化"
+   },
+   {
+    "source": "启动恢复",
+    "target": "任务链路语义",
+    "relation": "属于",
+    "description": "启动恢复处理遗留 running 任务并解锁对话"
+   },
+   {
+    "source": "关停收尾",
+    "target": "任务链路语义",
+    "relation": "属于",
+    "description": "关停时在途 run 收尾为 failed"
+   },
+   {
+    "source": "回声 Agent",
+    "target": "任务链路语义",
+    "relation": "依赖",
+    "description": "先用回声 Agent 打通链路，LLM 后续接入"
+   },
+   {
+    "source": "ARQ",
+    "target": "任务链路语义",
+    "relation": "适用于",
+    "description": "换传输层时链路语义不变"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 2,
+  "title": "0005 - 阶段 1 先用进程内派发器，阶段 4 再换 ARQ + lease",
+  "text": "过早引入分布式组件，会让排错同时面对业务 bug 和分布式 bug 两类问题。\n\n**已知局限（刻意保留，阶段 4 解决）**：\n1. **单进程假设**：启动恢复会把所有 `running` 置为 failed。如果同时有两个 api 实例，B 启动时会误杀 A 正在执行的 run。所以 compose 里 api 必须只有 1 个实例、uvicorn 不能开多 `--workers`。lease + heartbeat 就是为了去掉这条假设：只有租约过期的 run 才允许被接管。\n2. **失败而不是重试**：被打断的 run 标 failed，由用户重发。有了 LangGraph checkpoint 之后可以改成“从断点恢复”。\n3. **kill -9 时不会有收尾**：优雅关停能把在途 run 标记 failed，进程被强杀则只能靠下次启动的恢复。\n\n**后果**：链路在单机上完整可跑、可测；",
+  "seconds": 2.27,
+  "attempts": 1,
+  "failed": false,
+  "input": 1006,
+  "cache_read": 512,
+  "output": 572,
+  "entities": [
+   {
+    "name": "进程内派发器",
+    "type": "技术组件",
+    "description": "阶段 1 采用的派发方式，链路在单机上完整可跑可测"
+   },
+   {
+    "name": "ARQ",
+    "type": "技术组件",
+    "description": "阶段 4 计划替换进程内派发器的分布式方案"
+   },
+   {
+    "name": "lease",
+    "type": "技术组件",
+    "description": "配合 heartbeat 去掉单进程假设，只有租约过期的 run 才允许被接管"
+   },
+   {
+    "name": "heartbeat",
+    "type": "技术组件",
+    "description": "与 lease 配合，用于判断 run 是否可被接管"
+   },
+   {
+    "name": "单进程假设",
+    "type": "规则政策",
+    "description": "刻意保留的局限，阶段 4 解决；启动恢复会把所有 running 置为 failed"
+   },
+   {
+    "name": "启动恢复",
+    "type": "流程操作",
+    "description": "启动时把所有 running 状态的 run 置为 failed"
+   },
+   {
+    "name": "LangGraph checkpoint",
+    "type": "技术组件",
+    "description": "有了它之后可把失败改为从断点恢复"
+   },
+   {
+    "name": "优雅关停",
+    "type": "流程操作",
+    "description": "能把在途 run 标记 failed；进程被强杀则只能靠下次启动恢复"
+   }
+  ],
+  "relations": [
+   {
+    "source": "ARQ",
+    "target": "进程内派发器",
+    "relation": "替代",
+    "description": "阶段 4 用 ARQ + lease 替换阶段 1 的进程内派发器"
+   },
+   {
+    "source": "lease",
+    "target": "单进程假设",
+    "relation": "限制",
+    "description": "lease + heartbeat 用于去掉单进程假设"
+   },
+   {
+    "source": "heartbeat",
+    "target": "lease",
+    "relation": "依赖",
+    "description": "heartbeat 与 lease 配合判断租约是否过期"
+   },
+   {
+    "source": "启动恢复",
+    "target": "单进程假设",
+    "relation": "导致",
+    "description": "启动恢复把 running 置为 failed，多实例时会误杀其他实例的 run"
+   },
+   {
+    "source": "LangGraph checkpoint",
+    "target": "启动恢复",
+    "relation": "替代",
+    "description": "有 checkpoint 后可改为从断点恢复，而非直接标 failed"
+   },
+   {
+    "source": "优雅关停",
+    "target": "启动恢复",
+    "relation": "依赖",
+    "description": "进程被强杀时只能靠下次启动的恢复收尾"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 3,
+  "title": "0005 - 阶段 1 先用进程内派发器，阶段 4 再换 ARQ + lease",
+  "text": "**后果**：链路在单机上完整可跑、可测；换 ARQ 时 `RunDispatcher` 的对外接口（`enqueue` / `sweep` / `start` / `stop`）可以保持不变。\n\n**验证**：`tests/test_dispatcher.py` 8 个测试 + 变异检查（分别破坏启动恢复、补投、关停收尾、并发上限、超时，对应测试均失败）；容器内端到端：发消息 → run 变 succeeded → 助手回复 `echo: …` 落库；重启 api 后历史仍在、可继续对话。",
+  "seconds": 2.34,
+  "attempts": 1,
+  "failed": false,
+  "input": 932,
+  "cache_read": 512,
+  "output": 597,
+  "entities": [
+   {
+    "name": "进程内派发器",
+    "type": "技术组件",
+    "description": "阶段 1 采用的派发方案，链路在单机上完整可跑、可测"
+   },
+   {
+    "name": "ARQ",
+    "type": "技术组件",
+    "description": "阶段 4 用来替换进程内派发器的方案，配合 lease"
+   },
+   {
+    "name": "RunDispatcher",
+    "type": "技术组件",
+    "description": "派发器对外接口，含 enqueue、sweep、start、stop"
+   },
+   {
+    "name": "启动恢复",
+    "type": "流程操作",
+    "description": "变异检查中被破坏的一项，对应测试应失败"
+   },
+   {
+    "name": "补投",
+    "type": "流程操作",
+    "description": "变异检查中被破坏的一项，对应测试应失败"
+   },
+   {
+    "name": "关停收尾",
+    "type": "流程操作",
+    "description": "变异检查中被破坏的一项，对应测试应失败"
+   },
+   {
+    "name": "并发上限",
+    "type": "规则政策",
+    "description": "变异检查中被破坏的一项，对应测试应失败"
+   },
+   {
+    "name": "超时",
+    "type": "规则政策",
+    "description": "变异检查中被破坏的一项，对应测试应失败"
+   }
+  ],
+  "relations": [
+   {
+    "source": "ARQ",
+    "target": "进程内派发器",
+    "relation": "替代",
+    "description": "阶段 4 用 ARQ + lease 替换阶段 1 的进程内派发器"
+   },
+   {
+    "source": "RunDispatcher",
+    "target": "进程内派发器",
+    "relation": "属于",
+    "description": "RunDispatcher 是派发器的对外接口，换 ARQ 时保持不变"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "启动恢复",
+    "relation": "包含",
+    "description": "启动恢复是派发器需验证的能力之一"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "补投",
+    "relation": "包含",
+    "description": "补投是派发器需验证的能力之一"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "关停收尾",
+    "relation": "包含",
+    "description": "关停收尾是派发器需验证的能力之一"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "并发上限",
+    "relation": "包含",
+    "description": "并发上限是派发器需验证的约束之一"
+   },
+   {
+    "source": "进程内派发器",
+    "target": "超时",
+    "relation": "包含",
+    "description": "超时是派发器需验证的约束之一"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 4,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "# 0007 - 流式输出：事件通道、Agent 契约与断线续传\n\n**状态**：已决定（2026-10-20，用户确认方案 B，并确认失败时半截输出不入库）；已在阶段 1.5 实现\n\n**背景**：用户要看到回复逐字出现，而不是等十几秒后一整块。真实 Gemini 实测首块延迟约 7 秒、回复在之后 1~2 秒内分十来段到达。需要决定：token 事件怎么从执行方送到浏览器、Agent 怎么产出事件、客户端断线后怎么续上、事件和数据库谁说了算。",
+  "seconds": 2.28,
+  "attempts": 1,
+  "failed": false,
+  "input": 935,
+  "cache_read": 512,
+  "output": 507,
+  "entities": [
+   {
+    "name": "流式输出",
+    "type": "概念术语",
+    "description": "让用户看到回复逐字出现，而非等待整块返回"
+   },
+   {
+    "name": "事件通道",
+    "type": "技术组件",
+    "description": "把 token 事件从执行方送到浏览器的通道"
+   },
+   {
+    "name": "Agent 契约",
+    "type": "概念术语",
+    "description": "约定 Agent 如何产出事件"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "客户端断线后重新续上事件流的机制"
+   },
+   {
+    "name": "Gemini",
+    "type": "技术组件",
+    "description": "实测首块延迟约 7 秒，回复在之后 1~2 秒内分十来段到达"
+   },
+   {
+    "name": "浏览器",
+    "type": "渠道地点",
+    "description": "接收 token 事件的客户端"
+   },
+   {
+    "name": "数据库",
+    "type": "技术组件",
+    "description": "与事件流争夺权威来源的一方"
+   },
+   {
+    "name": "方案 B",
+    "type": "规则政策",
+    "description": "用户确认的决策方案，失败时半截输出不入库"
+   }
+  ],
+  "relations": [
+   {
+    "source": "流式输出",
+    "target": "事件通道",
+    "relation": "依赖",
+    "description": "流式输出需要事件通道把 token 事件送到浏览器"
+   },
+   {
+    "source": "事件通道",
+    "target": "浏览器",
+    "relation": "适用于",
+    "description": "事件通道负责把 token 事件从执行方送到浏览器"
+   },
+   {
+    "source": "流式输出",
+    "target": "Agent 契约",
+    "relation": "需要",
+    "description": "需约定 Agent 如何产出事件"
+   },
+   {
+    "source": "流式输出",
+    "target": "断线续传",
+    "relation": "需要",
+    "description": "客户端断线后需能续上事件流"
+   },
+   {
+    "source": "方案 B",
+    "target": "数据库",
+    "relation": "限制",
+    "description": "失败时半截输出不入库"
+   },
+   {
+    "source": "Gemini",
+    "target": "流式输出",
+    "relation": "适用于",
+    "description": "真实 Gemini 实测用于验证流式输出的延迟表现"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 5,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 实验结论\n\n在 compose 里用真实 Gemini 与真实 Redis 验证：\n\n1. **LangGraph 能流式拿到节点内部的 token**：节点里仍然用 `model.ainvoke`，外层 `graph.astream(..., stream_mode=\"messages\")` 就能收到逐段的 `AIMessageChunk`（真实模型 9 个事件，分散在 1.08 秒内；内容块类型是 `text`）。不需要改节点代码。\n2. **没实现流式的模型只给 1 个整块**：我们的 `FakeEchoChatModel` 目前只有 `_generate`，流式下只产生 1 个事件。测试要验证“逐段”就得让假模型也能流式。\n3. **Redis Streams 的语义正好对应需求**：`XADD` 返回单调递增的 ID，可直接当事件游标；从 `0-0` 读是全量回放，从某个 ID 读只返回其后的（等价于 `Last-Event-ID` 续传）；",
+  "seconds": 2.47,
+  "attempts": 1,
+  "failed": false,
+  "input": 1023,
+  "cache_read": 512,
+  "output": 622,
+  "entities": [
+   {
+    "name": "LangGraph",
+    "type": "技术组件",
+    "description": "图编排框架，可流式拿到节点内部 token"
+   },
+   {
+    "name": "stream_mode=messages",
+    "type": "技术组件",
+    "description": "graph.astream 的流式模式，逐段返回 AIMessageChunk"
+   },
+   {
+    "name": "AIMessageChunk",
+    "type": "技术组件",
+    "description": "流式输出的消息分块，内容块类型为 text"
+   },
+   {
+    "name": "FakeEchoChatModel",
+    "type": "技术组件",
+    "description": "假模型，仅有 _generate，流式下只产生 1 个事件"
+   },
+   {
+    "name": "Redis Streams",
+    "type": "技术组件",
+    "description": "事件通道，XADD 返回单调递增 ID 可作事件游标"
+   },
+   {
+    "name": "XADD",
+    "type": "技术组件",
+    "description": "Redis Streams 写入命令，返回单调递增 ID"
+   },
+   {
+    "name": "全量回放",
+    "type": "流程操作",
+    "description": "从 0-0 读取，返回全部事件"
+   },
+   {
+    "name": "断线续传",
+    "type": "概念术语",
+    "description": "从某个 ID 读取只返回其后事件，等价 Last-Event-ID"
+   }
+  ],
+  "relations": [
+   {
+    "source": "LangGraph",
+    "target": "stream_mode=messages",
+    "relation": "通过",
+    "description": "外层 graph.astream 用该模式接收逐段 AIMessageChunk"
+   },
+   {
+    "source": "stream_mode=messages",
+    "target": "AIMessageChunk",
+    "relation": "提供",
+    "description": "该模式逐段返回 AIMessageChunk"
+   },
+   {
+    "source": "FakeEchoChatModel",
+    "target": "AIMessageChunk",
+    "relation": "不适用于",
+    "description": "未实现流式，只产生 1 个整块事件"
+   },
+   {
+    "source": "Redis Streams",
+    "target": "XADD",
+    "relation": "包含",
+    "description": "Redis Streams 通过 XADD 写入并返回单调递增 ID"
+   },
+   {
+    "source": "XADD",
+    "target": "断线续传",
+    "relation": "提供",
+    "description": "返回的 ID 可当事件游标，支持按 ID 续传"
+   },
+   {
+    "source": "Redis Streams",
+    "target": "全量回放",
+    "relation": "提供",
+    "description": "从 0-0 读取即为全量回放"
+   },
+   {
+    "source": "断线续传",
+    "target": "全量回放",
+    "relation": "优于",
+    "description": "按 ID 只读其后事件，比全量回放更省"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 6,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "从 `0-0` 读是全量回放，从某个 ID 读只返回其后的（等价于 `Last-Event-ID` 续传）；`XREAD BLOCK` 读到末尾会阻塞，被新写入立刻唤醒（实测 0.31s），无新数据则超时返回空；先于写入方连上也不丢（阻塞在尚不存在的 key 上，之后创建即收到）；`EXPIRE` 后整条流消失。\n4. **每个阻塞读客户端占用 1 个 Redis 连接**（实测 5 个并发读 = 5 个连接）。redis-py 连接池 `max_connections` 默认是 **100**（我最初以为是不限，查证后才发现），所以单进程并发 SSE 客户端的上限大约就是这个数，必须显式配置。",
+  "seconds": 2.43,
+  "attempts": 1,
+  "failed": false,
+  "input": 974,
+  "cache_read": 512,
+  "output": 600,
+  "entities": [
+   {
+    "name": "全量回放",
+    "type": "流程操作",
+    "description": "从 0-0 读取时返回整条流的全部事件"
+   },
+   {
+    "name": "Last-Event-ID 续传",
+    "type": "流程操作",
+    "description": "从某个 ID 读取只返回其后的内容，等价于断线续传"
+   },
+   {
+    "name": "XREAD BLOCK",
+    "type": "技术组件",
+    "description": "阻塞读命令，读到末尾会阻塞，被新写入立刻唤醒，无新数据则超时返回空"
+   },
+   {
+    "name": "EXPIRE",
+    "type": "技术组件",
+    "description": "执行后整条流消失"
+   },
+   {
+    "name": "阻塞读客户端",
+    "type": "概念术语",
+    "description": "每个占用 1 个 Redis 连接，5 个并发读即 5 个连接"
+   },
+   {
+    "name": "Redis 连接",
+    "type": "技术组件",
+    "description": "阻塞读客户端逐个占用，是并发上限的约束来源"
+   },
+   {
+    "name": "redis-py 连接池",
+    "type": "技术组件",
+    "description": "max_connections 默认 100，需显式配置"
+   },
+   {
+    "name": "SSE 客户端",
+    "type": "概念术语",
+    "description": "单进程并发上限约等于连接池上限"
+   }
+  ],
+  "relations": [
+   {
+    "source": "全量回放",
+    "target": "Last-Event-ID 续传",
+    "relation": "优于",
+    "description": "从 0-0 读是全量回放，从某个 ID 读只返回其后的"
+   },
+   {
+    "source": "XREAD BLOCK",
+    "target": "阻塞读客户端",
+    "relation": "适用于",
+    "description": "阻塞读客户端通过 XREAD BLOCK 阻塞等待新数据"
+   },
+   {
+    "source": "阻塞读客户端",
+    "target": "Redis 连接",
+    "relation": "需要",
+    "description": "每个阻塞读客户端占用 1 个 Redis 连接"
+   },
+   {
+    "source": "redis-py 连接池",
+    "target": "Redis 连接",
+    "relation": "包含",
+    "description": "连接池 max_connections 默认 100，限制可用连接数"
+   },
+   {
+    "source": "redis-py 连接池",
+    "target": "SSE 客户端",
+    "relation": "限制",
+    "description": "单进程并发 SSE 客户端上限约等于连接池上限，必须显式配置"
+   },
+   {
+    "source": "EXPIRE",
+    "target": "XREAD BLOCK",
+    "relation": "导致",
+    "description": "EXPIRE 后整条流消失，阻塞读无法再获取数据"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 7,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 方案\n\n| | 事件通道 | 优点 | 缺点 |\n|---|---|---|---|\n| A | 进程内（asyncio.Queue / 内存缓冲） | 最简单，无外部依赖 | 阶段 4 把 worker 拆成独立容器后，事件无法跨进程；api 重启后缓冲丢失，无法续传 |\n| B | **Redis Streams** | 跨进程；游标与回放现成；阻塞读即推送；Redis 本来就在栈里 | 多一次网络往返；每个客户端占一个阻塞连接 |\n| C | 每个 token 写 Postgres + 轮询/LISTEN | 事件也持久 | 一次回复几百行写入、读放大，对“用完即弃”的事件不划算 |",
+  "seconds": 2.2,
+  "attempts": 1,
+  "failed": false,
+  "input": 956,
+  "cache_read": 512,
+  "output": 556,
+  "entities": [
+   {
+    "name": "事件通道",
+    "type": "概念术语",
+    "description": "流式输出中承载事件的通道，方案 A/B/C 分别采用不同实现"
+   },
+   {
+    "name": "进程内缓冲",
+    "type": "技术组件",
+    "description": "基于 asyncio.Queue 或内存缓冲，最简单且无外部依赖"
+   },
+   {
+    "name": "Redis Streams",
+    "type": "技术组件",
+    "description": "跨进程事件通道，游标与回放现成，阻塞读即推送"
+   },
+   {
+    "name": "Postgres",
+    "type": "技术组件",
+    "description": "每个 token 写入并配合轮询/LISTEN 读取，事件也持久"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "客户端断线后继续接收事件，依赖游标与回放能力"
+   },
+   {
+    "name": "worker",
+    "type": "组织角色",
+    "description": "阶段 4 被拆成独立容器，导致进程内事件无法跨进程"
+   },
+   {
+    "name": "Redis",
+    "type": "技术组件",
+    "description": "已在技术栈中，无需额外引入"
+   }
+  ],
+  "relations": [
+   {
+    "source": "进程内缓冲",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "方案 A 用进程内缓冲作为事件通道"
+   },
+   {
+    "source": "Redis Streams",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "方案 B 用 Redis Streams 作为事件通道"
+   },
+   {
+    "source": "Postgres",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "方案 C 用 Postgres 写入加轮询作为事件通道"
+   },
+   {
+    "source": "进程内缓冲",
+    "target": "断线续传",
+    "relation": "不适用于",
+    "description": "api 重启后缓冲丢失，无法续传"
+   },
+   {
+    "source": "Redis Streams",
+    "target": "断线续传",
+    "relation": "提供",
+    "description": "游标与回放现成，支持断线续传"
+   },
+   {
+    "source": "Redis Streams",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "Redis 本来就在栈里，无需新增依赖"
+   },
+   {
+    "source": "进程内缓冲",
+    "target": "worker",
+    "relation": "不适用于",
+    "description": "worker 拆成独立容器后事件无法跨进程"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 8,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 决定（方案 B，已确认）\n\n1. **事件通道用 Redis Streams**，每个 run 一条流 `run:{run_id}:events`。`XADD` 带 `MAXLEN ~ 5000` 防止无限增长；run 到终态后 `EXPIRE`（默认 1 小时）。流 ID 即 SSE 的 `id:`，续传用 `Last-Event-ID`。\n2. **数据库永远是事实来源，事件只是“视图”**：\n   - 终态事件（`run.completed` / `run.failed`）在数据库提交**之后**才发布，所以客户端看到“完成”时消息一定已落库。\n   - 事件丢了（Redis 抖动、流过期、启动恢复把 run 置失败而没发事件）不会让客户端卡死：SSE 处理器在每次阻塞超时（15 秒）时查一次数据库，若 run 已终态就**合成**终态事件并结束；连接建立时若 run 已终态且流已过期，同样直接合成。",
+  "seconds": 2.13,
+  "attempts": 1,
+  "failed": false,
+  "input": 1027,
+  "cache_read": 640,
+  "output": 574,
+  "entities": [
+   {
+    "name": "Redis Streams",
+    "type": "技术组件",
+    "description": "用作事件通道，每个 run 一条流"
+   },
+   {
+    "name": "事件通道",
+    "type": "概念术语",
+    "description": "承载 run 事件，方案 B 确认使用 Redis Streams"
+   },
+   {
+    "name": "run 事件流",
+    "type": "技术组件",
+    "description": "每个 run 一条流，键为 run:{run_id}:events"
+   },
+   {
+    "name": "MAXLEN ~ 5000",
+    "type": "规则政策",
+    "description": "XADD 时限制流长度，防止无限增长"
+   },
+   {
+    "name": "EXPIRE",
+    "type": "流程操作",
+    "description": "run 到终态后设置过期，默认 1 小时"
+   },
+   {
+    "name": "SSE",
+    "type": "技术组件",
+    "description": "流 ID 作为 SSE 的 id:，续传用 Last-Event-ID"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "通过 Last-Event-ID 恢复事件流"
+   },
+   {
+    "name": "数据库",
+    "type": "技术组件",
+    "description": "永远是事实来源，事件只是视图"
+   }
+  ],
+  "relations": [
+   {
+    "source": "事件通道",
+    "target": "Redis Streams",
+    "relation": "依赖",
+    "description": "事件通道采用 Redis Streams 实现"
+   },
+   {
+    "source": "run 事件流",
+    "target": "Redis Streams",
+    "relation": "属于",
+    "description": "每个 run 一条流，存放在 Redis Streams 中"
+   },
+   {
+    "source": "MAXLEN ~ 5000",
+    "target": "run 事件流",
+    "relation": "限制",
+    "description": "XADD 时限制流长度，防止无限增长"
+   },
+   {
+    "source": "EXPIRE",
+    "target": "run 事件流",
+    "relation": "适用于",
+    "description": "run 到终态后对流设置过期，默认 1 小时"
+   },
+   {
+    "source": "SSE",
+    "target": "run 事件流",
+    "relation": "依赖",
+    "description": "流 ID 即 SSE 的 id:，用于续传"
+   },
+   {
+    "source": "断线续传",
+    "target": "SSE",
+    "relation": "通过",
+    "description": "续传使用 Last-Event-ID 实现"
+   },
+   {
+    "source": "数据库",
+    "target": "事件通道",
+    "relation": "优于",
+    "description": "数据库是事实来源，事件只是视图"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 9,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "连接建立时若 run 已终态且流已过期，同样直接合成。\n3. **事件类型**（`event:` 字段）：`run.started`、`token`（`data: {\"text\": \"…\"}`）、`run.completed`（含 `message_id`）、`run.failed`（含 `error`）。`data` 为 JSON 对象，保持可扩展（阶段 4 子 Agent 会加 `source` 等字段）。\n4. **Agent 契约**：`RunContext` 增加 `events`（一个 `emit` 接口，默认空实现）。`run(ctx) -> str` 的签名不变，仍返回最终完整文本，由派发器照旧落库；流式只是 Agent 在执行中顺带 `emit` token。这样回声 Agent、现有测试、派发器的主流程都不用改。\n   - 备选：把 `run` 改成异步生成器直接 `yield` 事件。更“纯”，但要改所有 Agent、派发器和测试，收益只有风格。",
+  "seconds": 2.66,
+  "attempts": 1,
+  "failed": false,
+  "input": 1023,
+  "cache_read": 640,
+  "output": 635,
+  "entities": [
+   {
+    "name": "事件类型",
+    "type": "概念术语",
+    "description": "SSE 的 event 字段，含 run.started、token、run.completed、run.failed"
+   },
+   {
+    "name": "run.started",
+    "type": "概念术语",
+    "description": "事件类型之一，标记运行开始"
+   },
+   {
+    "name": "token",
+    "type": "概念术语",
+    "description": "事件类型之一，data 中携带文本片段"
+   },
+   {
+    "name": "run.completed",
+    "type": "概念术语",
+    "description": "事件类型之一，含 message_id"
+   },
+   {
+    "name": "run.failed",
+    "type": "概念术语",
+    "description": "事件类型之一，含 error"
+   },
+   {
+    "name": "Agent 契约",
+    "type": "规则政策",
+    "description": "规定 RunContext 增加 events 接口，run 签名不变"
+   },
+   {
+    "name": "RunContext",
+    "type": "技术组件",
+    "description": "增加 events，即一个 emit 接口，默认空实现"
+   },
+   {
+    "name": "派发器",
+    "type": "技术组件",
+    "description": "照旧将 run 返回的最终完整文本落库"
+   }
+  ],
+  "relations": [
+   {
+    "source": "事件类型",
+    "target": "run.started",
+    "relation": "包含",
+    "description": "事件类型包含 run.started"
+   },
+   {
+    "source": "事件类型",
+    "target": "token",
+    "relation": "包含",
+    "description": "事件类型包含 token"
+   },
+   {
+    "source": "事件类型",
+    "target": "run.completed",
+    "relation": "包含",
+    "description": "事件类型包含 run.completed"
+   },
+   {
+    "source": "事件类型",
+    "target": "run.failed",
+    "relation": "包含",
+    "description": "事件类型包含 run.failed"
+   },
+   {
+    "source": "Agent 契约",
+    "target": "RunContext",
+    "relation": "需要",
+    "description": "契约要求 RunContext 增加 events 接口"
+   },
+   {
+    "source": "派发器",
+    "target": "Agent 契约",
+    "relation": "依赖",
+    "description": "派发器主流程按契约不变，仍落库最终文本"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 10,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "- 备选：把 `run` 改成异步生成器直接 `yield` 事件。更“纯”，但要改所有 Agent、派发器和测试，收益只有风格。\n5. **ChatbotAgent** 改用 `graph.astream(stream_mode=\"messages\")`：每个 `AIMessageChunk` 取文本（用已有的 `message_text`）`emit` 为 `token`，同时累积最终文本返回。checkpoint 与决策 0006 不变。\n6. **SSE 接口**：`GET /api/runs/{id}/events`，和 `GET /api/runs/{id}` 同样的归属校验（不是自己的 run 返回 404）。每 15 秒无事件发一行注释心跳 `: ping`，防止代理断开；首块延迟 7 秒时尤其需要。客户端断开时服务端必须释放该 Redis 连接。\n7. **连接上限**：显式设置事件客户端的 Redis 连接池 `max_connections`，并在文档里写明“并发 SSE 流 ≈ 连接池大小”是已知的扩展上限；",
+  "seconds": 2.96,
+  "attempts": 1,
+  "failed": false,
+  "input": 1031,
+  "cache_read": 640,
+  "output": 752,
+  "entities": [
+   {
+    "name": "ChatbotAgent",
+    "type": "技术组件",
+    "description": "改用 graph.astream 的 messages 模式流式输出"
+   },
+   {
+    "name": "graph.astream",
+    "type": "技术组件",
+    "description": "以 messages 模式流式产出 AIMessageChunk"
+   },
+   {
+    "name": "AIMessageChunk",
+    "type": "技术组件",
+    "description": "流式返回的消息块，取文本后 emit 为 token"
+   },
+   {
+    "name": "token",
+    "type": "概念术语",
+    "description": "ChatbotAgent 逐块发出的事件类型"
+   },
+   {
+    "name": "SSE 接口",
+    "type": "产品服务",
+    "description": "GET /api/runs/{id}/events，用于订阅 run 事件流"
+   },
+   {
+    "name": "归属校验",
+    "type": "规则政策",
+    "description": "非自己的 run 返回 404"
+   },
+   {
+    "name": "心跳",
+    "type": "流程操作",
+    "description": "每 15 秒无事件发一行注释 : ping 防止代理断开"
+   },
+   {
+    "name": "连接上限",
+    "type": "规则政策",
+    "description": "显式设置 Redis 连接池 max_connections，并发流约等于池大小"
+   }
+  ],
+  "relations": [
+   {
+    "source": "ChatbotAgent",
+    "target": "graph.astream",
+    "relation": "依赖",
+    "description": "ChatbotAgent 改用 graph.astream 的 messages 模式"
+   },
+   {
+    "source": "graph.astream",
+    "target": "AIMessageChunk",
+    "relation": "提供",
+    "description": "astream 以 messages 模式产出 AIMessageChunk"
+   },
+   {
+    "source": "ChatbotAgent",
+    "target": "token",
+    "relation": "提供",
+    "description": "每个消息块取文本后 emit 为 token"
+   },
+   {
+    "source": "SSE 接口",
+    "target": "归属校验",
+    "relation": "需要",
+    "description": "SSE 接口与查询 run 一样做归属校验"
+   },
+   {
+    "source": "SSE 接口",
+    "target": "心跳",
+    "relation": "包含",
+    "description": "每 15 秒无事件发一行注释心跳"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 11,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "更大规模需要改成“每个 run 一个读取协程 + 进程内扇出”。\n8. **前端认证**：浏览器原生 `EventSource` 不能自定义请求头，而我们现在用 `X-User-Id` 头做鉴权占位（阶段 5 会换成 token）。前端改用基于 `fetch` 的流式读取（可用 `@microsoft/fetch-event-source`），仍走头部鉴权。**不采用**把用户标识放进 URL 查询串的做法，因为 URL 会进日志和浏览器历史。\n9. **范围外**：取消 run、断线后自动恢复执行（阶段 4）、多个浏览器标签同时订阅的去重。",
+  "seconds": 2.32,
+  "attempts": 1,
+  "failed": false,
+  "input": 939,
+  "cache_read": 640,
+  "output": 686,
+  "entities": [
+   {
+    "name": "读取协程",
+    "type": "流程操作",
+    "description": "大规模场景下每个 run 一个读取协程"
+   },
+   {
+    "name": "进程内扇出",
+    "type": "流程操作",
+    "description": "与读取协程配合的扇出方式"
+   },
+   {
+    "name": "前端认证",
+    "type": "流程操作",
+    "description": "前端流式读取时的鉴权方式"
+   },
+   {
+    "name": "EventSource",
+    "type": "技术组件",
+    "description": "浏览器原生接口，不能自定义请求头"
+   },
+   {
+    "name": "X-User-Id",
+    "type": "技术组件",
+    "description": "当前用于鉴权占位的请求头，阶段 5 换成 token"
+   },
+   {
+    "name": "fetch 流式读取",
+    "type": "技术组件",
+    "description": "前端改用基于 fetch 的流式读取，仍走头部鉴权"
+   },
+   {
+    "name": "fetch-event-source",
+    "type": "技术组件",
+    "description": "可用的 fetch 流式读取库"
+   },
+   {
+    "name": "URL 查询串传用户标识",
+    "type": "规则政策",
+    "description": "不采用，因 URL 会进日志和浏览器历史"
+   }
+  ],
+  "relations": [
+   {
+    "source": "读取协程",
+    "target": "进程内扇出",
+    "relation": "需要",
+    "description": "大规模时每个 run 一个读取协程并做进程内扇出"
+   },
+   {
+    "source": "前端认证",
+    "target": "EventSource",
+    "relation": "不适用于",
+    "description": "EventSource 不能自定义请求头，无法满足头部鉴权"
+   },
+   {
+    "source": "前端认证",
+    "target": "X-User-Id",
+    "relation": "依赖",
+    "description": "当前用 X-User-Id 头做鉴权占位"
+   },
+   {
+    "source": "前端认证",
+    "target": "fetch 流式读取",
+    "relation": "通过",
+    "description": "前端改用基于 fetch 的流式读取，仍走头部鉴权"
+   },
+   {
+    "source": "fetch 流式读取",
+    "target": "fetch-event-source",
+    "relation": "依赖",
+    "description": "可用 fetch-event-source 实现"
+   },
+   {
+    "source": "前端认证",
+    "target": "URL 查询串传用户标识",
+    "relation": "不适用于",
+    "description": "不采用把用户标识放进 URL 查询串的做法"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 12,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 后果\n\n- 好处：阶段 4 拆 worker 时事件通道不用改；断线续传和晚加入的客户端回放是现成能力；数据库仍是唯一事实来源，事件出问题只影响“实时性”，不影响正确性。\n- 代价：每个 SSE 客户端占一个 Redis 连接；多了“事件与数据库不一致时以谁为准”的逻辑，需要专门测试；前端不能用最省事的原生 `EventSource`。\n- 风险：合成终态事件的路径（Redis 丢事件、启动恢复）只有在测试里主动制造故障才会走到，必须有测试覆盖，否则线上才会发现客户端卡死。",
+  "seconds": 2.38,
+  "attempts": 1,
+  "failed": false,
+  "input": 930,
+  "cache_read": 640,
+  "output": 552,
+  "entities": [
+   {
+    "name": "事件通道",
+    "type": "技术组件",
+    "description": "阶段 4 拆 worker 时无需改动的组件"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "客户端断线后继续接收事件的现成能力"
+   },
+   {
+    "name": "客户端回放",
+    "type": "流程操作",
+    "description": "晚加入的客户端回放历史事件的现成能力"
+   },
+   {
+    "name": "数据库",
+    "type": "技术组件",
+    "description": "仍是唯一事实来源，事件出问题不影响正确性"
+   },
+   {
+    "name": "SSE 客户端",
+    "type": "技术组件",
+    "description": "每个客户端占一个 Redis 连接"
+   },
+   {
+    "name": "Redis",
+    "type": "技术组件",
+    "description": "为每个 SSE 客户端占用一个连接，可能丢事件"
+   },
+   {
+    "name": "EventSource",
+    "type": "技术组件",
+    "description": "前端最省事的原生方案，此处不能使用"
+   },
+   {
+    "name": "合成终态事件",
+    "type": "概念术语",
+    "description": "Redis 丢事件、启动恢复时走的路径，需测试覆盖"
+   }
+  ],
+  "relations": [
+   {
+    "source": "事件通道",
+    "target": "断线续传",
+    "relation": "提供",
+    "description": "事件通道使断线续传成为现成能力"
+   },
+   {
+    "source": "事件通道",
+    "target": "客户端回放",
+    "relation": "提供",
+    "description": "事件通道使晚加入客户端的回放成为现成能力"
+   },
+   {
+    "source": "SSE 客户端",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "每个 SSE 客户端占用一个 Redis 连接"
+   },
+   {
+    "source": "EventSource",
+    "target": "事件通道",
+    "relation": "不适用于",
+    "description": "前端不能用最省事的原生 EventSource"
+   },
+   {
+    "source": "合成终态事件",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "Redis 丢事件时会走到合成终态事件的路径"
+   },
+   {
+    "source": "合成终态事件",
+    "target": "数据库",
+    "relation": "依赖",
+    "description": "事件与数据库不一致时需确定以谁为准"
+   },
+   {
+    "source": "合成终态事件",
+    "target": "客户端回放",
+    "relation": "导致",
+    "description": "该路径未覆盖时线上才会发现客户端卡死"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 13,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 开放问题（已决定）\n\n1. ~~是否接受 Redis Streams 方案（B）~~ **已接受。**，尤其是第 2 点“数据库为准、事件为视图”和第 4 点“把 `events` 放进 `RunContext`、`run()` 仍返回完整文本”。\n2. ~~失败时已推送的部分 token 怎么办~~ **已确认：不入库，前端标成“生成中断”。**：当前设计是不入库——run 失败后 `messages` 表里没有这条助手回复，前端要把已显示的半截内容标成“生成中断”。你是否接受？（另一种是把部分输出落库，但会与决策 0006 的“只有最终文本入 messages”冲突，我不推荐。）",
+  "seconds": 2.08,
+  "attempts": 1,
+  "failed": false,
+  "input": 953,
+  "cache_read": 640,
+  "output": 475,
+  "entities": [
+   {
+    "name": "Redis Streams",
+    "type": "技术组件",
+    "description": "事件通道方案B，已被接受"
+   },
+   {
+    "name": "数据库为准、事件为视图",
+    "type": "概念术语",
+    "description": "已接受的设计原则，数据库为权威来源"
+   },
+   {
+    "name": "RunContext",
+    "type": "技术组件",
+    "description": "存放 events 的上下文对象"
+   },
+   {
+    "name": "run()",
+    "type": "流程操作",
+    "description": "仍返回完整文本的调用入口"
+   },
+   {
+    "name": "生成中断",
+    "type": "概念术语",
+    "description": "run 失败后前端对已显示半截内容的标记"
+   },
+   {
+    "name": "messages 表",
+    "type": "技术组件",
+    "description": "run 失败后不写入该助手回复"
+   },
+   {
+    "name": "决策 0006",
+    "type": "规则政策",
+    "description": "规定只有最终文本入 messages"
+   },
+   {
+    "name": "部分输出落库",
+    "type": "流程操作",
+    "description": "备选方案，与决策 0006 冲突，不推荐"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Redis Streams",
+    "target": "数据库为准、事件为视图",
+    "relation": "适用于",
+    "description": "接受该方案时尤其认可这一设计原则"
+   },
+   {
+    "source": "RunContext",
+    "target": "run()",
+    "relation": "包含",
+    "description": "events 放进 RunContext，run() 仍返回完整文本"
+   },
+   {
+    "source": "生成中断",
+    "target": "messages 表",
+    "relation": "依赖",
+    "description": "run 失败后 messages 表无该回复，前端标记生成中断"
+   },
+   {
+    "source": "部分输出落库",
+    "target": "决策 0006",
+    "relation": "限制",
+    "description": "部分输出落库会与决策 0006 冲突"
+   },
+   {
+    "source": "决策 0006",
+    "target": "messages 表",
+    "relation": "限制",
+    "description": "规定只有最终文本入 messages"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 14,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 实现与草稿的差异（2026-10-20）\n\n实现时按事实调整了几处，均有依据：\n\n1. **心跳交给框架**：FastAPI 0.151 自带 `fastapi.sse.EventSourceResponse`，空闲 15 秒自动发 `: ping`，并自动加 `Cache-Control: no-cache`、`X-Accel-Buffering: no`。所以生成器不再自己发心跳，只负责“读 Redis + 空闲时查库”。查库间隔改为 5 秒（`sse_poll_interval_seconds`），比草稿的 15 秒更快发现丢失的终态事件。\n2. **启动恢复直接补发事件**：草稿里说“启动恢复置 failed 时没有事件，靠查库兜底”。实现时让 `fail_all_running` 返回 id 列表并逐个发布 `run.failed`，查库兜底保留为第二道保险。",
+  "seconds": 1.9,
+  "attempts": 1,
+  "failed": false,
+  "input": 1002,
+  "cache_read": 640,
+  "output": 531,
+  "entities": [
+   {
+    "name": "FastAPI",
+    "type": "技术组件",
+    "description": "0.151 版本自带 EventSourceResponse"
+   },
+   {
+    "name": "EventSourceResponse",
+    "type": "技术组件",
+    "description": "框架自带，空闲 15 秒自动发 ping 并加缓存相关响应头"
+   },
+   {
+    "name": "心跳",
+    "type": "流程操作",
+    "description": "改由框架自动发送，生成器不再自己发"
+   },
+   {
+    "name": "生成器",
+    "type": "技术组件",
+    "description": "只负责读 Redis 与空闲时查库"
+   },
+   {
+    "name": "Redis",
+    "type": "技术组件",
+    "description": "生成器读取事件的数据来源"
+   },
+   {
+    "name": "查库兜底",
+    "type": "流程操作",
+    "description": "查库间隔 5 秒，作为第二道保险"
+   },
+   {
+    "name": "启动恢复",
+    "type": "流程操作",
+    "description": "启动时补发 run.failed 事件"
+   },
+   {
+    "name": "run.failed",
+    "type": "概念术语",
+    "description": "启动恢复时逐个发布的事件"
+   }
+  ],
+  "relations": [
+   {
+    "source": "FastAPI",
+    "target": "EventSourceResponse",
+    "relation": "包含",
+    "description": "FastAPI 0.151 自带 EventSourceResponse"
+   },
+   {
+    "source": "EventSourceResponse",
+    "target": "心跳",
+    "relation": "提供",
+    "description": "空闲 15 秒自动发送 ping 心跳"
+   },
+   {
+    "source": "心跳",
+    "target": "生成器",
+    "relation": "不适用于",
+    "description": "心跳交给框架，生成器不再自己发"
+   },
+   {
+    "source": "生成器",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "生成器负责读 Redis"
+   },
+   {
+    "source": "生成器",
+    "target": "查库兜底",
+    "relation": "通过",
+    "description": "空闲时查库，间隔 5 秒"
+   },
+   {
+    "source": "启动恢复",
+    "target": "run.failed",
+    "relation": "提供",
+    "description": "启动恢复时逐个发布 run.failed 事件"
+   },
+   {
+    "source": "查库兜底",
+    "target": "启动恢复",
+    "relation": "适用于",
+    "description": "查库兜底保留为启动恢复的第二道保险"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 15,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "实现时让 `fail_all_running` 返回 id 列表并逐个发布 `run.failed`，查库兜底保留为第二道保险。\n3. **阻塞读专用的 Redis 客户端必须设置更大的 `socket_timeout`**：redis-py 8 的连接默认 `socket_timeout=5` 秒，等于阻塞时长，导致真实环境下每次阻塞读都在客户端超时，SSE 退化成查库模式（token 在结束时一次性到达）。修复：`make_reader_client` 设置 `socket_timeout = 阻塞时长 + 5`；并把“套接字读超时”按空闲处理，而不是当成 Redis 故障。详见 dev-log 问题索引 #31。\n4. **归属校验做成依赖**（`owned_run`），保证流式接口也能在响应开始前返回 404。\n5. **测试里的 HTTP 层必须起真实 uvicorn**：httpx 的 `ASGITransport` 会缓冲整个响应（已实测），无法测逐条到达与中途断开。",
+  "seconds": 2.48,
+  "attempts": 1,
+  "failed": false,
+  "input": 1016,
+  "cache_read": 640,
+  "output": 658,
+  "entities": [
+   {
+    "name": "fail_all_running",
+    "type": "流程操作",
+    "description": "返回 id 列表并逐个发布 run.failed 的处理逻辑"
+   },
+   {
+    "name": "run.failed",
+    "type": "概念术语",
+    "description": "逐个发布的事件，用于标记运行失败"
+   },
+   {
+    "name": "查库兜底",
+    "type": "流程操作",
+    "description": "作为第二道保险保留的兜底手段"
+   },
+   {
+    "name": "Redis 客户端",
+    "type": "技术组件",
+    "description": "阻塞读专用，需设置更大的 socket_timeout"
+   },
+   {
+    "name": "socket_timeout",
+    "type": "技术组件",
+    "description": "redis-py 8 连接默认 5 秒，等于阻塞时长"
+   },
+   {
+    "name": "make_reader_client",
+    "type": "流程操作",
+    "description": "设置 socket_timeout 为阻塞时长加 5 秒"
+   },
+   {
+    "name": "SSE",
+    "type": "技术组件",
+    "description": "超时后退化为查库模式，token 结束时一次性到达"
+   },
+   {
+    "name": "owned_run",
+    "type": "流程操作",
+    "description": "归属校验依赖，保证流式接口响应前返回 404"
+   }
+  ],
+  "relations": [
+   {
+    "source": "fail_all_running",
+    "target": "run.failed",
+    "relation": "包含",
+    "description": "fail_all_running 逐个发布 run.failed 事件"
+   },
+   {
+    "source": "fail_all_running",
+    "target": "查库兜底",
+    "relation": "依赖",
+    "description": "查库兜底保留为第二道保险"
+   },
+   {
+    "source": "Redis 客户端",
+    "target": "socket_timeout",
+    "relation": "包含",
+    "description": "阻塞读专用客户端需设置更大的 socket_timeout"
+   },
+   {
+    "source": "make_reader_client",
+    "target": "socket_timeout",
+    "relation": "包含",
+    "description": "make_reader_client 设置 socket_timeout 为阻塞时长加 5 秒"
+   },
+   {
+    "source": "socket_timeout",
+    "target": "SSE",
+    "relation": "导致",
+    "description": "超时使阻塞读失败，SSE 退化成查库模式"
+   },
+   {
+    "source": "owned_run",
+    "target": "SSE",
+    "relation": "适用于",
+    "description": "归属校验依赖保证流式接口响应前返回 404"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 16,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 验证\n\n- 单元/集成测试 59 个通过，其中事件相关 19 个：发布与 TTL、续传、`BLOCK 0` 拒绝、发布失败不抛错且只告警一次、成功/失败的事件顺序、“收到完成事件时消息已落库”、启动恢复补发、Redis 故障时 run 仍成功、晚加入回放、流过期立即合成、丢失终态事件时合成、Redis 不可用时退化查库、套接字超时按空闲处理（延迟断言）、SSE 线上格式、越权 404、`Last-Event-ID` 续传、客户端断开后 Redis 上不再有阻塞连接。\n- 变异检查：先发布后提交、从不合成、归属校验放进流内、连接时总是阻塞、启动恢复不补发、读超时当故障——均有测试失败。唯一存活的“读取时吞掉取消”，原因是 anyio 的取消是电平触发的（已用实验验证），代码仍保留 `raise`。",
+  "seconds": 2.25,
+  "attempts": 1,
+  "failed": false,
+  "input": 1016,
+  "cache_read": 640,
+  "output": 561,
+  "entities": [
+   {
+    "name": "事件通道",
+    "type": "技术组件",
+    "description": "负责事件发布与续传的通道，含 TTL 与阻塞连接机制"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "客户端凭 Last-Event-ID 恢复事件流的机制"
+   },
+   {
+    "name": "Last-Event-ID",
+    "type": "技术组件",
+    "description": "续传时携带的请求头，用于定位事件位置"
+   },
+   {
+    "name": "终态事件合成",
+    "type": "流程操作",
+    "description": "流过期或丢失终态事件时立即合成完成事件"
+   },
+   {
+    "name": "启动恢复补发",
+    "type": "流程操作",
+    "description": "服务启动时恢复并补发未完成的事件"
+   },
+   {
+    "name": "归属校验",
+    "type": "规则政策",
+    "description": "校验事件归属，越权访问返回 404"
+   },
+   {
+    "name": "Redis",
+    "type": "技术组件",
+    "description": "事件存储依赖的组件，不可用时退化查库"
+   },
+   {
+    "name": "变异检查",
+    "type": "流程操作",
+    "description": "人为引入缺陷验证测试能否失败的手段"
+   }
+  ],
+  "relations": [
+   {
+    "source": "断线续传",
+    "target": "Last-Event-ID",
+    "relation": "依赖",
+    "description": "续传依赖 Last-Event-ID 定位事件位置"
+   },
+   {
+    "source": "断线续传",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "续传是事件通道提供的能力之一"
+   },
+   {
+    "source": "终态事件合成",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "流过期或丢失终态事件时由事件通道合成"
+   },
+   {
+    "source": "启动恢复补发",
+    "target": "事件通道",
+    "relation": "属于",
+    "description": "启动时对未完成事件进行恢复补发"
+   },
+   {
+    "source": "归属校验",
+    "target": "事件通道",
+    "relation": "适用于",
+    "description": "归属校验不放在流内，越权返回 404"
+   },
+   {
+    "source": "事件通道",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "Redis 故障时 run 仍成功，不可用时退化查库"
+   },
+   {
+    "source": "变异检查",
+    "target": "事件通道",
+    "relation": "适用于",
+    "description": "对事件通道的多种缺陷注入均有测试失败"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 17,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "唯一存活的“读取时吞掉取消”，原因是 anyio 的取消是电平触发的（已用实验验证），代码仍保留 `raise`。\n- 真实 Gemini + compose 端到端：事件从写入 Redis 到客户端收到 4~6 毫秒；token 逐段到达；`: ping` 每 15 秒一次；落库内容与推送内容一致。",
+  "seconds": 2.1,
+  "attempts": 1,
+  "failed": false,
+  "input": 878,
+  "cache_read": 640,
+  "output": 459,
+  "entities": [
+   {
+    "name": "anyio",
+    "type": "技术组件",
+    "description": "其取消是电平触发的，已用实验验证"
+   },
+   {
+    "name": "读取时吞掉取消",
+    "type": "概念术语",
+    "description": "唯一存活的取消处理方式，代码仍保留 raise"
+   },
+   {
+    "name": "Gemini",
+    "type": "技术组件",
+    "description": "参与真实端到端测试的模型"
+   },
+   {
+    "name": "compose",
+    "type": "技术组件",
+    "description": "参与真实端到端测试的部署方式"
+   },
+   {
+    "name": "Redis",
+    "type": "技术组件",
+    "description": "事件写入后由客户端接收，耗时 4~6 毫秒"
+   },
+   {
+    "name": "事件通道",
+    "type": "概念术语",
+    "description": "事件从写入 Redis 到客户端接收的推送链路"
+   },
+   {
+    "name": "ping",
+    "type": "概念术语",
+    "description": "心跳消息，每 15 秒发送一次"
+   },
+   {
+    "name": "落库",
+    "type": "流程操作",
+    "description": "内容落库后与推送内容保持一致"
+   }
+  ],
+  "relations": [
+   {
+    "source": "读取时吞掉取消",
+    "target": "anyio",
+    "relation": "依赖",
+    "description": "该做法成立的原因是 anyio 取消为电平触发"
+   },
+   {
+    "source": "事件通道",
+    "target": "Redis",
+    "relation": "依赖",
+    "description": "事件先写入 Redis，再由客户端接收"
+   },
+   {
+    "source": "事件通道",
+    "target": "ping",
+    "relation": "包含",
+    "description": "通道每 15 秒发送一次 ping"
+   },
+   {
+    "source": "落库",
+    "target": "事件通道",
+    "relation": "适用于",
+    "description": "落库内容与推送内容一致"
+   },
+   {
+    "source": "Gemini",
+    "target": "事件通道",
+    "relation": "通过",
+    "description": "真实 Gemini 加 compose 端到端验证事件通道"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 18,
+  "title": "0007 - 流式输出：事件通道、Agent 契约与断线续传",
+  "text": "## 草稿阶段的验证\n\n实验为一次性脚本，不进仓库，结论已逐条列在上面。确认方案后实现时补：假模型的流式、事件发布与终态顺序、续传（`Last-Event-ID`）、晚加入回放、合成终态（流过期 / Redis 丢事件 / 启动恢复）、客户端断开后连接释放、归属校验。",
+  "seconds": 2.34,
+  "attempts": 1,
+  "failed": false,
+  "input": 874,
+  "cache_read": 640,
+  "output": 535,
+  "entities": [
+   {
+    "name": "草稿阶段验证",
+    "type": "流程操作",
+    "description": "用一次性脚本做实验，不进仓库，结论逐条列出"
+   },
+   {
+    "name": "一次性脚本",
+    "type": "技术组件",
+    "description": "实验用脚本，不进仓库"
+   },
+   {
+    "name": "假模型",
+    "type": "技术组件",
+    "description": "实现时需补其流式行为验证"
+   },
+   {
+    "name": "事件发布",
+    "type": "流程操作",
+    "description": "实现时需补的验证项，含终态顺序"
+   },
+   {
+    "name": "断线续传",
+    "type": "流程操作",
+    "description": "实现时需补的验证项，依赖 Last-Event-ID"
+   },
+   {
+    "name": "Last-Event-ID",
+    "type": "技术组件",
+    "description": "续传所用的请求标识"
+   },
+   {
+    "name": "晚加入回放",
+    "type": "流程操作",
+    "description": "实现时需补的验证项"
+   },
+   {
+    "name": "合成终态",
+    "type": "流程操作",
+    "description": "覆盖流过期、Redis 丢事件、启动恢复等场景"
+   }
+  ],
+  "relations": [
+   {
+    "source": "草稿阶段验证",
+    "target": "一次性脚本",
+    "relation": "通过",
+    "description": "草稿阶段验证通过一次性脚本完成实验"
+   },
+   {
+    "source": "一次性脚本",
+    "target": "草稿阶段验证",
+    "relation": "适用于",
+    "description": "脚本仅用于草稿阶段验证，不进仓库"
+   },
+   {
+    "source": "断线续传",
+    "target": "Last-Event-ID",
+    "relation": "依赖",
+    "description": "续传依赖 Last-Event-ID 标识"
+   },
+   {
+    "source": "合成终态",
+    "target": "断线续传",
+    "relation": "包含",
+    "description": "合成终态与续传同属实现时需补的验证项"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 19,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "# 0009 - run 的取消、重试与错误码\n\n**状态**：已决定（阶段 1 收尾，2026-10-21）。其中“取消时半截内容不保存”“重试不新增用户消息”是产品取舍，可以再调整。\n\n**背景**：阶段 1 里程碑达成后，run 的生命周期还缺三块：用户不能中途停止；失败只有供应商的原始报错（对用户无意义，还可能泄露内部信息），而且刷新页面后就看不到了；失败后只能重新输入一遍问题。",
+  "seconds": 2.43,
+  "attempts": 1,
+  "failed": false,
+  "input": 908,
+  "cache_read": 512,
+  "output": 536,
+  "entities": [
+   {
+    "name": "run",
+    "type": "概念术语",
+    "description": "阶段 1 里程碑后生命周期仍缺取消、重试与错误码三块能力"
+   },
+   {
+    "name": "run 取消",
+    "type": "流程操作",
+    "description": "让用户中途停止 run；取消时半截内容不保存"
+   },
+   {
+    "name": "run 重试",
+    "type": "流程操作",
+    "description": "失败后重试，不新增用户消息"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "替代供应商原始报错，避免对用户无意义和泄露内部信息"
+   },
+   {
+    "name": "供应商原始报错",
+    "type": "概念术语",
+    "description": "失败时目前只返回该报错，对用户无意义且可能泄露内部信息"
+   },
+   {
+    "name": "用户消息",
+    "type": "概念术语",
+    "description": "重试时不新增用户消息"
+   },
+   {
+    "name": "阶段 1",
+    "type": "概念术语",
+    "description": "里程碑已达成，本决策为其收尾"
+   }
+  ],
+  "relations": [
+   {
+    "source": "run 取消",
+    "target": "run",
+    "relation": "适用于",
+    "description": "取消作用于 run，让用户中途停止"
+   },
+   {
+    "source": "run 重试",
+    "target": "run",
+    "relation": "适用于",
+    "description": "重试作用于失败的 run"
+   },
+   {
+    "source": "run 重试",
+    "target": "用户消息",
+    "relation": "限制",
+    "description": "重试不新增用户消息"
+   },
+   {
+    "source": "错误码",
+    "target": "供应商原始报错",
+    "relation": "替代",
+    "description": "用错误码替代供应商原始报错展示给用户"
+   },
+   {
+    "source": "run 取消",
+    "target": "阶段 1",
+    "relation": "属于",
+    "description": "取消能力属于阶段 1 收尾要补齐的三块之一"
+   },
+   {
+    "source": "run 重试",
+    "target": "阶段 1",
+    "relation": "属于",
+    "description": "重试能力属于阶段 1 收尾要补齐的三块之一"
+   },
+   {
+    "source": "错误码",
+    "target": "阶段 1",
+    "relation": "属于",
+    "description": "错误码属于阶段 1 收尾要补齐的三块之一"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 20,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "## 决定\n\n### 1. 错误码：原始报错只给开发者，对外只给错误码\n- `agent_runs` 新增 `error_code` 列（迁移 0002）；原始报错仍写进 `error` 列和日志，**不出现在 API 和事件里**。\n- 错误码：`timeout`、`llm_rate_limited`（429）、`llm_unavailable`（5xx）、`llm_config`（400/401/403/404）、`interrupted`（关停或重启）、`internal`（其他）。前端负责把错误码翻译成面向用户的文案。\n- 分类方法（`runtime/failures.py`）：沿异常链（`__cause__`/`__context__`）查找 HTTP 状态码。OpenAI/Anthropic 的 SDK 异常带 `status_code`；Gemini 经 LangChain 包装后，状态码在异常链下一层 Google SDK 异常的 `code`/`status` 上（已在容器里用错误的 key 实际触发验证）。",
+  "seconds": 3.17,
+  "attempts": 1,
+  "failed": false,
+  "input": 1021,
+  "cache_read": 640,
+  "output": 972,
+  "entities": [
+   {
+    "name": "error_code",
+    "type": "技术组件",
+    "description": "agent_runs 新增的列，存放对外暴露的错误码"
+   },
+   {
+    "name": "error 列",
+    "type": "技术组件",
+    "description": "存放原始报错，仅写日志，不出现在 API 和事件里"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "对外只给错误码，原始报错只给开发者"
+   },
+   {
+    "name": "timeout",
+    "type": "概念术语",
+    "description": "错误码之一，表示超时"
+   },
+   {
+    "name": "llm_rate_limited",
+    "type": "概念术语",
+    "description": "错误码之一，对应 429 限流"
+   },
+   {
+    "name": "llm_unavailable",
+    "type": "概念术语",
+    "description": "错误码之一，对应 5xx 服务不可用"
+   },
+   {
+    "name": "llm_config",
+    "type": "概念术语",
+    "description": "错误码之一，对应 400/401/403/404 配置问题"
+   },
+   {
+    "name": "interrupted",
+    "type": "概念术语",
+    "description": "错误码之一，表示关停或重启导致中断"
+   }
+  ],
+  "relations": [
+   {
+    "source": "error_code",
+    "target": "错误码",
+    "relation": "包含",
+    "description": "error_code 列存放各类错误码"
+   },
+   {
+    "source": "错误码",
+    "target": "timeout",
+    "relation": "包含",
+    "description": "错误码包括 timeout"
+   },
+   {
+    "source": "错误码",
+    "target": "llm_rate_limited",
+    "relation": "包含",
+    "description": "错误码包括 llm_rate_limited"
+   },
+   {
+    "source": "错误码",
+    "target": "llm_unavailable",
+    "relation": "包含",
+    "description": "错误码包括 llm_unavailable"
+   },
+   {
+    "source": "错误码",
+    "target": "llm_config",
+    "relation": "包含",
+    "description": "错误码包括 llm_config"
+   },
+   {
+    "source": "错误码",
+    "target": "interrupted",
+    "relation": "包含",
+    "description": "错误码包括 interrupted"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 21,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "找不到状态码一律归为 `internal`：宁可保守，也不把我们自己的 bug 说成“供应商问题”。\n- 历史数据（0002 之前的失败记录没有错误码）用数据迁移 0003 按原始报错文本回填。**新建迁移而不是修改已执行的 0002**：已执行的迁移不会再次运行，修改它会让各环境的库不一致。",
+  "seconds": 1.84,
+  "attempts": 1,
+  "failed": false,
+  "input": 868,
+  "cache_read": 640,
+  "output": 418,
+  "entities": [
+   {
+    "name": "internal",
+    "type": "概念术语",
+    "description": "找不到状态码时一律归入的错误码类别"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "失败记录上用于区分原因的状态码"
+   },
+   {
+    "name": "数据迁移 0003",
+    "type": "流程操作",
+    "description": "按原始报错文本回填历史失败记录的错误码"
+   },
+   {
+    "name": "迁移 0002",
+    "type": "流程操作",
+    "description": "已执行的迁移，不应被修改"
+   },
+   {
+    "name": "历史数据",
+    "type": "概念术语",
+    "description": "0002 之前的失败记录，没有错误码"
+   },
+   {
+    "name": "原始报错文本",
+    "type": "概念术语",
+    "description": "回填错误码时依据的原始文本"
+   }
+  ],
+  "relations": [
+   {
+    "source": "internal",
+    "target": "错误码",
+    "relation": "属于",
+    "description": "找不到状态码时归为 internal 这一错误码"
+   },
+   {
+    "source": "数据迁移 0003",
+    "target": "历史数据",
+    "relation": "适用于",
+    "description": "用数据迁移 0003 回填历史数据的错误码"
+   },
+   {
+    "source": "数据迁移 0003",
+    "target": "原始报错文本",
+    "relation": "依赖",
+    "description": "回填依据原始报错文本"
+   },
+   {
+    "source": "数据迁移 0003",
+    "target": "迁移 0002",
+    "relation": "替代",
+    "description": "新建迁移 0003 而不是修改已执行的 0002"
+   },
+   {
+    "source": "迁移 0002",
+    "target": "历史数据",
+    "relation": "限制",
+    "description": "0002 之前的失败记录没有错误码"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 22,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "### 2. 取消\n- `POST /api/runs/{id}/cancel`：\n  - 还在排队：数据库里 `queued → cancelled`，与 `claim` 用同一个条件（`WHERE status='queued'`），两者并发只有一个成功。返回 **200**。\n  - 正在执行：取消执行 Agent 的那个任务，返回 **202**；最终结果以 `run.cancelled` 事件和 run 状态为准。\n  - 已成功或失败：**409**。已经取消过：**200**（重复请求无害）。\n- 实现要点（`runtime/dispatcher.py`）：\n  - 每个 run 的 Agent 在**独立任务**里执行，取消只取消这个任务，worker 循环继续工作。\n  - **先登记再取消**：取消请求可能落在“已认领、执行任务还没创建”的空档里，所以先记入 `_cancel_requested`，任务创建后立即检查。",
+  "seconds": 3.37,
+  "attempts": 1,
+  "failed": false,
+  "input": 995,
+  "cache_read": 768,
+  "output": 599,
+  "entities": [
+   {
+    "name": "取消 run",
+    "type": "流程操作",
+    "description": "通过 POST 接口取消排队或执行中的 run"
+   },
+   {
+    "name": "取消接口",
+    "type": "产品服务",
+    "description": "POST /api/runs/{id}/cancel，按 run 状态返回不同结果"
+   },
+   {
+    "name": "run",
+    "type": "概念术语",
+    "description": "可被取消、有 queued、cancelled 等状态的对象"
+   },
+   {
+    "name": "claim",
+    "type": "流程操作",
+    "description": "认领排队 run 的操作，与取消共用同一条件"
+   },
+   {
+    "name": "run.cancelled 事件",
+    "type": "技术组件",
+    "description": "取消执行中 run 后，最终结果以该事件和 run 状态为准"
+   },
+   {
+    "name": "独立任务",
+    "type": "技术组件",
+    "description": "每个 run 的 Agent 在其中执行，取消只取消该任务"
+   },
+   {
+    "name": "worker 循环",
+    "type": "技术组件",
+    "description": "取消 Agent 任务后仍继续工作"
+   },
+   {
+    "name": "_cancel_requested",
+    "type": "技术组件",
+    "description": "先登记取消请求，任务创建后立即检查"
+   }
+  ],
+  "relations": [
+   {
+    "source": "取消接口",
+    "target": "取消 run",
+    "relation": "提供",
+    "description": "取消接口用于发起取消 run 的请求"
+   },
+   {
+    "source": "取消 run",
+    "target": "run",
+    "relation": "适用于",
+    "description": "取消操作作用于排队中或执行中的 run"
+   },
+   {
+    "source": "取消 run",
+    "target": "claim",
+    "relation": "依赖",
+    "description": "排队 run 的取消与 claim 用同一条件，并发只有一个成功"
+   },
+   {
+    "source": "取消 run",
+    "target": "run.cancelled 事件",
+    "relation": "导致",
+    "description": "取消执行中的 run 后以该事件和 run 状态为最终结果"
+   },
+   {
+    "source": "run",
+    "target": "独立任务",
+    "relation": "通过",
+    "description": "每个 run 的 Agent 在独立任务里执行"
+   },
+   {
+    "source": "取消 run",
+    "target": "独立任务",
+    "relation": "限制",
+    "description": "取消只取消该 run 对应的任务"
+   },
+   {
+    "source": "独立任务",
+    "target": "worker 循环",
+    "relation": "不适用于",
+    "description": "取消任务不影响 worker 循环继续工作"
+   },
+   {
+    "source": "取消 run",
+    "target": "_cancel_requested",
+    "relation": "需要",
+    "description": "先登记取消请求，任务创建后立即检查"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 23,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "- **区分用户取消与服务关停**：两者都表现为 `CancelledError`。用 `Task.cancelling()` 判断外层 worker 任务是否正在被取消：是 → 关停（记为 `interrupted` 并继续向上抛）；否 → 用户取消（记为 `cancelled`，不再上抛）。如果把所有取消都当用户取消吞掉，关停时 worker 收不到第二次取消，`stop()` 会永远挂住（测试与变异检查已验证）。\n- **取消时已生成的半截内容不保存**，与失败时一致（0006/0007）。这是产品取舍：很多聊天产品在用户主动停止时会保留半截内容；如需调整，只要在取消分支里把已累积的文本按助手消息落库。\n- 单进程限制：取消信号只在本进程内传递。阶段 4 拆出独立 worker 后，要改为跨进程信号（Redis 或数据库标记，worker 定期检查或订阅）。",
+  "seconds": 2.33,
+  "attempts": 1,
+  "failed": false,
+  "input": 997,
+  "cache_read": 768,
+  "output": 588,
+  "entities": [
+   {
+    "name": "用户取消",
+    "type": "概念术语",
+    "description": "用户主动停止，记为 cancelled，不再向上抛"
+   },
+   {
+    "name": "服务关停",
+    "type": "概念术语",
+    "description": "外层 worker 任务被取消，记为 interrupted 并继续向上抛"
+   },
+   {
+    "name": "CancelledError",
+    "type": "技术组件",
+    "description": "用户取消与服务关停都表现为该异常"
+   },
+   {
+    "name": "Task.cancelling()",
+    "type": "技术组件",
+    "description": "用于判断外层 worker 任务是否正在被取消"
+   },
+   {
+    "name": "stop()",
+    "type": "技术组件",
+    "description": "关停时若收不到第二次取消会永远挂住"
+   },
+   {
+    "name": "半截内容不保存",
+    "type": "规则政策",
+    "description": "取消时已生成内容不保存，与失败时一致"
+   },
+   {
+    "name": "单进程限制",
+    "type": "规则政策",
+    "description": "取消信号只在本进程内传递"
+   },
+   {
+    "name": "跨进程信号",
+    "type": "技术组件",
+    "description": "阶段 4 拆出独立 worker 后改用 Redis 或数据库标记"
+   }
+  ],
+  "relations": [
+   {
+    "source": "用户取消",
+    "target": "CancelledError",
+    "relation": "通过",
+    "description": "用户取消表现为 CancelledError"
+   },
+   {
+    "source": "服务关停",
+    "target": "CancelledError",
+    "relation": "通过",
+    "description": "服务关停同样表现为 CancelledError"
+   },
+   {
+    "source": "Task.cancelling()",
+    "target": "服务关停",
+    "relation": "适用于",
+    "description": "返回是则判定为服务关停"
+   },
+   {
+    "source": "Task.cancelling()",
+    "target": "用户取消",
+    "relation": "适用于",
+    "description": "返回否则判定为用户取消"
+   },
+   {
+    "source": "服务关停",
+    "target": "stop()",
+    "relation": "导致",
+    "description": "关停时 worker 收不到第二次取消会使 stop() 挂住"
+   },
+   {
+    "source": "半截内容不保存",
+    "target": "用户取消",
+    "relation": "适用于",
+    "description": "用户取消时已生成的半截内容不保存"
+   },
+   {
+    "source": "单进程限制",
+    "target": "用户取消",
+    "relation": "限制",
+    "description": "取消信号只在本进程内传递"
+   },
+   {
+    "source": "跨进程信号",
+    "target": "单进程限制",
+    "relation": "替代",
+    "description": "拆出独立 worker 后改用跨进程信号"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 24,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "### 3. 重试\n- `POST /api/runs/{id}/retry`：对**同一条输入消息**新建一个 run，**不新增用户消息**，历史里不会出现重复提问。\n- 只允许重试失败或已取消的 run，且输入必须是对话的**最后一条消息**：`load_context` 取的是截止到输入消息的历史，如果后面已经有别的消息，新回复会被追加到最后，顺序就乱了。\n- 同一对话仍然受“至多一个活跃 run”的部分唯一索引约束，重试与新消息之间不会并发。",
+  "seconds": 2.02,
+  "attempts": 1,
+  "failed": false,
+  "input": 913,
+  "cache_read": 768,
+  "output": 501,
+  "entities": [
+   {
+    "name": "重试",
+    "type": "流程操作",
+    "description": "对同一条输入消息新建一个 run，不新增用户消息"
+   },
+   {
+    "name": "run",
+    "type": "概念术语",
+    "description": "对话中的一次执行实例，可失败、取消或重试"
+   },
+   {
+    "name": "输入消息",
+    "type": "概念术语",
+    "description": "重试时复用的原消息，必须是对话的最后一条消息"
+   },
+   {
+    "name": "用户消息",
+    "type": "概念术语",
+    "description": "重试不会新增用户消息，历史中无重复提问"
+   },
+   {
+    "name": "load_context",
+    "type": "技术组件",
+    "description": "取截止到输入消息的历史上下文"
+   },
+   {
+    "name": "至多一个活跃 run",
+    "type": "规则政策",
+    "description": "部分唯一索引约束，同一对话至多一个活跃 run"
+   },
+   {
+    "name": "部分唯一索引",
+    "type": "技术组件",
+    "description": "约束同一对话至多一个活跃 run，避免并发"
+   }
+  ],
+  "relations": [
+   {
+    "source": "重试",
+    "target": "run",
+    "relation": "包含",
+    "description": "重试会新建一个 run"
+   },
+   {
+    "source": "重试",
+    "target": "输入消息",
+    "relation": "依赖",
+    "description": "重试针对同一条输入消息进行"
+   },
+   {
+    "source": "重试",
+    "target": "用户消息",
+    "relation": "不适用于",
+    "description": "重试不新增用户消息"
+   },
+   {
+    "source": "重试",
+    "target": "run",
+    "relation": "适用于",
+    "description": "只允许重试失败或已取消的 run"
+   },
+   {
+    "source": "输入消息",
+    "target": "load_context",
+    "relation": "依赖",
+    "description": "load_context 取截止到输入消息的历史"
+   },
+   {
+    "source": "至多一个活跃 run",
+    "target": "部分唯一索引",
+    "relation": "通过",
+    "description": "该约束由部分唯一索引实现"
+   },
+   {
+    "source": "至多一个活跃 run",
+    "target": "重试",
+    "relation": "限制",
+    "description": "重试与新消息之间不会并发"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 25,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "### 4. 刷新后可见\n- `GET /api/conversations/{id}/runs` 返回对话的所有 run。前端为每条用户消息取最新的 run：失败或已取消就在消息下方标注原因；最后一条消息再给“重试”按钮。\n- 等待首字超过 20 秒时提示“模型响应较慢，可以继续等待或停止”（Gemini 免费档首字实测 7~173 秒）。",
+  "seconds": 2.31,
+  "attempts": 1,
+  "failed": false,
+  "input": 885,
+  "cache_read": 640,
+  "output": 521,
+  "entities": [
+   {
+    "name": "run",
+    "type": "概念术语",
+    "description": "对话中的一次运行记录，刷新后可通过接口获取"
+   },
+   {
+    "name": "对话",
+    "type": "概念术语",
+    "description": "包含多条用户消息与对应 run 的会话"
+   },
+   {
+    "name": "run 列表接口",
+    "type": "技术组件",
+    "description": "GET /api/conversations/{id}/runs，返回对话的所有 run"
+   },
+   {
+    "name": "前端",
+    "type": "技术组件",
+    "description": "为每条用户消息取最新 run，并展示标注与按钮"
+   },
+   {
+    "name": "重试按钮",
+    "type": "流程操作",
+    "description": "最后一条消息下方提供，用于重新发起"
+   },
+   {
+    "name": "失败标注",
+    "type": "流程操作",
+    "description": "run 失败或已取消时在消息下方标注原因"
+   },
+   {
+    "name": "首字等待提示",
+    "type": "规则政策",
+    "description": "等待首字超过 20 秒时提示响应较慢，可继续等待或停止"
+   },
+   {
+    "name": "Gemini 免费档",
+    "type": "产品服务",
+    "description": "首字实测耗时 7~173 秒"
+   }
+  ],
+  "relations": [
+   {
+    "source": "run 列表接口",
+    "target": "run",
+    "relation": "提供",
+    "description": "接口返回对话的所有 run"
+   },
+   {
+    "source": "run 列表接口",
+    "target": "对话",
+    "relation": "适用于",
+    "description": "按对话 id 查询该对话下的 run"
+   },
+   {
+    "source": "前端",
+    "target": "run",
+    "relation": "依赖",
+    "description": "前端为每条用户消息取最新的 run"
+   },
+   {
+    "source": "前端",
+    "target": "失败标注",
+    "relation": "包含",
+    "description": "run 失败或已取消时前端在消息下方标注原因"
+   },
+   {
+    "source": "前端",
+    "target": "重试按钮",
+    "relation": "包含",
+    "description": "前端在最后一条消息下方给出重试按钮"
+   },
+   {
+    "source": "首字等待提示",
+    "target": "Gemini 免费档",
+    "relation": "适用于",
+    "description": "该提示针对首字等待过久的情况，含免费档实测数据"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 26,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "## 后果\n- 好处：用户能停止、能看到可理解的失败原因、能一键重试；原始报错不再外泄；关停时不会因为取消处理而挂住。\n- 代价：错误分类是启发式的，新接入的供应商可能需要补规则；历史数据的回填只能按文本近似。\n- 已知局限：取消信号不跨进程（阶段 4 处理）；错误码文案在前端维护，新增错误码要前后端一起改。",
+  "seconds": 2.11,
+  "attempts": 1,
+  "failed": false,
+  "input": 888,
+  "cache_read": 640,
+  "output": 487,
+  "entities": [
+   {
+    "name": "取消",
+    "type": "流程操作",
+    "description": "用户可停止正在进行的 run"
+   },
+   {
+    "name": "重试",
+    "type": "流程操作",
+    "description": "用户可一键重试失败的 run"
+   },
+   {
+    "name": "错误分类",
+    "type": "概念术语",
+    "description": "启发式的错误归类方式，新供应商可能需补规则"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "文案在前端维护，新增需前后端一起改"
+   },
+   {
+    "name": "取消信号",
+    "type": "技术组件",
+    "description": "不跨进程，留待阶段 4 处理"
+   },
+   {
+    "name": "原始报错",
+    "type": "概念术语",
+    "description": "不再外泄给用户"
+   },
+   {
+    "name": "历史数据回填",
+    "type": "流程操作",
+    "description": "只能按文本近似处理"
+   },
+   {
+    "name": "供应商",
+    "type": "组织角色",
+    "description": "新接入的供应商可能需要补充错误分类规则"
+   }
+  ],
+  "relations": [
+   {
+    "source": "取消",
+    "target": "取消信号",
+    "relation": "依赖",
+    "description": "取消依赖取消信号，但信号不跨进程"
+   },
+   {
+    "source": "取消信号",
+    "target": "取消",
+    "relation": "限制",
+    "description": "信号不跨进程，限制取消的生效范围"
+   },
+   {
+    "source": "错误分类",
+    "target": "供应商",
+    "relation": "适用于",
+    "description": "错误分类是启发式的，新接入供应商需补规则"
+   },
+   {
+    "source": "错误码",
+    "target": "错误分类",
+    "relation": "依赖",
+    "description": "错误码文案在前端维护，新增需前后端一起改"
+   },
+   {
+    "source": "重试",
+    "target": "原始报错",
+    "relation": "替代",
+    "description": "用户可一键重试，原始报错不再外泄"
+   },
+   {
+    "source": "历史数据回填",
+    "target": "错误分类",
+    "relation": "依赖",
+    "description": "回填只能按文本近似，依赖启发式分类"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 27,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "## 验证\n- 后端新增测试 22 个（`test_run_lifecycle.py` 21 个、`test_migrations.py` 1 个），全量 83 个通过：分类（含异常链、成环、字符串 code、bool）、失败只发错误码、超时与关停各有错误码、取消排队/执行中/空档/已结束、用户取消与关停同时发生时 `stop()` 不挂住、重试复用输入消息且受规则约束、三个接口的状态码、迁移 0003 在独立新库上按版本升级后的回填结果。\n- 变异检查 6 项全部被抓住：去掉空档检查、不区分关停（`stop()` 挂住被 3 秒超时抓到）、取消时不登记、重试不检查最后一条、分类不沿异常链、回填正则去掉整词边界（“took 5003 ms”被误判为 5xx）。\n- 前端新增测试 6 个（共 23 个）。",
+  "seconds": 2.33,
+  "attempts": 1,
+  "failed": false,
+  "input": 1016,
+  "cache_read": 768,
+  "output": 499,
+  "entities": [
+   {
+    "name": "run 生命周期",
+    "type": "概念术语",
+    "description": "run 的取消、重试与错误码相关机制"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "失败、超时、关停各有对应错误码"
+   },
+   {
+    "name": "取消",
+    "type": "流程操作",
+    "description": "覆盖排队、执行中、空档、已结束等状态"
+   },
+   {
+    "name": "重试",
+    "type": "流程操作",
+    "description": "复用输入消息且受规则约束"
+   },
+   {
+    "name": "stop()",
+    "type": "技术组件",
+    "description": "用户取消与关停同时发生时不应挂住"
+   },
+   {
+    "name": "迁移 0003",
+    "type": "流程操作",
+    "description": "在独立新库上按版本升级后回填"
+   },
+   {
+    "name": "变异检查",
+    "type": "流程操作",
+    "description": "6 项全部被抓住"
+   },
+   {
+    "name": "前端测试",
+    "type": "概念术语",
+    "description": "新增 6 个，共 23 个"
+   }
+  ],
+  "relations": [
+   {
+    "source": "取消",
+    "target": "错误码",
+    "relation": "需要",
+    "description": "取消排队、执行中、空档、已结束各有错误码"
+   },
+   {
+    "source": "重试",
+    "target": "错误码",
+    "relation": "需要",
+    "description": "重试复用输入消息且受规则约束"
+   },
+   {
+    "source": "stop()",
+    "target": "取消",
+    "relation": "适用于",
+    "description": "用户取消与关停同时发生时 stop() 不挂住"
+   },
+   {
+    "source": "变异检查",
+    "target": "取消",
+    "relation": "包含",
+    "description": "变异检查覆盖取消时不登记等场景"
+   },
+   {
+    "source": "变异检查",
+    "target": "重试",
+    "relation": "包含",
+    "description": "变异检查覆盖重试不检查最后一条"
+   },
+   {
+    "source": "迁移 0003",
+    "target": "run 生命周期",
+    "relation": "属于",
+    "description": "迁移 0003 的回填结果属于验证内容"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 28,
+  "title": "0009 - run 的取消、重试与错误码",
+  "text": "- 前端新增测试 6 个（共 23 个）。浏览器实测：等待 21 秒出现“较慢”提示 → 点“停止”（202）→ 显示“已停止生成”与重试 → 刷新后标注仍在、半截内容不在 → 点“重试”（202）得到回复且没有重复的用户消息；开发库回填后，旧的 Gemini 503 失败显示为“模型服务暂时不可用”。",
+  "seconds": 1.98,
+  "attempts": 1,
+  "failed": false,
+  "input": 885,
+  "cache_read": 640,
+  "output": 452,
+  "entities": [
+   {
+    "name": "停止",
+    "type": "流程操作",
+    "description": "前端按钮，点击后返回 202"
+   },
+   {
+    "name": "重试",
+    "type": "流程操作",
+    "description": "停止后出现，点击返回 202 并得到回复"
+   },
+   {
+    "name": "较慢提示",
+    "type": "概念术语",
+    "description": "等待 21 秒后出现"
+   },
+   {
+    "name": "已停止生成",
+    "type": "概念术语",
+    "description": "点击停止后显示的提示"
+   },
+   {
+    "name": "Gemini 503 失败",
+    "type": "概念术语",
+    "description": "旧失败记录，回填后显示为模型服务暂时不可用"
+   },
+   {
+    "name": "模型服务暂时不可用",
+    "type": "概念术语",
+    "description": "开发库回填后旧失败记录的新显示文案"
+   },
+   {
+    "name": "前端测试",
+    "type": "流程操作",
+    "description": "新增 6 个，共 23 个"
+   }
+  ],
+  "relations": [
+   {
+    "source": "较慢提示",
+    "target": "停止",
+    "relation": "导致",
+    "description": "等待 21 秒出现较慢提示后可点停止"
+   },
+   {
+    "source": "停止",
+    "target": "已停止生成",
+    "relation": "导致",
+    "description": "点击停止后显示已停止生成与重试"
+   },
+   {
+    "source": "停止",
+    "target": "重试",
+    "relation": "导致",
+    "description": "停止后显示重试入口"
+   },
+   {
+    "source": "重试",
+    "target": "Gemini 503 失败",
+    "relation": "不适用于",
+    "description": "重试得到回复且无重复用户消息，与旧失败记录无关"
+   },
+   {
+    "source": "Gemini 503 失败",
+    "target": "模型服务暂时不可用",
+    "relation": "替代",
+    "description": "开发库回填后旧失败显示为模型服务暂时不可用"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 29,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "# 0014 - RAG 选型：embedding 模型、重排与向量库\n\n**状态**：已决定（2026-10-21，用户确认三项均按建议：本地 bge-small-zh-v1.5、默认开启重排、Qdrant 作为派生索引）。\n\n**背景**：阶段 2 要让 Agent 基于上传的文档回答，并展示引用了哪些片段。第一步要定三件事：用什么模型把文字变成向量（embedding）、要不要在召回之后再重排、向量存在哪里。约束：\n- **省钱**：用户明确要求尽量减少 API 花销；DeepSeek 官方模型列表只有两个对话模型，没有 embedding 接口。\n- **中文为主**的客服知识库场景。\n- 阶段 5 有**多租户**：检索必须限定在“本用户 / 本部门可见”的文档里，也就是**带过滤条件的向量检索**。",
+  "seconds": 2.07,
+  "attempts": 1,
+  "failed": false,
+  "input": 994,
+  "cache_read": 512,
+  "output": 547,
+  "entities": [
+   {
+    "name": "RAG",
+    "type": "概念术语",
+    "description": "让 Agent 基于上传文档回答并展示引用片段的检索增强方案"
+   },
+   {
+    "name": "bge-small-zh-v1.5",
+    "type": "技术组件",
+    "description": "本地部署的 embedding 模型，已确认采用"
+   },
+   {
+    "name": "重排",
+    "type": "流程操作",
+    "description": "召回之后再排序的步骤，决定默认开启"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量库，作为派生索引使用"
+   },
+   {
+    "name": "embedding",
+    "type": "概念术语",
+    "description": "把文字变成向量的模型环节"
+   },
+   {
+    "name": "DeepSeek",
+    "type": "产品服务",
+    "description": "官方模型列表只有两个对话模型，没有 embedding 接口"
+   },
+   {
+    "name": "多租户",
+    "type": "概念术语",
+    "description": "阶段 5 的需求，检索须限定本用户/本部门可见文档"
+   },
+   {
+    "name": "带过滤条件的向量检索",
+    "type": "流程操作",
+    "description": "在多租户下按可见范围过滤的向量检索方式"
+   }
+  ],
+  "relations": [
+   {
+    "source": "RAG",
+    "target": "embedding",
+    "relation": "包含",
+    "description": "RAG 选型第一步要定 embedding 模型"
+   },
+   {
+    "source": "RAG",
+    "target": "重排",
+    "relation": "包含",
+    "description": "RAG 选型需决定召回后是否重排"
+   },
+   {
+    "source": "RAG",
+    "target": "Qdrant",
+    "relation": "依赖",
+    "description": "RAG 的向量存储选用 Qdrant 作为派生索引"
+   },
+   {
+    "source": "bge-small-zh-v1.5",
+    "target": "embedding",
+    "relation": "适用于",
+    "description": "本地 bge-small-zh-v1.5 被选作 embedding 模型"
+   },
+   {
+    "source": "DeepSeek",
+    "target": "embedding",
+    "relation": "不适用于",
+    "description": "DeepSeek 无 embedding 接口，不能用于向量化"
+   },
+   {
+    "source": "多租户",
+    "target": "带过滤条件的向量检索",
+    "relation": "需要",
+    "description": "多租户场景下检索必须带过滤条件限定可见文档"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 30,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "- 决策 0002 已定：不引入 LlamaIndex，RAG 链路手写，每一步都要能讲清楚。\n\n所有实验脚本与评测集都在 `backend/eval/`，可复现；实验**不调用任何付费 API**。",
+  "seconds": 1.49,
+  "attempts": 1,
+  "failed": false,
+  "input": 849,
+  "cache_read": 640,
+  "output": 380,
+  "entities": [
+   {
+    "name": "决策 0002",
+    "type": "规则政策",
+    "description": "已定的决策：不引入 LlamaIndex，RAG 链路手写"
+   },
+   {
+    "name": "LlamaIndex",
+    "type": "技术组件",
+    "description": "被决策明确不引入的框架"
+   },
+   {
+    "name": "RAG 链路",
+    "type": "流程操作",
+    "description": "手写实现，每一步都要能讲清楚"
+   },
+   {
+    "name": "实验脚本",
+    "type": "技术组件",
+    "description": "放在 backend/eval/ 下，可复现"
+   },
+   {
+    "name": "评测集",
+    "type": "技术组件",
+    "description": "放在 backend/eval/ 下，可复现"
+   },
+   {
+    "name": "付费 API",
+    "type": "产品服务",
+    "description": "实验不调用任何付费 API"
+   }
+  ],
+  "relations": [
+   {
+    "source": "决策 0002",
+    "target": "LlamaIndex",
+    "relation": "不适用于",
+    "description": "决策 0002 明确不引入 LlamaIndex"
+   },
+   {
+    "source": "决策 0002",
+    "target": "RAG 链路",
+    "relation": "包含",
+    "description": "决策要求 RAG 链路手写，每步可讲清楚"
+   },
+   {
+    "source": "实验脚本",
+    "target": "付费 API",
+    "relation": "不适用于",
+    "description": "实验脚本不调用任何付费 API"
+   },
+   {
+    "source": "评测集",
+    "target": "付费 API",
+    "relation": "不适用于",
+    "description": "评测集相关实验不调用任何付费 API"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 31,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 一、embedding 模型\n\n### 实验：自写的中文客服检索评测集（`backend/eval/retrieval_zh_v0.json`）\n- 30 篇知识条目，每篇一个主题，**刻意放入近似主题**（退货 / 退款、普票 / 专票、改密码 / 两步验证、物流查询 / 运输破损……）。\n- 30 个问题用用户口吻、**换一种说法**，尽量不与原文同词（例如“鞋子开胶了能换一双吗”对应换货条款），这样测的是语义理解而不是关键词。\n- 指标：R@1（第一名就是正确答案的比例）、R@3、MRR（正确答案排名倒数的平均）。模型通过 fastembed 在本机 CPU 运行（ONNX，不需要 PyTorch）。\n\n| 方法 | R@1 | R@3 | MRR | 维度 | 编码一篇文档 | 单条查询 | 模型体积 |",
+  "seconds": 2.28,
+  "attempts": 1,
+  "failed": false,
+  "input": 1001,
+  "cache_read": 640,
+  "output": 529,
+  "entities": [
+   {
+    "name": "中文客服检索评测集",
+    "type": "概念术语",
+    "description": "自写评测集，含30篇知识条目与30个换说法的问题"
+   },
+   {
+    "name": "近似主题",
+    "type": "概念术语",
+    "description": "刻意放入的易混主题，如退货/退款、普票/专票"
+   },
+   {
+    "name": "语义理解",
+    "type": "概念术语",
+    "description": "评测目标，问题不与原文同词以测语义而非关键词"
+   },
+   {
+    "name": "R@1",
+    "type": "概念术语",
+    "description": "指标：第一名就是正确答案的比例"
+   },
+   {
+    "name": "R@3",
+    "type": "概念术语",
+    "description": "指标：正确答案进入前三名的比例"
+   },
+   {
+    "name": "MRR",
+    "type": "概念术语",
+    "description": "指标：正确答案排名倒数的平均值"
+   },
+   {
+    "name": "fastembed",
+    "type": "技术组件",
+    "description": "在本机 CPU 上运行模型的工具"
+   },
+   {
+    "name": "ONNX",
+    "type": "技术组件",
+    "description": "模型运行格式，不需要 PyTorch"
+   }
+  ],
+  "relations": [
+   {
+    "source": "中文客服检索评测集",
+    "target": "近似主题",
+    "relation": "包含",
+    "description": "评测集刻意放入退货/退款等近似主题条目"
+   },
+   {
+    "source": "中文客服检索评测集",
+    "target": "语义理解",
+    "relation": "适用于",
+    "description": "问题换说法，测的是语义理解而非关键词"
+   },
+   {
+    "source": "R@1",
+    "target": "中文客服检索评测集",
+    "relation": "适用于",
+    "description": "R@1 用于衡量该评测集上的检索效果"
+   },
+   {
+    "source": "R@3",
+    "target": "中文客服检索评测集",
+    "relation": "适用于",
+    "description": "R@3 用于衡量该评测集上的检索效果"
+   },
+   {
+    "source": "MRR",
+    "target": "中文客服检索评测集",
+    "relation": "适用于",
+    "description": "MRR 用于衡量该评测集上的检索效果"
+   },
+   {
+    "source": "fastembed",
+    "target": "ONNX",
+    "relation": "依赖",
+    "description": "fastembed 以 ONNX 在本机 CPU 运行，不需要 PyTorch"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 32,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "| 方法 | R@1 | R@3 | MRR | 维度 | 编码一篇文档 | 单条查询 | 模型体积 |\n|---|---|---|---|---|---|---|---|\n| 关键词基线：字二元组 BM25 | 0.43 | 0.53 | 0.53 | – | – | – | – |\n| **BAAI/bge-small-zh-v1.5（不加前缀）** | **0.90** | **1.00** | 0.95 | 512 | 2.9 ms | 1.3 ms | 0.09 GB |\n| BAAI/bge-small-zh-v1.5（加官方推荐查询前缀） | 0.83 | 1.00 | 0.92 | 512 | 2.4 ms | 2.0 ms | 0.09 GB |\n| jinaai/jina-embeddings-v2-base-zh | 0.90 | 1.00 | 0.95 | 768 | 10.1 ms | 7.7 ms | 0.64 GB |",
+  "seconds": 2.35,
+  "attempts": 1,
+  "failed": false,
+  "input": 1031,
+  "cache_read": 640,
+  "output": 659,
+  "entities": [
+   {
+    "name": "BM25",
+    "type": "技术组件",
+    "description": "关键词基线方法，基于字二元组"
+   },
+   {
+    "name": "bge-small-zh-v1.5",
+    "type": "技术组件",
+    "description": "BAAI 的中文 embedding 模型，维度 512，体积 0.09 GB"
+   },
+   {
+    "name": "jina-embeddings-v2-base-zh",
+    "type": "技术组件",
+    "description": "jinaai 的中文 embedding 模型，维度 768，体积 0.64 GB"
+   },
+   {
+    "name": "查询前缀",
+    "type": "概念术语",
+    "description": "bge 官方推荐在查询侧添加的前缀，加后 R@1 下降"
+   },
+   {
+    "name": "embedding 模型",
+    "type": "概念术语",
+    "description": "用于向量化文档与查询的模型，片段对比其检索效果"
+   },
+   {
+    "name": "R@1",
+    "type": "概念术语",
+    "description": "检索评测指标，bge 不加前缀与 jina 均为 0.90"
+   },
+   {
+    "name": "MRR",
+    "type": "概念术语",
+    "description": "检索评测指标，bge 不加前缀与 jina 均为 0.95"
+   }
+  ],
+  "relations": [
+   {
+    "source": "bge-small-zh-v1.5",
+    "target": "embedding 模型",
+    "relation": "属于",
+    "description": "bge-small-zh-v1.5 是参与对比的 embedding 模型之一"
+   },
+   {
+    "source": "jina-embeddings-v2-base-zh",
+    "target": "embedding 模型",
+    "relation": "属于",
+    "description": "jina 模型是参与对比的 embedding 模型之一"
+   },
+   {
+    "source": "BM25",
+    "target": "embedding 模型",
+    "relation": "不适用于",
+    "description": "BM25 是关键词基线，不属于 embedding 模型"
+   },
+   {
+    "source": "bge-small-zh-v1.5",
+    "target": "查询前缀",
+    "relation": "需要",
+    "description": "该模型有加官方推荐查询前缀的对比配置"
+   },
+   {
+    "source": "查询前缀",
+    "target": "R@1",
+    "relation": "导致",
+    "description": "加前缀后 R@1 由 0.90 降至 0.83"
+   },
+   {
+    "source": "bge-small-zh-v1.5",
+    "target": "R@1",
+    "relation": "优于",
+    "description": "不加前缀时 R@1 为 0.90，高于 BM25 的 0.43"
+   },
+   {
+    "source": "jina-embeddings-v2-base-zh",
+    "target": "bge-small-zh-v1.5",
+    "relation": "优于",
+    "description": "两者 R@1、MRR 相同，但 jina 维度与体积更大"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 33,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "| jinaai/jina-embeddings-v2-base-zh | 0.90 | 1.00 | 0.95 | 768 | 10.1 ms | 7.7 ms | 0.64 GB |\n| Qwen/Qwen3-Embedding-0.6B（int8 量化） | 0.97 | 1.00 | 0.98 | 1024 | 54 ms | 165 ms | 1.12 GB |\n| Qwen3-Embedding（加推荐指令） | 0.97 | 0.97 | 0.97 | 1024 | 53 ms | 222 ms | 1.12 GB |\n| paraphrase-multilingual-MiniLM（弱基线） | 0.73 | 0.83 | 0.80 | 384 | 6.0 ms | 3.2 ms | 0.22 GB |",
+  "seconds": 2.02,
+  "attempts": 1,
+  "failed": false,
+  "input": 994,
+  "cache_read": 768,
+  "output": 455,
+  "entities": [
+   {
+    "name": "jina-embeddings-v2-base-zh",
+    "type": "技术组件",
+    "description": "jinaai 的中文 embedding 模型，768 维，0.64 GB"
+   },
+   {
+    "name": "Qwen3-Embedding-0.6B",
+    "type": "技术组件",
+    "description": "Qwen 的 embedding 模型，int8 量化，1024 维，1.12 GB"
+   },
+   {
+    "name": "Qwen3-Embedding",
+    "type": "技术组件",
+    "description": "Qwen 的 embedding 模型，加推荐指令使用，1024 维"
+   },
+   {
+    "name": "paraphrase-multilingual-MiniLM",
+    "type": "技术组件",
+    "description": "多语言 embedding 模型，作为弱基线，384 维，0.22 GB"
+   },
+   {
+    "name": "int8 量化",
+    "type": "概念术语",
+    "description": "Qwen3-Embedding-0.6B 采用的量化方式"
+   },
+   {
+    "name": "推荐指令",
+    "type": "概念术语",
+    "description": "Qwen3-Embedding 使用时附加的指令"
+   },
+   {
+    "name": "弱基线",
+    "type": "概念术语",
+    "description": "paraphrase-multilingual-MiniLM 在对比中的定位"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Qwen3-Embedding-0.6B",
+    "target": "int8 量化",
+    "relation": "依赖",
+    "description": "该模型以 int8 量化形式参与对比"
+   },
+   {
+    "source": "Qwen3-Embedding",
+    "target": "推荐指令",
+    "relation": "依赖",
+    "description": "该模型加推荐指令后参与对比"
+   },
+   {
+    "source": "paraphrase-multilingual-MiniLM",
+    "target": "弱基线",
+    "relation": "属于",
+    "description": "该模型在对比中作为弱基线"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 34,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "### 解读\n- **语义检索远强于关键词**：换了说法的问题，关键词基线只有 0.43。\n- **bge-small-zh 性价比最高**：体积是 Qwen 的 1/12，查询快 100 倍以上，正确答案 **100% 在前三**。\n- **官方推荐的查询前缀在本评测集上没有帮助**（bge 反而从 0.90 降到 0.83）。\n- 各模型答错的都集中在近似主题上（如“包裹三天没动静”被排到“运输破损”之后）。\n- **局限（必须如实说明）**：只有 30 题，每题占 0.03；bge 的 0.90 与 Qwen 的 0.97 只差 2 题，**不足以说明谁更强**。文档和问题都是我写的，可能带有个人表达习惯。结论只能是“bge-small 在这个规模上够用”。",
+  "seconds": 2.21,
+  "attempts": 1,
+  "failed": false,
+  "input": 997,
+  "cache_read": 768,
+  "output": 505,
+  "entities": [
+   {
+    "name": "语义检索",
+    "type": "概念术语",
+    "description": "换了说法的问题也能检索到，远强于关键词基线"
+   },
+   {
+    "name": "关键词检索",
+    "type": "概念术语",
+    "description": "作为基线，换说法的问题得分只有 0.43"
+   },
+   {
+    "name": "bge-small-zh",
+    "type": "技术组件",
+    "description": "体积为 Qwen 的 1/12，查询快 100 倍以上，正确答案全在前三"
+   },
+   {
+    "name": "Qwen",
+    "type": "技术组件",
+    "description": "对比模型，体积是 bge-small-zh 的 12 倍，得分 0.97"
+   },
+   {
+    "name": "查询前缀",
+    "type": "概念术语",
+    "description": "官方推荐，在本评测集上没有帮助，bge 得分从 0.90 降到 0.83"
+   },
+   {
+    "name": "评测集",
+    "type": "概念术语",
+    "description": "仅 30 题，每题占 0.03，文档和问题由作者自写"
+   },
+   {
+    "name": "近似主题",
+    "type": "概念术语",
+    "description": "各模型答错的题目集中在此类主题上"
+   }
+  ],
+  "relations": [
+   {
+    "source": "语义检索",
+    "target": "关键词检索",
+    "relation": "优于",
+    "description": "换说法的问题上语义检索远强于关键词基线"
+   },
+   {
+    "source": "bge-small-zh",
+    "target": "Qwen",
+    "relation": "优于",
+    "description": "体积更小、查询更快，但得分差距不足以说明更强"
+   },
+   {
+    "source": "查询前缀",
+    "target": "bge-small-zh",
+    "relation": "不适用于",
+    "description": "官方推荐的查询前缀在本评测集上无帮助，得分反降"
+   },
+   {
+    "source": "bge-small-zh",
+    "target": "评测集",
+    "relation": "适用于",
+    "description": "结论仅为 bge-small 在该规模评测集上够用"
+   },
+   {
+    "source": "近似主题",
+    "target": "评测集",
+    "relation": "导致",
+    "description": "各模型答错的题目都集中在近似主题上"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 35,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "文档和问题都是我写的，可能带有个人表达习惯。结论只能是“bge-small 在这个规模上够用”。阶段 2 要扩充评测集（更多题、真实风格的问法、多篇相关的情况）。",
+  "seconds": 1.42,
+  "attempts": 1,
+  "failed": false,
+  "input": 840,
+  "cache_read": 640,
+  "output": 221,
+  "entities": [
+   {
+    "name": "bge-small",
+    "type": "技术组件",
+    "description": "embedding 模型，结论是在该规模上够用"
+   },
+   {
+    "name": "评测集",
+    "type": "概念术语",
+    "description": "阶段 2 需扩充，增加更多题、真实风格问法与多篇相关情况"
+   },
+   {
+    "name": "阶段 2",
+    "type": "流程操作",
+    "description": "扩充评测集的阶段"
+   }
+  ],
+  "relations": [
+   {
+    "source": "阶段 2",
+    "target": "评测集",
+    "relation": "包含",
+    "description": "阶段 2 要扩充评测集，增加题目与问法"
+   },
+   {
+    "source": "bge-small",
+    "target": "评测集",
+    "relation": "适用于",
+    "description": "结论是 bge-small 在该规模上够用"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 36,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "### 建议\n- 默认 **BAAI/bge-small-zh-v1.5**，查询不加前缀；本地运行，**零 API 费用**。\n- 约束：输入上限 512 token，**分块大小必须控制在这之内**（分块策略在实现时另定）。\n- 升级路径：如果扩充后的评测集显示召回不够，再换 Qwen3-Embedding（更强，但 CPU 上单条查询 165ms、体积 1.1GB），或在有 GPU 的环境里使用。换模型要**全量重新计算向量**，所以表里要记录每条向量用的是哪个模型。",
+  "seconds": 1.94,
+  "attempts": 1,
+  "failed": false,
+  "input": 931,
+  "cache_read": 768,
+  "output": 493,
+  "entities": [
+   {
+    "name": "BAAI/bge-small-zh-v1.5",
+    "type": "技术组件",
+    "description": "默认 embedding 模型，本地运行，零 API 费用，查询不加前缀"
+   },
+   {
+    "name": "Qwen3-Embedding",
+    "type": "技术组件",
+    "description": "升级备选模型，更强，CPU 单条查询 165ms、体积 1.1GB"
+   },
+   {
+    "name": "分块大小",
+    "type": "流程操作",
+    "description": "必须控制在 512 token 输入上限之内，具体策略实现时另定"
+   },
+   {
+    "name": "全量重新计算向量",
+    "type": "流程操作",
+    "description": "换模型时必须执行，需记录每条向量所用模型"
+   },
+   {
+    "name": "评测集",
+    "type": "概念术语",
+    "description": "扩充后用于判断召回是否足够，决定是否换模型"
+   },
+   {
+    "name": "GPU 环境",
+    "type": "渠道地点",
+    "description": "使用 Qwen3-Embedding 的备选运行环境"
+   }
+  ],
+  "relations": [
+   {
+    "source": "BAAI/bge-small-zh-v1.5",
+    "target": "分块大小",
+    "relation": "限制",
+    "description": "模型输入上限 512 token，分块大小必须控制在其内"
+   },
+   {
+    "source": "Qwen3-Embedding",
+    "target": "BAAI/bge-small-zh-v1.5",
+    "relation": "替代",
+    "description": "召回不够时可换用 Qwen3-Embedding"
+   },
+   {
+    "source": "Qwen3-Embedding",
+    "target": "GPU 环境",
+    "relation": "适用于",
+    "description": "可在有 GPU 的环境里使用"
+   },
+   {
+    "source": "评测集",
+    "target": "Qwen3-Embedding",
+    "relation": "导致",
+    "description": "评测集显示召回不够时再换 Qwen3-Embedding"
+   },
+   {
+    "source": "Qwen3-Embedding",
+    "target": "全量重新计算向量",
+    "relation": "需要",
+    "description": "换模型要全量重新计算向量"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 37,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 二、重排（cross-encoder）\n\n### 实验：bge-small 召回前 10 名，用 BAAI/bge-reranker-v2-m3（int8，0.57GB）重排\n\n| | R@1 | R@3 | MRR |\n|---|---|---|---|\n| 只召回 | 0.90 | 1.00 | 0.95 |\n| **召回 + 重排** | **1.00** | 1.00 | **1.00** |\n\n- 原来答错的 3 题全部改对，没有改错任何一题。\n- 代价：CPU 上每个问题约 **300 ms**（中位数 303ms，最大 348ms），外加 0.57GB 模型。\n  - **更正（2.3 实测，见 0017）**：这个耗时是在评测集的短条目（中位数 66 字）上测的。真实分块约 200~300 字，10 个候选约 **1 秒**；加载后进程内存约多 0.8GB。结论（默认开启）不变，候选数改为可配置。",
+  "seconds": 2.17,
+  "attempts": 1,
+  "failed": false,
+  "input": 1045,
+  "cache_read": 768,
+  "output": 548,
+  "entities": [
+   {
+    "name": "重排",
+    "type": "流程操作",
+    "description": "cross-encoder 重排，对召回结果再排序，默认开启"
+   },
+   {
+    "name": "bge-small",
+    "type": "技术组件",
+    "description": "用于召回的模型，实验中取前 10 名候选"
+   },
+   {
+    "name": "bge-reranker-v2-m3",
+    "type": "技术组件",
+    "description": "BAAI 重排模型，int8 量化，0.57GB"
+   },
+   {
+    "name": "召回",
+    "type": "流程操作",
+    "description": "检索候选条目的步骤，单独使用时 R@1 为 0.90"
+   },
+   {
+    "name": "候选数",
+    "type": "概念术语",
+    "description": "重排的候选条目数量，更正后改为可配置"
+   },
+   {
+    "name": "R@1",
+    "type": "概念术语",
+    "description": "召回率指标，重排后由 0.90 提升到 1.00"
+   },
+   {
+    "name": "MRR",
+    "type": "概念术语",
+    "description": "平均倒数排名指标，重排后由 0.95 提升到 1.00"
+   }
+  ],
+  "relations": [
+   {
+    "source": "重排",
+    "target": "bge-reranker-v2-m3",
+    "relation": "依赖",
+    "description": "重排实验使用 bge-reranker-v2-m3 模型"
+   },
+   {
+    "source": "重排",
+    "target": "召回",
+    "relation": "依赖",
+    "description": "重排在召回结果基础上进行，取前 10 名候选"
+   },
+   {
+    "source": "bge-small",
+    "target": "召回",
+    "relation": "适用于",
+    "description": "bge-small 用于召回前 10 名"
+   },
+   {
+    "source": "重排",
+    "target": "R@1",
+    "relation": "导致",
+    "description": "召回加重排后 R@1 从 0.90 提升到 1.00"
+   },
+   {
+    "source": "重排",
+    "target": "MRR",
+    "relation": "导致",
+    "description": "召回加重排后 MRR 从 0.95 提升到 1.00"
+   },
+   {
+    "source": "重排",
+    "target": "候选数",
+    "relation": "包含",
+    "description": "重排的候选数改为可配置"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 38,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "### 与成本的关系\nDeepSeek 按 token 计费。重排能让第一名基本就是正确答案，于是可以只把最相关的 1~2 段放进提示词，而不是“多塞几段保险”，**直接减少输入 token**；代价是多等约 0.3 秒（相对于 LLM 生成的时间不算大）。",
+  "seconds": 1.74,
+  "attempts": 1,
+  "failed": false,
+  "input": 868,
+  "cache_read": 640,
+  "output": 355,
+  "entities": [
+   {
+    "name": "DeepSeek",
+    "type": "产品服务",
+    "description": "按 token 计费的模型服务"
+   },
+   {
+    "name": "重排",
+    "type": "流程操作",
+    "description": "让第一名基本就是正确答案，可只放最相关的 1~2 段进提示词"
+   },
+   {
+    "name": "提示词",
+    "type": "概念术语",
+    "description": "只放入最相关的 1~2 段，而非多塞几段"
+   },
+   {
+    "name": "token",
+    "type": "概念术语",
+    "description": "计费与输入成本的计算单位"
+   },
+   {
+    "name": "LLM 生成",
+    "type": "流程操作",
+    "description": "耗时较长，相比之下重排等待时间不算大"
+   }
+  ],
+  "relations": [
+   {
+    "source": "DeepSeek",
+    "target": "token",
+    "relation": "依赖",
+    "description": "DeepSeek 按 token 计费"
+   },
+   {
+    "source": "重排",
+    "target": "提示词",
+    "relation": "适用于",
+    "description": "重排后可只把最相关的 1~2 段放进提示词"
+   },
+   {
+    "source": "重排",
+    "target": "token",
+    "relation": "限制",
+    "description": "直接减少输入 token"
+   },
+   {
+    "source": "重排",
+    "target": "LLM 生成",
+    "relation": "优于",
+    "description": "多等约 0.3 秒，相对 LLM 生成时间不算大"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 39,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 三、向量库：pgvector 还是 Qdrant\n\n### 实验（`backend/eval/bench_vector_store.py`）\n- 5 万条 512 维向量（与 bge-small 维度一致），分属 100 个租户（每个约 500 条）；100 个查询；两边 HNSW 参数相同（m=16，ef_construction=64）。\n- 衡量：召回@10（与暴力精确计算相比）、平均返回条数、延迟 p50 / p95（本机、经网络或驱动的端到端耗时）。\n- 版本：pgvector 0.8.7（PostgreSQL 16）、Qdrant 1.19.2，均为发布满两周的版本。\n- **局限**：用的是随机向量。随机高维数据对近似索引特别难，召回的绝对值偏低；真实文本的 embedding 有聚类结构，两边都会高得多。两边数据相同，**相互比较是公平的**，但不能把绝对值当成真实场景的表现。\n\n**不过滤时，召回随搜索参数的变化**",
+  "seconds": 2.69,
+  "attempts": 1,
+  "failed": false,
+  "input": 1024,
+  "cache_read": 768,
+  "output": 693,
+  "entities": [
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "向量库方案之一，实验使用 0.8.7 版本，运行于 PostgreSQL 16"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量库方案之一，实验使用 1.19.2 版本"
+   },
+   {
+    "name": "向量库选型",
+    "type": "流程操作",
+    "description": "在 pgvector 与 Qdrant 之间做对比实验以决定选型"
+   },
+   {
+    "name": "HNSW",
+    "type": "技术组件",
+    "description": "近似索引，两边参数相同：m=16，ef_construction=64"
+   },
+   {
+    "name": "召回@10",
+    "type": "概念术语",
+    "description": "与暴力精确计算相比的召回指标，用于衡量检索效果"
+   },
+   {
+    "name": "延迟 p50/p95",
+    "type": "概念术语",
+    "description": "本机经网络或驱动的端到端耗时指标"
+   },
+   {
+    "name": "bge-small",
+    "type": "技术组件",
+    "description": "embedding 模型，向量维度为 512"
+   },
+   {
+    "name": "随机向量局限",
+    "type": "概念术语",
+    "description": "实验用随机向量，召回绝对值偏低，不能代表真实场景表现"
+   }
+  ],
+  "relations": [
+   {
+    "source": "向量库选型",
+    "target": "pgvector",
+    "relation": "包含",
+    "description": "选型对比的候选方案之一是 pgvector"
+   },
+   {
+    "source": "向量库选型",
+    "target": "Qdrant",
+    "relation": "包含",
+    "description": "选型对比的候选方案之一是 Qdrant"
+   },
+   {
+    "source": "pgvector",
+    "target": "HNSW",
+    "relation": "依赖",
+    "description": "pgvector 使用 HNSW 索引，参数与 Qdrant 相同"
+   },
+   {
+    "source": "Qdrant",
+    "target": "HNSW",
+    "relation": "依赖",
+    "description": "Qdrant 使用 HNSW 索引，参数与 pgvector 相同"
+   },
+   {
+    "source": "向量库选型",
+    "target": "召回@10",
+    "relation": "通过",
+    "description": "用召回@10 与暴力精确计算对比来衡量"
+   },
+   {
+    "source": "向量库选型",
+    "target": "延迟 p50/p95",
+    "relation": "通过",
+    "description": "用延迟 p50/p95 衡量端到端耗时"
+   },
+   {
+    "source": "bge-small",
+    "target": "向量库选型",
+    "relation": "适用于",
+    "description": "实验向量维度与 bge-small 的 512 维一致"
+   },
+   {
+    "source": "随机向量局限",
+    "target": "召回@10",
+    "relation": "限制",
+    "description": "随机向量使召回绝对值偏低，不能当作真实场景表现"
+   },
+   {
+    "source": "随机向量局限",
+    "target": "向量库选型",
+    "relation": "限制",
+    "description": "实验用随机向量，但两边数据相同，相互比较公平"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 40,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "**不过滤时，召回随搜索参数的变化**\n\n| ef | 40 | 100 | 200 | 400 |\n|---|---|---|---|---|\n| pgvector 召回@10 / p50 | 0.076 / 1.6ms | 0.175 / 2.1ms | 0.321 / 3.4ms | 0.515 / 5.9ms |\n| Qdrant 召回@10 / p50 | 0.361 / 2.9ms | 0.560 / 4.3ms | 0.753 / 5.4ms | **0.912 / 5.6ms** |\n\n同样的延迟下 Qdrant 的近似检索质量明显更好。部分原因是结构差异：Qdrant 按段分别建图，小于阈值的段直接精确扫描（本次有约 4000 条未建图）。\n\n**只在一个租户里检索（过滤条件命中 1%）**——这正是阶段 5 多租户的检索方式\n\n| 方式 | 召回@10 | 平均返回 | p50 |\n|---|---|---|---|",
+  "seconds": 2.0,
+  "attempts": 1,
+  "failed": false,
+  "input": 1031,
+  "cache_read": 768,
+  "output": 439,
+  "entities": [
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量库，按段分别建图，小段直接精确扫描"
+   },
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "向量库，同样延迟下近似检索质量不如 Qdrant"
+   },
+   {
+    "name": "召回@10",
+    "type": "概念术语",
+    "description": "近似检索质量指标，随搜索参数 ef 增大而提升"
+   },
+   {
+    "name": "ef",
+    "type": "概念术语",
+    "description": "搜索参数，取值 40 到 400，越大召回越高"
+   },
+   {
+    "name": "多租户检索",
+    "type": "流程操作",
+    "description": "阶段 5 的检索方式，过滤条件命中 1%"
+   },
+   {
+    "name": "租户",
+    "type": "概念术语",
+    "description": "检索过滤的隔离单位，单租户检索命中 1%"
+   },
+   {
+    "name": "精确扫描",
+    "type": "流程操作",
+    "description": "小于阈值的段不建图，直接精确扫描"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Qdrant",
+    "target": "pgvector",
+    "relation": "优于",
+    "description": "同样延迟下 Qdrant 的近似检索质量明显更好"
+   },
+   {
+    "source": "Qdrant",
+    "target": "精确扫描",
+    "relation": "通过",
+    "description": "Qdrant 按段建图，小于阈值的段直接精确扫描"
+   },
+   {
+    "source": "召回@10",
+    "target": "ef",
+    "relation": "依赖",
+    "description": "召回@10 随搜索参数 ef 增大而提升"
+   },
+   {
+    "source": "多租户检索",
+    "target": "租户",
+    "relation": "适用于",
+    "description": "多租户检索只在一个租户里检索，过滤命中 1%"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 41,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "| 方式 | 召回@10 | 平均返回 | p50 |\n|---|---|---|---|\n| pgvector：规划器默认（只有向量索引时选“全表扫描 + 精确排序”） | 1.000 | 10 | 2.6ms |\n| pgvector：加租户 B 树索引（规划器选“按租户取出 + 精确排序”） | **1.000** | 10 | **1.2ms** |\n| pgvector：**强制走 HNSW**，迭代扫描关闭 | 0.047 | **0.5** | 1.5ms |\n| pgvector：强制走 HNSW，迭代扫描 relaxed_order | 0.623 | 10 | 12.6ms |\n| pgvector：强制走 HNSW，迭代扫描 strict_order | 0.173 | 10 | 13.2ms |\n| Qdrant：租户字段 payload 索引 | **1.000** | 10 | 2.5ms |\n\n- “强制走 HNSW、关闭迭代扫描”复现了 pgvector 的经典问题：先近似取出 40 个最近邻、再按租户过滤，只剩约 0.5 条。",
+  "seconds": 2.98,
+  "attempts": 1,
+  "failed": false,
+  "input": 1056,
+  "cache_read": 768,
+  "output": 710,
+  "entities": [
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "向量库，测试中对比多种索引与扫描方式"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量库，使用租户字段 payload 索引"
+   },
+   {
+    "name": "HNSW",
+    "type": "技术组件",
+    "description": "pgvector 的近似最近邻索引，强制走时召回大幅下降"
+   },
+   {
+    "name": "迭代扫描",
+    "type": "技术组件",
+    "description": "pgvector 的扫描机制，分关闭、relaxed_order、strict_order 三种"
+   },
+   {
+    "name": "租户 B 树索引",
+    "type": "技术组件",
+    "description": "pgvector 上按租户取数的索引，p50 降至 1.2ms"
+   },
+   {
+    "name": "payload 索引",
+    "type": "技术组件",
+    "description": "Qdrant 中针对租户字段建立的索引"
+   },
+   {
+    "name": "召回@10",
+    "type": "概念术语",
+    "description": "衡量前 10 条召回效果的指标"
+   },
+   {
+    "name": "全表扫描",
+    "type": "流程操作",
+    "description": "只有向量索引时规划器默认选择的精确排序方式"
+   }
+  ],
+  "relations": [
+   {
+    "source": "pgvector",
+    "target": "HNSW",
+    "relation": "包含",
+    "description": "pgvector 可强制走 HNSW 索引"
+   },
+   {
+    "source": "pgvector",
+    "target": "迭代扫描",
+    "relation": "包含",
+    "description": "pgvector 支持关闭或按 relaxed_order、strict_order 迭代扫描"
+   },
+   {
+    "source": "pgvector",
+    "target": "租户 B 树索引",
+    "relation": "包含",
+    "description": "pgvector 加租户 B 树索引后按租户取出再精确排序"
+   },
+   {
+    "source": "pgvector",
+    "target": "全表扫描",
+    "relation": "依赖",
+    "description": "只有向量索引时规划器默认走全表扫描加精确排序"
+   },
+   {
+    "source": "Qdrant",
+    "target": "payload 索引",
+    "relation": "包含",
+    "description": "Qdrant 使用租户字段 payload 索引"
+   },
+   {
+    "source": "HNSW",
+    "target": "召回@10",
+    "relation": "导致",
+    "description": "强制走 HNSW 且关闭迭代扫描时召回@10 仅 0.047"
+   },
+   {
+    "source": "迭代扫描",
+    "target": "召回@10",
+    "relation": "导致",
+    "description": "relaxed_order 与 strict_order 下召回@10 分别为 0.623 和 0.173"
+   },
+   {
+    "source": "租户 B 树索引",
+    "target": "召回@10",
+    "relation": "导致",
+    "description": "加租户 B 树索引后召回@10 为 1.000"
+   },
+   {
+    "source": "payload 索引",
+    "target": "召回@10",
+    "relation": "导致",
+    "description": "Qdrant 租户 payload 索引下召回@10 为 1.000"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 42,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "0.8 版的迭代扫描能补足条数，但召回和延迟都不理想。\n- **关键发现**：每个租户 / 知识库的数据量不大时，**租户内精确检索（B 树取出 + 精确排序）又快又准**，根本不需要近似索引。规划器默认就会这样选。\n- Qdrant 也是同样的思路：过滤条件命中的数据很少时，它会直接用 payload 索引取出再精确比较，所以同样是 1.000。\n- 数据量继续增长（例如单个知识库几十万块）时，精确检索的成本随数据量线性增长；那时需要“带过滤的近似检索”，Qdrant 的 filterable HNSW 更成熟。\n\n**中文关键词检索（为以后的“语义 + 关键词”混合检索探路）**\n- PostgreSQL 内置全文检索不切分中文：“退货政策：商品签收后……”被当成两个整块，用“退货”查**查不到**；",
+  "seconds": 2.69,
+  "attempts": 1,
+  "failed": false,
+  "input": 1000,
+  "cache_read": 768,
+  "output": 701,
+  "entities": [
+   {
+    "name": "迭代扫描",
+    "type": "技术组件",
+    "description": "0.8 版可补足条数，但召回和延迟都不理想"
+   },
+   {
+    "name": "租户内精确检索",
+    "type": "流程操作",
+    "description": "B 树取出加精确排序，数据量小时又快又准"
+   },
+   {
+    "name": "近似索引",
+    "type": "技术组件",
+    "description": "数据量小时不需要，规划器默认不选"
+   },
+   {
+    "name": "规划器",
+    "type": "技术组件",
+    "description": "默认选择租户内精确检索"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "过滤命中少时用 payload 索引取出再精确比较"
+   },
+   {
+    "name": "payload 索引",
+    "type": "技术组件",
+    "description": "过滤条件命中数据少时用于取出再精确比较"
+   },
+   {
+    "name": "带过滤的近似检索",
+    "type": "流程操作",
+    "description": "数据量增长到几十万块时需要的检索方式"
+   },
+   {
+    "name": "filterable HNSW",
+    "type": "技术组件",
+    "description": "Qdrant 的带过滤近似检索方案，更成熟"
+   }
+  ],
+  "relations": [
+   {
+    "source": "租户内精确检索",
+    "target": "近似索引",
+    "relation": "替代",
+    "description": "数据量小时精确检索即可，不需要近似索引"
+   },
+   {
+    "source": "规划器",
+    "target": "租户内精确检索",
+    "relation": "依赖",
+    "description": "规划器默认选择租户内精确检索"
+   },
+   {
+    "source": "Qdrant",
+    "target": "payload 索引",
+    "relation": "包含",
+    "description": "过滤命中少时 Qdrant 用 payload 索引取出再精确比较"
+   },
+   {
+    "source": "带过滤的近似检索",
+    "target": "filterable HNSW",
+    "relation": "通过",
+    "description": "带过滤的近似检索可用 Qdrant 的 filterable HNSW 实现"
+   },
+   {
+    "source": "filterable HNSW",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "filterable HNSW 是 Qdrant 的方案"
+   },
+   {
+    "source": "带过滤的近似检索",
+    "target": "租户内精确检索",
+    "relation": "替代",
+    "description": "数据量增长后需要带过滤的近似检索"
+   },
+   {
+    "source": "迭代扫描",
+    "target": "租户内精确检索",
+    "relation": "优于",
+    "description": "迭代扫描召回和延迟都不理想，不如精确检索"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 43,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "- PostgreSQL 内置全文检索不切分中文：“退货政策：商品签收后……”被当成两个整块，用“退货”查**查不到**；标准镜像没有 zhparser / pg_jieba，只有 `pg_trgm`（对中文能做模糊匹配，“退货”0.67、近似词“退款”0.33，很粗糙）。\n- 评测集上关键词基线只有 0.43，对“换说法的问题”帮助不大。**第一版不做混合检索**；以后需要精确词（错误码、型号）时，两种方案都要额外处理中文分词。",
+  "seconds": 2.8,
+  "attempts": 1,
+  "failed": false,
+  "input": 920,
+  "cache_read": 768,
+  "output": 578,
+  "entities": [
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "内置全文检索不切分中文，标准镜像无中文分词插件"
+   },
+   {
+    "name": "全文检索",
+    "type": "技术组件",
+    "description": "PostgreSQL 内置能力，中文被当成整块，用“退货”查不到"
+   },
+   {
+    "name": "zhparser",
+    "type": "技术组件",
+    "description": "中文分词插件，标准镜像中没有"
+   },
+   {
+    "name": "pg_jieba",
+    "type": "技术组件",
+    "description": "中文分词插件，标准镜像中没有"
+   },
+   {
+    "name": "pg_trgm",
+    "type": "技术组件",
+    "description": "标准镜像自带，对中文只能做粗糙模糊匹配"
+   },
+   {
+    "name": "关键词基线",
+    "type": "概念术语",
+    "description": "评测集上得分只有 0.43，对换说法的问题帮助不大"
+   },
+   {
+    "name": "混合检索",
+    "type": "流程操作",
+    "description": "第一版不做，以后需要精确词时再考虑"
+   },
+   {
+    "name": "中文分词",
+    "type": "流程操作",
+    "description": "两种方案处理精确词时都要额外处理"
+   }
+  ],
+  "relations": [
+   {
+    "source": "PostgreSQL",
+    "target": "全文检索",
+    "relation": "包含",
+    "description": "PostgreSQL 内置全文检索能力"
+   },
+   {
+    "source": "全文检索",
+    "target": "中文分词",
+    "relation": "依赖",
+    "description": "不切分中文导致“退货”查不到"
+   },
+   {
+    "source": "zhparser",
+    "target": "中文分词",
+    "relation": "提供",
+    "description": "zhparser 是中文分词插件"
+   },
+   {
+    "source": "pg_jieba",
+    "target": "中文分词",
+    "relation": "提供",
+    "description": "pg_jieba 是中文分词插件"
+   },
+   {
+    "source": "PostgreSQL",
+    "target": "pg_trgm",
+    "relation": "包含",
+    "description": "标准镜像只有 pg_trgm，可做模糊匹配"
+   },
+   {
+    "source": "pg_trgm",
+    "target": "中文分词",
+    "relation": "不适用于",
+    "description": "对中文只能粗糙模糊匹配，不能分词"
+   },
+   {
+    "source": "关键词基线",
+    "target": "混合检索",
+    "relation": "不适用于",
+    "description": "关键词基线效果差，第一版不做混合检索"
+   },
+   {
+    "source": "混合检索",
+    "target": "中文分词",
+    "relation": "需要",
+    "description": "需要精确词时两种方案都要额外处理中文分词"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 44,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "### 两个方案的取舍\n\n| | pgvector（装在现有 PostgreSQL 里） | Qdrant（独立服务） |\n|---|---|---|\n| 运维 | 少一个服务；备份、权限统一 | 多一个容器（内存约百 MB 级） |\n| 一致性 | 向量与文档元数据**同一事务**：删文档时向量一起删，没有双写问题 | **双写**：文档在 PostgreSQL、向量在 Qdrant，需要保证两边一致 |\n| 多租户过滤 | 本规模下租户内精确检索又快又准；规模大了要靠迭代扫描（实测不理想） | 带过滤的近似检索成熟（filterable HNSW + 按命中量选择策略） |\n| 近似检索质量（同延迟，随机数据） | 较低 | 较高 |",
+  "seconds": 2.14,
+  "attempts": 1,
+  "failed": false,
+  "input": 968,
+  "cache_read": 768,
+  "output": 568,
+  "entities": [
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "装在现有 PostgreSQL 里的向量方案，少一个服务，备份权限统一"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "独立向量库服务，需多一个容器，内存约百 MB 级"
+   },
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "现有数据库，pgvector 装在其中，存放文档元数据"
+   },
+   {
+    "name": "双写",
+    "type": "概念术语",
+    "description": "文档在 PostgreSQL、向量在 Qdrant，需保证两边一致"
+   },
+   {
+    "name": "同一事务",
+    "type": "概念术语",
+    "description": "向量与文档元数据同事务，删文档时向量一起删"
+   },
+   {
+    "name": "多租户过滤",
+    "type": "概念术语",
+    "description": "按租户过滤检索，规模大时 pgvector 靠迭代扫描"
+   },
+   {
+    "name": "近似检索质量",
+    "type": "概念术语",
+    "description": "同延迟随机数据下，Qdrant 较高、pgvector 较低"
+   },
+   {
+    "name": "filterable HNSW",
+    "type": "技术组件",
+    "description": "Qdrant 带过滤的近似检索机制，按命中量选择策略"
+   }
+  ],
+  "relations": [
+   {
+    "source": "pgvector",
+    "target": "PostgreSQL",
+    "relation": "依赖",
+    "description": "pgvector 装在现有 PostgreSQL 里"
+   },
+   {
+    "source": "pgvector",
+    "target": "同一事务",
+    "relation": "通过",
+    "description": "向量与文档元数据在同一事务内，无双写问题"
+   },
+   {
+    "source": "Qdrant",
+    "target": "双写",
+    "relation": "导致",
+    "description": "向量在 Qdrant、文档在 PostgreSQL，需保证两边一致"
+   },
+   {
+    "source": "Qdrant",
+    "target": "filterable HNSW",
+    "relation": "包含",
+    "description": "Qdrant 用 filterable HNSW 做带过滤的近似检索"
+   },
+   {
+    "source": "Qdrant",
+    "target": "近似检索质量",
+    "relation": "优于",
+    "description": "同延迟随机数据下 Qdrant 近似检索质量较高"
+   },
+   {
+    "source": "pgvector",
+    "target": "多租户过滤",
+    "relation": "适用于",
+    "description": "本规模下租户内精确检索又快又准，规模大需迭代扫描"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 45,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "| 近似检索质量（同延迟，随机数据） | 较低 | 较高 |\n| 迁移成本 | 现在是 `postgres:16-alpine`：数据库排序规则 `en_US.utf8`、运行在 **musl libc** 上（已核实），且已有文本索引（如用户名唯一索引 `users_name_key`）。pgvector 官方镜像基于 Debian 的 **glibc**，同名排序规则的排序结果不同，直接复用数据目录会让这些索引与数据不一致；musl 不提供排序规则版本号，PostgreSQL **检测不到、也不会警告**。要么导出再导入、要么重建所有文本索引 | 不改动现有数据库 |\n| 与路线图 | tech-tradeoffs 中的备选 | ROADMAP / README 原定方案 |",
+  "seconds": 2.41,
+  "attempts": 1,
+  "failed": false,
+  "input": 965,
+  "cache_read": 768,
+  "output": 650,
+  "entities": [
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "官方镜像基于 Debian 的 glibc，与现有数据库排序规则不同"
+   },
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "现有数据库，运行在 musl libc 上，检测不到排序规则版本号"
+   },
+   {
+    "name": "musl libc",
+    "type": "技术组件",
+    "description": "现有数据库运行环境，不提供排序规则版本号"
+   },
+   {
+    "name": "glibc",
+    "type": "技术组件",
+    "description": "pgvector 官方镜像所基于的 C 库"
+   },
+   {
+    "name": "文本索引",
+    "type": "技术组件",
+    "description": "如用户名唯一索引，直接复用数据目录会与数据不一致"
+   },
+   {
+    "name": "迁移成本",
+    "type": "概念术语",
+    "description": "pgvector 需导出再导入或重建所有文本索引，另一方案不改动现有数据库"
+   },
+   {
+    "name": "近似检索质量",
+    "type": "概念术语",
+    "description": "同延迟随机数据下，pgvector 较低，另一方案较高"
+   },
+   {
+    "name": "tech-tradeoffs",
+    "type": "概念术语",
+    "description": "将 pgvector 列为备选方案"
+   }
+  ],
+  "relations": [
+   {
+    "source": "pgvector",
+    "target": "glibc",
+    "relation": "依赖",
+    "description": "pgvector 官方镜像基于 Debian 的 glibc"
+   },
+   {
+    "source": "PostgreSQL",
+    "target": "musl libc",
+    "relation": "依赖",
+    "description": "现有数据库运行在 musl libc 上"
+   },
+   {
+    "source": "PostgreSQL",
+    "target": "文本索引",
+    "relation": "包含",
+    "description": "现有数据库已有文本索引，如用户名唯一索引"
+   },
+   {
+    "source": "pgvector",
+    "target": "文本索引",
+    "relation": "限制",
+    "description": "直接复用数据目录会让文本索引与数据不一致"
+   },
+   {
+    "source": "pgvector",
+    "target": "迁移成本",
+    "relation": "导致",
+    "description": "需导出再导入或重建所有文本索引，迁移成本较高"
+   },
+   {
+    "source": "pgvector",
+    "target": "近似检索质量",
+    "relation": "限制",
+    "description": "同延迟随机数据下近似检索质量较低"
+   },
+   {
+    "source": "pgvector",
+    "target": "tech-tradeoffs",
+    "relation": "属于",
+    "description": "pgvector 是 tech-tradeoffs 中的备选方案"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 46,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "### 建议：Qdrant，但 PostgreSQL 仍是事实来源\n- 理由一：多租户（阶段 5）下所有检索都带过滤；数据增长后，Qdrant 的带过滤近似检索明显更可靠，而 pgvector 的迭代扫描实测召回只有 0.62。\n- 理由二：不需要更换现有的 PostgreSQL 镜像，避开排序规则迁移的风险。\n- **一致性用项目已有的原则解决**：PostgreSQL 存文档与分块（含文本），是事实来源；**Qdrant 只是派生出来的索引，可以随时从 PostgreSQL 重建**——和 Redis 事件流是“视图”是同一个思路（决策 0007）。写入、删除向量都作为后台任务，沿用“先落库再投递”（决策 0005），失败可重试，并提供“全量重建索引”的命令。\n- 备选：如果更看重“少一个服务、同事务一致”，pgvector + 租户内精确检索在本项目的数据规模下完全够用；",
+  "seconds": 2.41,
+  "attempts": 1,
+  "failed": false,
+  "input": 1012,
+  "cache_read": 768,
+  "output": 643,
+  "entities": [
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "建议采用的向量库，带过滤近似检索更可靠，仅作派生索引"
+   },
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "存文档与分块含文本，是事实来源，无需更换现有镜像"
+   },
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "备选方案，迭代扫描实测召回只有 0.62"
+   },
+   {
+    "name": "多租户",
+    "type": "概念术语",
+    "description": "阶段 5 场景，所有检索都带过滤"
+   },
+   {
+    "name": "带过滤近似检索",
+    "type": "流程操作",
+    "description": "Qdrant 在数据增长后明显更可靠的检索方式"
+   },
+   {
+    "name": "全量重建索引",
+    "type": "流程操作",
+    "description": "提供的命令，可从 PostgreSQL 重建 Qdrant 索引"
+   },
+   {
+    "name": "先落库再投递",
+    "type": "规则政策",
+    "description": "决策 0005 的写入原则，失败可重试"
+   },
+   {
+    "name": "Redis 事件流",
+    "type": "技术组件",
+    "description": "作为视图的同类思路，对应决策 0007"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Qdrant",
+    "target": "多租户",
+    "relation": "适用于",
+    "description": "多租户下所有检索都带过滤，Qdrant 更可靠"
+   },
+   {
+    "source": "Qdrant",
+    "target": "带过滤近似检索",
+    "relation": "提供",
+    "description": "数据增长后 Qdrant 的带过滤近似检索明显更可靠"
+   },
+   {
+    "source": "pgvector",
+    "target": "带过滤近似检索",
+    "relation": "不适用于",
+    "description": "pgvector 迭代扫描实测召回只有 0.62"
+   },
+   {
+    "source": "Qdrant",
+    "target": "PostgreSQL",
+    "relation": "依赖",
+    "description": "Qdrant 只是派生索引，可随时从 PostgreSQL 重建"
+   },
+   {
+    "source": "全量重建索引",
+    "target": "Qdrant",
+    "relation": "通过",
+    "description": "提供全量重建索引命令，从 PostgreSQL 重建"
+   },
+   {
+    "source": "先落库再投递",
+    "target": "Qdrant",
+    "relation": "适用于",
+    "description": "写入、删除向量作为后台任务，沿用先落库再投递"
+   },
+   {
+    "source": "Redis 事件流",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "两者都是视图思路，对应决策 0007"
+   },
+   {
+    "source": "pgvector",
+    "target": "PostgreSQL",
+    "relation": "替代",
+    "description": "备选方案看重少一个服务、同事务一致"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 47,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "- 备选：如果更看重“少一个服务、同事务一致”，pgvector + 租户内精确检索在本项目的数据规模下完全够用；代价是要处理镜像迁移，以及数据增长后的过滤检索问题。",
+  "seconds": 1.23,
+  "attempts": 1,
+  "failed": false,
+  "input": 842,
+  "cache_read": 640,
+  "output": 275,
+  "entities": [
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "备选向量检索方案，可少一个服务并保证同事务一致"
+   },
+   {
+    "name": "租户内精确检索",
+    "type": "流程操作",
+    "description": "在本项目数据规模下完全够用的检索方式"
+   },
+   {
+    "name": "镜像迁移",
+    "type": "流程操作",
+    "description": "采用 pgvector 方案需要处理的代价"
+   },
+   {
+    "name": "过滤检索",
+    "type": "流程操作",
+    "description": "数据增长后需要处理的问题"
+   }
+  ],
+  "relations": [
+   {
+    "source": "pgvector",
+    "target": "租户内精确检索",
+    "relation": "包含",
+    "description": "pgvector 方案配合租户内精确检索使用"
+   },
+   {
+    "source": "pgvector",
+    "target": "镜像迁移",
+    "relation": "需要",
+    "description": "采用 pgvector 的代价是要处理镜像迁移"
+   },
+   {
+    "source": "pgvector",
+    "target": "过滤检索",
+    "relation": "需要",
+    "description": "数据增长后需处理过滤检索问题"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 48,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 四、部署注意（与模型选择无关，必须处理）\n- fastembed 默认把模型下载到**系统临时目录**（实验中已占 2.5GB）；临时目录会被清理、容器重启也会丢。上线时要在**构建镜像时下载模型**，或把缓存目录（`FASTEMBED_CACHE_PATH`）放进持久化数据卷。\n- embedding 与重排都在 CPU 上运行，会占用 api / worker 进程的 CPU。阶段 1 的派发器在 api 进程里；文档入库（批量计算向量）是重活，应放到后台任务里做，不能阻塞请求。",
+  "seconds": 2.05,
+  "attempts": 1,
+  "failed": false,
+  "input": 932,
+  "cache_read": 768,
+  "output": 578,
+  "entities": [
+   {
+    "name": "fastembed",
+    "type": "技术组件",
+    "description": "默认把模型下载到系统临时目录，实验中已占 2.5GB"
+   },
+   {
+    "name": "系统临时目录",
+    "type": "渠道地点",
+    "description": "会被清理，容器重启也会丢失"
+   },
+   {
+    "name": "构建镜像时下载模型",
+    "type": "流程操作",
+    "description": "上线时避免模型丢失的处理方式之一"
+   },
+   {
+    "name": "FASTEMBED_CACHE_PATH",
+    "type": "技术组件",
+    "description": "缓存目录配置项，可放进持久化数据卷"
+   },
+   {
+    "name": "持久化数据卷",
+    "type": "技术组件",
+    "description": "用于存放模型缓存目录，避免重启丢失"
+   },
+   {
+    "name": "embedding",
+    "type": "技术组件",
+    "description": "在 CPU 上运行，会占用 api / worker 进程的 CPU"
+   },
+   {
+    "name": "重排",
+    "type": "技术组件",
+    "description": "在 CPU 上运行，会占用 api / worker 进程的 CPU"
+   },
+   {
+    "name": "文档入库",
+    "type": "流程操作",
+    "description": "批量计算向量的重活，应放到后台任务里做，不能阻塞请求"
+   }
+  ],
+  "relations": [
+   {
+    "source": "fastembed",
+    "target": "系统临时目录",
+    "relation": "依赖",
+    "description": "默认把模型下载到系统临时目录"
+   },
+   {
+    "source": "系统临时目录",
+    "target": "fastembed",
+    "relation": "限制",
+    "description": "临时目录会被清理、容器重启会丢，影响模型文件"
+   },
+   {
+    "source": "构建镜像时下载模型",
+    "target": "系统临时目录",
+    "relation": "替代",
+    "description": "上线时用构建镜像时下载模型替代依赖临时目录"
+   },
+   {
+    "source": "FASTEMBED_CACHE_PATH",
+    "target": "持久化数据卷",
+    "relation": "适用于",
+    "description": "把缓存目录放进持久化数据卷"
+   },
+   {
+    "source": "embedding",
+    "target": "重排",
+    "relation": "包含",
+    "description": "两者都在 CPU 上运行，占用 api / worker 进程的 CPU"
+   },
+   {
+    "source": "文档入库",
+    "target": "embedding",
+    "relation": "需要",
+    "description": "文档入库需批量计算向量，是重活"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 49,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 开放问题（已决定）\n1. ~~embedding 是否采用 bge-small-zh-v1.5~~ **采用**，查询不加前缀。\n2. ~~是否默认开启重排~~ **默认开启**（bge-reranker-v2-m3 int8）。\n3. ~~向量库选择~~ **Qdrant**：PostgreSQL 为事实来源，Qdrant 为可重建的派生索引。",
+  "seconds": 1.94,
+  "attempts": 1,
+  "failed": false,
+  "input": 884,
+  "cache_read": 640,
+  "output": 429,
+  "entities": [
+   {
+    "name": "bge-small-zh-v1.5",
+    "type": "技术组件",
+    "description": "被采用为 embedding 模型，查询不加前缀"
+   },
+   {
+    "name": "bge-reranker-v2-m3",
+    "type": "技术组件",
+    "description": "重排模型，int8 版本，默认开启"
+   },
+   {
+    "name": "重排",
+    "type": "流程操作",
+    "description": "默认开启的检索环节"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "选定的向量库，可重建的派生索引"
+   },
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "事实来源"
+   },
+   {
+    "name": "向量库",
+    "type": "概念术语",
+    "description": "选型对象，最终选择 Qdrant"
+   },
+   {
+    "name": "embedding",
+    "type": "概念术语",
+    "description": "选型对象，采用 bge-small-zh-v1.5"
+   }
+  ],
+  "relations": [
+   {
+    "source": "embedding",
+    "target": "bge-small-zh-v1.5",
+    "relation": "通过",
+    "description": "embedding 采用 bge-small-zh-v1.5，查询不加前缀"
+   },
+   {
+    "source": "重排",
+    "target": "bge-reranker-v2-m3",
+    "relation": "依赖",
+    "description": "重排默认开启，使用 bge-reranker-v2-m3 int8"
+   },
+   {
+    "source": "向量库",
+    "target": "Qdrant",
+    "relation": "通过",
+    "description": "向量库选择 Qdrant"
+   },
+   {
+    "source": "Qdrant",
+    "target": "PostgreSQL",
+    "relation": "依赖",
+    "description": "Qdrant 是可重建的派生索引，事实来源为 PostgreSQL"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 50,
+  "title": "0014 - RAG 选型：embedding 模型、重排与向量库",
+  "text": "## 验证（草稿阶段已做的）\n- `backend/eval/eval_embeddings.py`、`eval_rerank.py`、`bench_vector_store.py` 均可复现；评测集 `retrieval_zh_v0.json`。\n- 全部实验**没有调用任何付费 API**。\n- 实验中自己的失误与修正记在 dev-log（例如：第一次基准测试因 Qdrant 等待条件写错而死等、pgvector 第一轮结果因规划器没走向量索引而“看不到问题”，补测后才复现）。",
+  "seconds": 2.42,
+  "attempts": 1,
+  "failed": false,
+  "input": 914,
+  "cache_read": 768,
+  "output": 578,
+  "entities": [
+   {
+    "name": "embedding 评测",
+    "type": "流程操作",
+    "description": "草稿阶段已做的验证，脚本可复现"
+   },
+   {
+    "name": "重排评测",
+    "type": "流程操作",
+    "description": "草稿阶段已做的验证，脚本可复现"
+   },
+   {
+    "name": "向量库基准测试",
+    "type": "流程操作",
+    "description": "草稿阶段已做的验证，脚本可复现"
+   },
+   {
+    "name": "retrieval_zh_v0.json",
+    "type": "技术组件",
+    "description": "评测集，用于上述评测"
+   },
+   {
+    "name": "付费 API",
+    "type": "产品服务",
+    "description": "全部实验均未调用"
+   },
+   {
+    "name": "dev-log",
+    "type": "技术组件",
+    "description": "记录实验中自身失误与修正"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "基准测试中因等待条件写错而死等"
+   },
+   {
+    "name": "pgvector",
+    "type": "技术组件",
+    "description": "第一轮结果因规划器未走向量索引而看不到问题"
+   }
+  ],
+  "relations": [
+   {
+    "source": "embedding 评测",
+    "target": "retrieval_zh_v0.json",
+    "relation": "依赖",
+    "description": "评测使用该评测集"
+   },
+   {
+    "source": "重排评测",
+    "target": "retrieval_zh_v0.json",
+    "relation": "依赖",
+    "description": "评测使用该评测集"
+   },
+   {
+    "source": "向量库基准测试",
+    "target": "Qdrant",
+    "relation": "包含",
+    "description": "基准测试涉及 Qdrant，等待条件写错导致死等"
+   },
+   {
+    "source": "向量库基准测试",
+    "target": "pgvector",
+    "relation": "包含",
+    "description": "基准测试涉及 pgvector，首轮未走向量索引"
+   },
+   {
+    "source": "embedding 评测",
+    "target": "付费 API",
+    "relation": "不适用于",
+    "description": "实验未调用任何付费 API"
+   },
+   {
+    "source": "重排评测",
+    "target": "付费 API",
+    "relation": "不适用于",
+    "description": "实验未调用任何付费 API"
+   },
+   {
+    "source": "向量库基准测试",
+    "target": "付费 API",
+    "relation": "不适用于",
+    "description": "实验未调用任何付费 API"
+   },
+   {
+    "source": "dev-log",
+    "target": "向量库基准测试",
+    "relation": "包含",
+    "description": "记录基准测试中的失误与修正"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 51,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "# 0016 - 入库流水线：后台处理、向量化与 Qdrant 索引\n\n**状态**：已决定（阶段 2.2，2026-10-21）\n\n**背景**：2.1 让文档可以上传、解析、分块，但处理要手动触发，也没有向量。2.2 要把它接成一条自动的流水线：上传 → 后台解析分块 → 向量化 → 写入 Qdrant → 可检索。约束沿用 0014：**PostgreSQL 是事实来源，Qdrant 是可重建的派生索引**；embedding 用本地 bge-small-zh-v1.5，零 API 费用。",
+  "seconds": 2.24,
+  "attempts": 1,
+  "failed": false,
+  "input": 943,
+  "cache_read": 512,
+  "output": 581,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "流程操作",
+    "description": "上传→后台解析分块→向量化→写入Qdrant→可检索的自动流水线"
+   },
+   {
+    "name": "PostgreSQL",
+    "type": "技术组件",
+    "description": "事实来源，数据以它为准"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "可重建的派生索引，存放向量"
+   },
+   {
+    "name": "bge-small-zh-v1.5",
+    "type": "技术组件",
+    "description": "本地 embedding 模型，零 API 费用"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "流水线中用本地模型把分块转成向量的环节"
+   },
+   {
+    "name": "后台解析分块",
+    "type": "流程操作",
+    "description": "上传后自动触发的解析与分块处理"
+   },
+   {
+    "name": "文档上传",
+    "type": "流程操作",
+    "description": "阶段 2.1 已支持的上传能力，是流水线起点"
+   },
+   {
+    "name": "0014",
+    "type": "规则政策",
+    "description": "沿用其约束：PostgreSQL 为事实来源，Qdrant 为派生索引"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "文档上传",
+    "relation": "包含",
+    "description": "流水线以文档上传为起点"
+   },
+   {
+    "source": "入库流水线",
+    "target": "后台解析分块",
+    "relation": "包含",
+    "description": "上传后由后台自动解析分块"
+   },
+   {
+    "source": "入库流水线",
+    "target": "向量化",
+    "relation": "包含",
+    "description": "分块后进入向量化环节"
+   },
+   {
+    "source": "入库流水线",
+    "target": "Qdrant",
+    "relation": "依赖",
+    "description": "向量化结果写入 Qdrant 供检索"
+   },
+   {
+    "source": "向量化",
+    "target": "bge-small-zh-v1.5",
+    "relation": "依赖",
+    "description": "embedding 使用本地 bge-small-zh-v1.5 模型"
+   },
+   {
+    "source": "Qdrant",
+    "target": "PostgreSQL",
+    "relation": "依赖",
+    "description": "Qdrant 是可重建的派生索引，事实来源为 PostgreSQL"
+   },
+   {
+    "source": "入库流水线",
+    "target": "0014",
+    "relation": "适用于",
+    "description": "流水线沿用 0014 的事实来源与派生索引约束"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 52,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "## 决定\n\n### 1. 后台处理：沿用“先落库再投递”，单独一个小派发器\n- 文档以 pending 落库就代表“必须被处理”。上传接口落库后投递到内存队列；投递丢了，周期扫描会把 pending 的补上（与 0005 的 run 相同）。\n- 不重复处理靠数据库里的原子抢占（pending → processing 的条件更新），不靠队列。\n- `IngestDispatcher` 是独立的小类，没有和 `RunDispatcher` 抽成通用类：两者重复的只有队列和扫描的二三十行；文档处理没有取消、流式事件和超时。阶段 4 两者会一起换成独立 worker，现在抽象等于提前猜以后的形状。\n- 并发默认 1：向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢。实测处理期间 API 的响应时间为 10~20ms，api 容器 CPU 约 1000%。",
+  "seconds": 2.46,
+  "attempts": 1,
+  "failed": false,
+  "input": 1012,
+  "cache_read": 512,
+  "output": 637,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "流程操作",
+    "description": "文档入库的后台处理、向量化与索引流程"
+   },
+   {
+    "name": "先落库再投递",
+    "type": "流程操作",
+    "description": "上传接口先以 pending 落库，再投递到内存队列"
+   },
+   {
+    "name": "IngestDispatcher",
+    "type": "技术组件",
+    "description": "独立的小派发器类，负责文档处理投递与扫描"
+   },
+   {
+    "name": "RunDispatcher",
+    "type": "技术组件",
+    "description": "与 IngestDispatcher 并列的派发器，未抽成通用类"
+   },
+   {
+    "name": "内存队列",
+    "type": "技术组件",
+    "description": "上传接口落库后投递的目标队列"
+   },
+   {
+    "name": "周期扫描",
+    "type": "流程操作",
+    "description": "补处理投递丢失的 pending 文档"
+   },
+   {
+    "name": "原子抢占",
+    "type": "技术组件",
+    "description": "数据库条件更新 pending 转 processing，保证不重复处理"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "CPU 密集，ONNX 会用满多核，并发默认 1"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "先落库再投递",
+    "relation": "包含",
+    "description": "后台处理沿用先落库再投递的方式"
+   },
+   {
+    "source": "先落库再投递",
+    "target": "内存队列",
+    "relation": "依赖",
+    "description": "落库后投递到内存队列"
+   },
+   {
+    "source": "周期扫描",
+    "target": "先落库再投递",
+    "relation": "适用于",
+    "description": "投递丢失时周期扫描补上 pending 文档"
+   },
+   {
+    "source": "IngestDispatcher",
+    "target": "内存队列",
+    "relation": "依赖",
+    "description": "IngestDispatcher 使用队列与扫描逻辑"
+   },
+   {
+    "source": "IngestDispatcher",
+    "target": "周期扫描",
+    "relation": "包含",
+    "description": "IngestDispatcher 内含扫描逻辑"
+   },
+   {
+    "source": "原子抢占",
+    "target": "入库流水线",
+    "relation": "适用于",
+    "description": "靠数据库原子抢占避免重复处理"
+   },
+   {
+    "source": "入库流水线",
+    "target": "向量化",
+    "relation": "包含",
+    "description": "流水线包含向量化环节"
+   },
+   {
+    "source": "向量化",
+    "target": "IngestDispatcher",
+    "relation": "限制",
+    "description": "向量化 CPU 密集，并发默认限制为 1"
+   },
+   {
+    "source": "IngestDispatcher",
+    "target": "RunDispatcher",
+    "relation": "优于",
+    "description": "两者仅重复队列与扫描少量代码，未抽通用类"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 53,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "实测处理期间 API 的响应时间为 10~20ms，api 容器 CPU 约 1000%。\n- 解析、分块、向量化放在 `asyncio.to_thread` 里，不阻塞同进程里的对话和 SSE。",
+  "seconds": 1.9,
+  "attempts": 1,
+  "failed": false,
+  "input": 846,
+  "cache_read": 640,
+  "output": 575,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "流程操作",
+    "description": "后台处理、向量化与 Qdrant 索引的流水线"
+   },
+   {
+    "name": "API",
+    "type": "技术组件",
+    "description": "实测处理期间响应时间为 10~20ms"
+   },
+   {
+    "name": "api 容器",
+    "type": "技术组件",
+    "description": "实测处理期间 CPU 约 1000%"
+   },
+   {
+    "name": "解析",
+    "type": "流程操作",
+    "description": "放在 asyncio.to_thread 里执行"
+   },
+   {
+    "name": "分块",
+    "type": "流程操作",
+    "description": "放在 asyncio.to_thread 里执行"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "放在 asyncio.to_thread 里执行"
+   },
+   {
+    "name": "asyncio.to_thread",
+    "type": "技术组件",
+    "description": "承载解析、分块、向量化的线程执行机制"
+   },
+   {
+    "name": "SSE",
+    "type": "技术组件",
+    "description": "同进程里的对话与 SSE 不被阻塞"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "解析",
+    "relation": "包含",
+    "description": "入库流水线包含解析环节"
+   },
+   {
+    "source": "入库流水线",
+    "target": "分块",
+    "relation": "包含",
+    "description": "入库流水线包含分块环节"
+   },
+   {
+    "source": "入库流水线",
+    "target": "向量化",
+    "relation": "包含",
+    "description": "入库流水线包含向量化环节"
+   },
+   {
+    "source": "解析",
+    "target": "asyncio.to_thread",
+    "relation": "通过",
+    "description": "解析放在 asyncio.to_thread 里执行"
+   },
+   {
+    "source": "分块",
+    "target": "asyncio.to_thread",
+    "relation": "通过",
+    "description": "分块放在 asyncio.to_thread 里执行"
+   },
+   {
+    "source": "向量化",
+    "target": "asyncio.to_thread",
+    "relation": "通过",
+    "description": "向量化放在 asyncio.to_thread 里执行"
+   },
+   {
+    "source": "asyncio.to_thread",
+    "target": "SSE",
+    "relation": "不适用于",
+    "description": "不阻塞同进程里的对话和 SSE"
+   },
+   {
+    "source": "api 容器",
+    "target": "API",
+    "relation": "提供",
+    "description": "api 容器承载 API，处理期间响应时间为 10~20ms"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 54,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 2. 启动恢复：处理到一半的文档改回 pending（不是标为失败）\n- run 被中断时标为失败（0009），因为重跑要花模型费用，用户也在等。文档处理是**幂等**的、不花钱，所以直接重做。\n- 幂等的前提是：重做前先按文档 id 删掉索引里的旧点；分块与 ready 状态在同一个事务里，中断时数据库里不会留下分块。",
+  "seconds": 2.32,
+  "attempts": 1,
+  "failed": false,
+  "input": 899,
+  "cache_read": 640,
+  "output": 535,
+  "entities": [
+   {
+    "name": "启动恢复",
+    "type": "流程操作",
+    "description": "服务启动时把处理到一半的文档改回 pending，而非标为失败"
+   },
+   {
+    "name": "pending 状态",
+    "type": "概念术语",
+    "description": "文档待处理状态，中断的文档恢复后回到该状态"
+   },
+   {
+    "name": "失败状态",
+    "type": "概念术语",
+    "description": "run 被中断时标记的状态，因重跑要花模型费用"
+   },
+   {
+    "name": "文档处理",
+    "type": "流程操作",
+    "description": "幂等且不花钱，中断后可直接重做"
+   },
+   {
+    "name": "幂等",
+    "type": "概念术语",
+    "description": "重做不产生副作用的前提是重做前先删旧点"
+   },
+   {
+    "name": "索引旧点",
+    "type": "技术组件",
+    "description": "重做前需按文档 id 从索引中删除的旧数据"
+   },
+   {
+    "name": "分块",
+    "type": "概念术语",
+    "description": "与 ready 状态在同一事务中写入，中断时不留残留"
+   },
+   {
+    "name": "ready 状态",
+    "type": "概念术语",
+    "description": "与分块在同一事务里写入的文档状态"
+   }
+  ],
+  "relations": [
+   {
+    "source": "启动恢复",
+    "target": "pending 状态",
+    "relation": "导致",
+    "description": "启动恢复把处理到一半的文档改回 pending"
+   },
+   {
+    "source": "启动恢复",
+    "target": "失败状态",
+    "relation": "不适用于",
+    "description": "启动恢复不把中断文档标为失败"
+   },
+   {
+    "source": "失败状态",
+    "target": "文档处理",
+    "relation": "不适用于",
+    "description": "文档处理幂等不花钱，中断时不标为失败"
+   },
+   {
+    "source": "文档处理",
+    "target": "幂等",
+    "relation": "依赖",
+    "description": "文档处理是幂等的，因此可直接重做"
+   },
+   {
+    "source": "幂等",
+    "target": "索引旧点",
+    "relation": "需要",
+    "description": "重做前先按文档 id 删掉索引里的旧点"
+   },
+   {
+    "source": "分块",
+    "target": "ready 状态",
+    "relation": "包含",
+    "description": "分块与 ready 状态在同一个事务里写入"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 55,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 3. 写入顺序：先写索引，再在一个事务里写分块并标记 ready\n- Qdrant 写入用 `wait=True`，返回时已经可查。之后再提交“分块 + ready”，所以 **ready 的文档一定能被检索到**。\n- 反方向的失败（索引里多了点、数据库没提交）是安全的：\n  - 检索时按点的 id 回数据库取原文，没有对应分块的点会被自然过滤；\n  - 失败路径会尽力删掉这些点；\n  - 重新处理前也会再清一次。\n- 点的 id 就是分块的主键（应用生成的 UUID）。payload 只放 `knowledge_base_id` 和 `document_id`，原文不放进 Qdrant，避免两边的文本不一致。",
+  "seconds": 2.26,
+  "attempts": 1,
+  "failed": false,
+  "input": 962,
+  "cache_read": 768,
+  "output": 544,
+  "entities": [
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量索引存储，写入用 wait=True，返回时已可查"
+   },
+   {
+    "name": "写入顺序",
+    "type": "流程操作",
+    "description": "先写索引，再在一个事务里写分块并标记 ready"
+   },
+   {
+    "name": "ready 标记",
+    "type": "概念术语",
+    "description": "分块与 ready 同事务提交，ready 的文档一定能被检索到"
+   },
+   {
+    "name": "分块",
+    "type": "概念术语",
+    "description": "数据库中的文本单元，主键为应用生成的 UUID"
+   },
+   {
+    "name": "检索",
+    "type": "流程操作",
+    "description": "按点的 id 回数据库取原文，无对应分块的点被自然过滤"
+   },
+   {
+    "name": "失败路径",
+    "type": "流程操作",
+    "description": "尽力删除索引中多出的点，重新处理前再清一次"
+   },
+   {
+    "name": "payload",
+    "type": "技术组件",
+    "description": "只放 knowledge_base_id 和 document_id，原文不放进 Qdrant"
+   }
+  ],
+  "relations": [
+   {
+    "source": "写入顺序",
+    "target": "Qdrant",
+    "relation": "包含",
+    "description": "写入顺序的第一步是写 Qdrant 索引"
+   },
+   {
+    "source": "写入顺序",
+    "target": "ready 标记",
+    "relation": "包含",
+    "description": "索引写完后在事务里写分块并标记 ready"
+   },
+   {
+    "source": "ready 标记",
+    "target": "检索",
+    "relation": "适用于",
+    "description": "ready 的文档一定能被检索到"
+   },
+   {
+    "source": "检索",
+    "target": "分块",
+    "relation": "依赖",
+    "description": "按点的 id 回数据库取分块原文"
+   },
+   {
+    "source": "失败路径",
+    "target": "Qdrant",
+    "relation": "包含",
+    "description": "失败路径尽力删掉索引中多出的点"
+   },
+   {
+    "source": "payload",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "payload 随点存入 Qdrant，只放两个 id 字段"
+   },
+   {
+    "source": "分块",
+    "target": "payload",
+    "relation": "提供",
+    "description": "点的 id 即分块主键，payload 记录所属知识库与文档"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 56,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 4. 失败与重试\n- 失败按原因记错误码：\n  - 解析错误沿用 0015 的错误码；\n  - 写索引失败记为 `index_unavailable`；\n  - 其他错误记为 `internal`。\n- 新接口 `POST /api/documents/{id}/reprocess` 只允许 failed → pending（其他状态返回 409 `document_not_retryable`），用来在 Qdrant 恢复后重试。不做自动重试：避免文件本身有问题时无限循环。",
+  "seconds": 2.3,
+  "attempts": 1,
+  "failed": false,
+  "input": 909,
+  "cache_read": 768,
+  "output": 592,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "流程操作",
+    "description": "后台处理、向量化与 Qdrant 索引的流水线"
+   },
+   {
+    "name": "失败重试",
+    "type": "流程操作",
+    "description": "按失败原因记错误码，不做自动重试"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "失败按原因记录，含解析错误、index_unavailable、internal"
+   },
+   {
+    "name": "index_unavailable",
+    "type": "概念术语",
+    "description": "写索引失败时记录的错误码"
+   },
+   {
+    "name": "internal",
+    "type": "概念术语",
+    "description": "其他错误记录的错误码"
+   },
+   {
+    "name": "reprocess 接口",
+    "type": "产品服务",
+    "description": "新接口，只允许 failed 转 pending，用于 Qdrant 恢复后重试"
+   },
+   {
+    "name": "document_not_retryable",
+    "type": "概念术语",
+    "description": "非 failed 状态调用重试接口时返回的错误码"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量索引组件，恢复后可重试写索引"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "失败重试",
+    "relation": "包含",
+    "description": "流水线包含失败与重试环节"
+   },
+   {
+    "source": "失败重试",
+    "target": "错误码",
+    "relation": "包含",
+    "description": "失败按原因记录不同错误码"
+   },
+   {
+    "source": "错误码",
+    "target": "index_unavailable",
+    "relation": "包含",
+    "description": "写索引失败记为 index_unavailable"
+   },
+   {
+    "source": "错误码",
+    "target": "internal",
+    "relation": "包含",
+    "description": "其他错误记为 internal"
+   },
+   {
+    "source": "reprocess 接口",
+    "target": "失败重试",
+    "relation": "适用于",
+    "description": "该接口用于在 Qdrant 恢复后重试"
+   },
+   {
+    "source": "reprocess 接口",
+    "target": "document_not_retryable",
+    "relation": "导致",
+    "description": "非 failed 状态调用时返回该错误码"
+   },
+   {
+    "source": "reprocess 接口",
+    "target": "Qdrant",
+    "relation": "依赖",
+    "description": "用于 Qdrant 恢复后重试写索引"
+   },
+   {
+    "source": "失败重试",
+    "target": "Qdrant",
+    "relation": "依赖",
+    "description": "写索引失败与恢复后重试均涉及 Qdrant"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 57,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 5. Qdrant 的组织方式\n- **一个集合放所有知识库**，按 payload 的 `knowledge_base_id` 过滤。这是 Qdrant 推荐的多租户做法，`is_tenant=True` 让它按租户组织存储。另外给 `document_id` 建 payload 索引，用于按文档删除。\n  - 否掉的方案是“每个知识库一个集合”：集合数会随知识库线性增长，每个集合都有固定开销。\n- **应用只通过别名访问**（默认 `chunks`），实际集合名带时间戳。为重建索引做准备，见第 7 条。\n- 启动时检查集合维度与模型是否一致，不一致就直接启动失败（`IndexMismatch`）。换了模型却悄悄写进维度不同的集合，比启动失败更难排查。\n- 关闭 Qdrant 默认开启的匿名统计上报（`QDRANT__TELEMETRY_DISABLED`）。",
+  "seconds": 2.27,
+  "attempts": 1,
+  "failed": false,
+  "input": 1000,
+  "cache_read": 768,
+  "output": 535,
+  "entities": [
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量数据库，用于存储与索引知识库向量"
+   },
+   {
+    "name": "集合",
+    "type": "概念术语",
+    "description": "Qdrant 中存放所有知识库数据的单一集合"
+   },
+   {
+    "name": "knowledge_base_id",
+    "type": "概念术语",
+    "description": "payload 字段，用于按知识库过滤"
+   },
+   {
+    "name": "多租户",
+    "type": "概念术语",
+    "description": "Qdrant 推荐的组织方式，is_tenant=True 按租户组织存储"
+   },
+   {
+    "name": "document_id",
+    "type": "概念术语",
+    "description": "payload 索引字段，用于按文档删除"
+   },
+   {
+    "name": "别名",
+    "type": "概念术语",
+    "description": "应用访问集合的唯一入口，默认名为 chunks"
+   },
+   {
+    "name": "IndexMismatch",
+    "type": "概念术语",
+    "description": "集合维度与模型不一致时启动失败的错误"
+   },
+   {
+    "name": "匿名统计上报",
+    "type": "概念术语",
+    "description": "Qdrant 默认开启，通过 QDRANT__TELEMETRY_DISABLED 关闭"
+   }
+  ],
+  "relations": [
+   {
+    "source": "集合",
+    "target": "knowledge_base_id",
+    "relation": "依赖",
+    "description": "一个集合放所有知识库，按 payload 的 knowledge_base_id 过滤"
+   },
+   {
+    "source": "集合",
+    "target": "多租户",
+    "relation": "适用于",
+    "description": "单集合加租户过滤是 Qdrant 推荐的多租户做法"
+   },
+   {
+    "source": "document_id",
+    "target": "集合",
+    "relation": "属于",
+    "description": "为 document_id 建 payload 索引，用于按文档删除"
+   },
+   {
+    "source": "别名",
+    "target": "集合",
+    "relation": "通过",
+    "description": "应用只通过别名访问集合，实际集合名带时间戳"
+   },
+   {
+    "source": "IndexMismatch",
+    "target": "集合",
+    "relation": "限制",
+    "description": "启动时集合维度与模型不一致则直接启动失败"
+   },
+   {
+    "source": "匿名统计上报",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "Qdrant 默认开启匿名统计上报，需关闭"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 58,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "- 关闭 Qdrant 默认开启的匿名统计上报（`QDRANT__TELEMETRY_DISABLED`）。\n- 镜像里没有 curl / wget，健康检查用 bash 的 `/dev/tcp` 请求 `/readyz`。\n- 就绪探针 `/health/ready` 加入 Qdrant。",
+  "seconds": 1.91,
+  "attempts": 1,
+  "failed": false,
+  "input": 867,
+  "cache_read": 640,
+  "output": 397,
+  "entities": [
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量数据库，用于索引，默认开启匿名统计上报"
+   },
+   {
+    "name": "匿名统计上报",
+    "type": "流程操作",
+    "description": "Qdrant 默认开启，需通过环境变量关闭"
+   },
+   {
+    "name": "健康检查",
+    "type": "流程操作",
+    "description": "镜像无 curl/wget，改用 bash 的 /dev/tcp 请求 /readyz"
+   },
+   {
+    "name": "就绪探针",
+    "type": "流程操作",
+    "description": "路径 /health/ready，需加入 Qdrant"
+   },
+   {
+    "name": "bash",
+    "type": "技术组件",
+    "description": "提供 /dev/tcp 能力用于发起健康检查请求"
+   },
+   {
+    "name": "镜像",
+    "type": "技术组件",
+    "description": "未内置 curl 和 wget 工具"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Qdrant",
+    "target": "匿名统计上报",
+    "relation": "包含",
+    "description": "Qdrant 默认开启匿名统计上报，需关闭"
+   },
+   {
+    "source": "健康检查",
+    "target": "bash",
+    "relation": "依赖",
+    "description": "镜像无 curl/wget，健康检查依赖 bash 的 /dev/tcp"
+   },
+   {
+    "source": "健康检查",
+    "target": "镜像",
+    "relation": "适用于",
+    "description": "健康检查在无 curl/wget 的镜像中执行"
+   },
+   {
+    "source": "就绪探针",
+    "target": "Qdrant",
+    "relation": "适用于",
+    "description": "就绪探针 /health/ready 需加入 Qdrant"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 59,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 6. 向量化与 token 计数\n- 用 `FastEmbedder`（fastembed + ONNX，不需要 PyTorch），加载一次，整个进程共用。\n- 输出已经归一化，余弦相似度等于点积。查询不加前缀（0014）。\n- **分块计数改用模型自己的分词器**，替换 2.1 的估算器。用的是复制出来的一份，并关掉截断和补齐：fastembed 内部那份开着“截断到 512”，拿它计数，超长文本永远只数出 512。\n- **计数加字符下限**：实际取 `max(模型 token 数, 字符数 / 6)`。bge 的 WordPiece 会把超过 100 个字符的单个“词”整体记成 1 个 `[UNK]`。实测一个 3.3MB 的无空格文本因此只算 1 个 token、整段成了一块，被检索到时会把几 MB 文本塞进模型上下文。正常文本里每个 token 平均远不到 6 个字符，所以这个下限不影响正常文本。",
+  "seconds": 2.35,
+  "attempts": 1,
+  "failed": false,
+  "input": 1034,
+  "cache_read": 768,
+  "output": 552,
+  "entities": [
+   {
+    "name": "FastEmbedder",
+    "type": "技术组件",
+    "description": "基于 fastembed + ONNX 的向量化组件，不需要 PyTorch，加载一次全进程共用"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "入库流水线中把文本转成向量的步骤，输出已归一化"
+   },
+   {
+    "name": "余弦相似度",
+    "type": "概念术语",
+    "description": "向量归一化后等于点积"
+   },
+   {
+    "name": "分块计数",
+    "type": "流程操作",
+    "description": "统计分块 token 数的步骤，改用模型自己的分词器"
+   },
+   {
+    "name": "分词器",
+    "type": "技术组件",
+    "description": "模型自带分词器，使用复制的一份并关闭截断和补齐"
+   },
+   {
+    "name": "截断",
+    "type": "概念术语",
+    "description": "fastembed 内部默认截断到 512，导致超长文本只数出 512"
+   },
+   {
+    "name": "字符下限",
+    "type": "规则政策",
+    "description": "计数取 max(模型 token 数, 字符数 / 6)"
+   },
+   {
+    "name": "估算器",
+    "type": "技术组件",
+    "description": "2.1 中的分块计数估算方式，被模型分词器替换"
+   }
+  ],
+  "relations": [
+   {
+    "source": "FastEmbedder",
+    "target": "向量化",
+    "relation": "适用于",
+    "description": "向量化使用 FastEmbedder，加载一次全进程共用"
+   },
+   {
+    "source": "向量化",
+    "target": "余弦相似度",
+    "relation": "导致",
+    "description": "输出已归一化，使余弦相似度等于点积"
+   },
+   {
+    "source": "分块计数",
+    "target": "分词器",
+    "relation": "依赖",
+    "description": "分块计数改用模型自己的分词器"
+   },
+   {
+    "source": "分词器",
+    "target": "估算器",
+    "relation": "替代",
+    "description": "模型分词器替换 2.1 的估算器"
+   },
+   {
+    "source": "分词器",
+    "target": "截断",
+    "relation": "不适用于",
+    "description": "使用复制的一份并关掉截断和补齐"
+   },
+   {
+    "source": "分块计数",
+    "target": "字符下限",
+    "relation": "包含",
+    "description": "计数取模型 token 数与字符数/6 的较大值"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 60,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "正常文本里每个 token 平均远不到 6 个字符，所以这个下限不影响正常文本。存进库的 `token_count` 仍是模型的真实计数。\n- 二分切长句时只对不超过“上限 × 6”个字符的前缀计数，避免每切一段都把剩下的几 MB 重新分词，否则耗时会随长度平方增长。",
+  "seconds": 1.58,
+  "attempts": 1,
+  "failed": false,
+  "input": 871,
+  "cache_read": 640,
+  "output": 316,
+  "entities": [
+   {
+    "name": "token_count",
+    "type": "技术组件",
+    "description": "入库时保存的字段，记录模型对文本的真实 token 计数"
+   },
+   {
+    "name": "二分切长句",
+    "type": "流程操作",
+    "description": "切分超长句子的方式，只对不超过上限×6个字符的前缀计数"
+   },
+   {
+    "name": "字符数下限",
+    "type": "规则政策",
+    "description": "按 token 数换算的字符下限，正常文本每个 token 平均远不到 6 个字符，故不受影响"
+   },
+   {
+    "name": "分词",
+    "type": "流程操作",
+    "description": "对文本进行 token 计数，重复分词会使耗时随长度平方增长"
+   }
+  ],
+  "relations": [
+   {
+    "source": "二分切长句",
+    "target": "分词",
+    "relation": "需要",
+    "description": "切分时只对限定长度的前缀分词，避免重复分词剩余内容"
+   },
+   {
+    "source": "字符数下限",
+    "target": "分词",
+    "relation": "依赖",
+    "description": "下限按每个 token 平均字符数换算，正常文本不受影响"
+   },
+   {
+    "source": "token_count",
+    "target": "分词",
+    "relation": "依赖",
+    "description": "token_count 保存的是模型分词后的真实计数"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 61,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 7. 重建索引：新集合 + 原子切换别名 + 补录\n- 命令：`docker compose exec api python -m agentnexus.knowledge.reindex`。\n- 用途：换模型，或 Qdrant 数据丢失、与数据库不一致。\n- 步骤：\n  1. 建新集合；\n  2. 按分块 id 键集分页，读出 ready 文档的分块，重新向量化写入；\n  3. 一次请求里删旧别名、建新别名，原子切换；\n  4. 补录重建期间完成的文档（`processed_at >= 开始时间`，用数据库时钟）；\n  5. 删除旧集合。\n- 切换之前失败会删掉半成品，旧索引不受影响。\n- 剩余空档：文档在切换前写入旧集合，但在补录查询之后才提交 ready。概率很小，需要时再跑一次即可。已写进代码注释。\n- 向量不存数据库：重建要重新计算，本地模型只花 CPU 时间。",
+  "seconds": 2.78,
+  "attempts": 1,
+  "failed": false,
+  "input": 1017,
+  "cache_read": 768,
+  "output": 671,
+  "entities": [
+   {
+    "name": "重建索引",
+    "type": "流程操作",
+    "description": "换模型或Qdrant数据丢失、与数据库不一致时重建索引的流程"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量数据库，存放向量索引，数据可能丢失或与数据库不一致"
+   },
+   {
+    "name": "新集合",
+    "type": "技术组件",
+    "description": "重建时先建立的新向量集合，写入重新向量化的分块"
+   },
+   {
+    "name": "别名原子切换",
+    "type": "流程操作",
+    "description": "一次请求里删旧别名、建新别名，实现原子切换"
+   },
+   {
+    "name": "补录",
+    "type": "流程操作",
+    "description": "补录重建期间完成的文档，按processed_at不早于开始时间筛选"
+   },
+   {
+    "name": "旧集合",
+    "type": "技术组件",
+    "description": "切换完成后被删除的原集合"
+   },
+   {
+    "name": "分块",
+    "type": "概念术语",
+    "description": "文档切分后的单元，按分块id键集分页读取并重新向量化"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "重新计算向量并写入，向量不存数据库，本地模型只花CPU时间"
+   }
+  ],
+  "relations": [
+   {
+    "source": "重建索引",
+    "target": "Qdrant",
+    "relation": "依赖",
+    "description": "重建索引针对Qdrant数据丢失或与数据库不一致的情况"
+   },
+   {
+    "source": "重建索引",
+    "target": "新集合",
+    "relation": "包含",
+    "description": "重建第一步是建立新集合"
+   },
+   {
+    "source": "重建索引",
+    "target": "向量化",
+    "relation": "包含",
+    "description": "重建时读出ready文档分块重新向量化写入"
+   },
+   {
+    "source": "重建索引",
+    "target": "别名原子切换",
+    "relation": "包含",
+    "description": "重建通过一次请求删旧别名建新别名完成切换"
+   },
+   {
+    "source": "重建索引",
+    "target": "补录",
+    "relation": "包含",
+    "description": "重建需补录重建期间完成的文档"
+   },
+   {
+    "source": "重建索引",
+    "target": "旧集合",
+    "relation": "包含",
+    "description": "重建最后一步删除旧集合"
+   },
+   {
+    "source": "向量化",
+    "target": "分块",
+    "relation": "适用于",
+    "description": "按分块id键集分页读出分块后重新向量化"
+   },
+   {
+    "source": "别名原子切换",
+    "target": "新集合",
+    "relation": "适用于",
+    "description": "切换时建立指向新集合的别名"
+   },
+   {
+    "source": "别名原子切换",
+    "target": "旧集合",
+    "relation": "适用于",
+    "description": "切换时删除旧集合上的别名"
+   },
+   {
+    "source": "补录",
+    "target": "分块",
+    "relation": "依赖",
+    "description": "补录重建期间提交ready的文档分块"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 62,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 8. 模型在构建镜像时下载\n- fastembed 默认把模型下到系统临时目录，容器重建就丢，每次启动都要联网。现在改为构建镜像时下载到 `/opt/models`（91MB），运行时设置 `HF_HUB_OFFLINE=1`。\n- 验证：在 `--network none` 的容器里能正常加载模型并计数。\n- compose 不在运行时覆盖 `EMBEDDING_MODEL`：模型是构建时下载的，运行时改名只会启动失败。\n- 代价：镜像变大。**更正（2.3）**：当时写的“1.01GB”是 `docker images` 的数字，在 containerd 存储模式下它是“压缩包 + 解包内容”的合计，不是镜像实际大小。按各层解包大小算，2.2 时约 0.77GB（其中 embedding 模型层 95MB、Python 依赖约 0.5GB）。",
+  "seconds": 1.84,
+  "attempts": 1,
+  "failed": false,
+  "input": 1001,
+  "cache_read": 768,
+  "output": 502,
+  "entities": [
+   {
+    "name": "fastembed",
+    "type": "技术组件",
+    "description": "默认把模型下载到系统临时目录，容器重建即丢失"
+   },
+   {
+    "name": "模型构建时下载",
+    "type": "流程操作",
+    "description": "改为构建镜像时把模型下载到 /opt/models，运行时离线加载"
+   },
+   {
+    "name": "HF_HUB_OFFLINE",
+    "type": "技术组件",
+    "description": "运行时设置为 1，使模型离线加载"
+   },
+   {
+    "name": "EMBEDDING_MODEL",
+    "type": "技术组件",
+    "description": "compose 不在运行时覆盖，改名会导致启动失败"
+   },
+   {
+    "name": "compose",
+    "type": "技术组件",
+    "description": "不在运行时覆盖 EMBEDDING_MODEL"
+   },
+   {
+    "name": "镜像体积",
+    "type": "概念术语",
+    "description": "构建时下载模型的代价是镜像变大，2.2 时约 0.77GB"
+   },
+   {
+    "name": "containerd 存储模式",
+    "type": "技术组件",
+    "description": "该模式下 docker images 显示的是压缩包与解包内容合计"
+   }
+  ],
+  "relations": [
+   {
+    "source": "模型构建时下载",
+    "target": "fastembed",
+    "relation": "替代",
+    "description": "用构建时下载替代 fastembed 默认下载到临时目录的做法"
+   },
+   {
+    "source": "模型构建时下载",
+    "target": "HF_HUB_OFFLINE",
+    "relation": "需要",
+    "description": "构建时下载后，运行时需设置 HF_HUB_OFFLINE=1 离线加载"
+   },
+   {
+    "source": "compose",
+    "target": "EMBEDDING_MODEL",
+    "relation": "不适用于",
+    "description": "compose 不在运行时覆盖 EMBEDDING_MODEL"
+   },
+   {
+    "source": "模型构建时下载",
+    "target": "镜像体积",
+    "relation": "导致",
+    "description": "构建时下载模型导致镜像变大"
+   },
+   {
+    "source": "镜像体积",
+    "target": "containerd 存储模式",
+    "relation": "依赖",
+    "description": "docker images 数字在 containerd 存储模式下是压缩包与解包内容合计"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 63,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 9. 依赖锁文件（顺带完成“贯穿”里的待办）\n- 新依赖带进来的间接依赖里，有好几个是不到两周前才发布的版本（numpy 2.5.4、onnxruntime 1.31.0、tokenizers 0.23.3），手动逐个限制版本已经管不过来。\n- 做法：\n  - `requirements.txt` 只写直接依赖和版本范围（人工维护）；\n  - `uv pip compile --universal --python-version 3.12 --exclude-newer <今天减 14 天>` 生成 `requirements.lock`，**连间接依赖一起**只取发布满两周的版本；\n  - 镜像和开发环境都按锁文件安装。\n- 结果：fastembed 从评测时用的 0.9.0（刚好 14 天）变为 0.8.1。用到的接口一致，真实模型测试在 0.8.1 上通过。\n- 否掉的方案：\n  - pip-tools：不支持按发布日期过滤；",
+  "seconds": 2.63,
+  "attempts": 1,
+  "failed": false,
+  "input": 1023,
+  "cache_read": 768,
+  "output": 588,
+  "entities": [
+   {
+    "name": "依赖锁文件",
+    "type": "概念术语",
+    "description": "记录直接与间接依赖固定版本的锁文件，供镜像和开发环境安装"
+   },
+   {
+    "name": "requirements.txt",
+    "type": "概念术语",
+    "description": "只写直接依赖和版本范围，由人工维护"
+   },
+   {
+    "name": "requirements.lock",
+    "type": "概念术语",
+    "description": "由 uv pip compile 生成，连间接依赖一起锁定版本"
+   },
+   {
+    "name": "uv pip compile",
+    "type": "技术组件",
+    "description": "生成锁文件的命令，支持按发布日期排除新版本"
+   },
+   {
+    "name": "fastembed",
+    "type": "技术组件",
+    "description": "依赖库，从 0.9.0 降为 0.8.1，接口一致且模型测试通过"
+   },
+   {
+    "name": "pip-tools",
+    "type": "技术组件",
+    "description": "被否掉的方案，不支持按发布日期过滤"
+   },
+   {
+    "name": "间接依赖",
+    "type": "概念术语",
+    "description": "新依赖带入的传递依赖，含多个近期发布的版本"
+   },
+   {
+    "name": "镜像",
+    "type": "渠道地点",
+    "description": "按锁文件安装依赖的环境之一"
+   }
+  ],
+  "relations": [
+   {
+    "source": "uv pip compile",
+    "target": "requirements.lock",
+    "relation": "提供",
+    "description": "用该命令生成锁文件，连间接依赖一起只取发布满两周的版本"
+   },
+   {
+    "source": "requirements.lock",
+    "target": "间接依赖",
+    "relation": "包含",
+    "description": "锁文件把间接依赖一并锁定版本"
+   },
+   {
+    "source": "requirements.txt",
+    "target": "间接依赖",
+    "relation": "不适用于",
+    "description": "requirements.txt 只写直接依赖和版本范围，不含间接依赖"
+   },
+   {
+    "source": "镜像",
+    "target": "requirements.lock",
+    "relation": "依赖",
+    "description": "镜像按锁文件安装依赖"
+   },
+   {
+    "source": "依赖锁文件",
+    "target": "间接依赖",
+    "relation": "限制",
+    "description": "通过锁文件限制间接依赖只取发布满两周的版本"
+   },
+   {
+    "source": "pip-tools",
+    "target": "依赖锁文件",
+    "relation": "不适用于",
+    "description": "pip-tools 不支持按发布日期过滤，方案被否掉"
+   },
+   {
+    "source": "fastembed",
+    "target": "依赖锁文件",
+    "relation": "依赖",
+    "description": "fastembed 版本随锁文件由 0.9.0 变为 0.8.1"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 64,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "用到的接口一致，真实模型测试在 0.8.1 上通过。\n- 否掉的方案：\n  - pip-tools：不支持按发布日期过滤；\n  - poetry / uv 项目模式：要改整个项目结构，收益不大。",
+  "seconds": 1.34,
+  "attempts": 1,
+  "failed": false,
+  "input": 847,
+  "cache_read": 640,
+  "output": 307,
+  "entities": [
+   {
+    "name": "pip-tools",
+    "type": "技术组件",
+    "description": "被否掉的方案，不支持按发布日期过滤"
+   },
+   {
+    "name": "poetry",
+    "type": "技术组件",
+    "description": "被否掉的方案，项目模式需改整个项目结构"
+   },
+   {
+    "name": "uv",
+    "type": "技术组件",
+    "description": "被否掉的方案，项目模式需改整个项目结构"
+   },
+   {
+    "name": "项目模式",
+    "type": "概念术语",
+    "description": "poetry 与 uv 的使用方式，需改动整个项目结构"
+   },
+   {
+    "name": "按发布日期过滤",
+    "type": "流程操作",
+    "description": "筛选依赖版本的能力，pip-tools 不支持"
+   }
+  ],
+  "relations": [
+   {
+    "source": "pip-tools",
+    "target": "按发布日期过滤",
+    "relation": "不适用于",
+    "description": "pip-tools 不支持按发布日期过滤"
+   },
+   {
+    "source": "poetry",
+    "target": "项目模式",
+    "relation": "包含",
+    "description": "poetry 的项目模式需改动整个项目结构"
+   },
+   {
+    "source": "uv",
+    "target": "项目模式",
+    "relation": "包含",
+    "description": "uv 的项目模式需改动整个项目结构"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 65,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "### 10. Nginx 动态解析后端地址\n- `proxy_pass http://api:8000` 写死主机名时，Nginx 只在启动时解析一次。api 容器单独重建、IP 变化后会一直 502（实测）。\n- 改为 `resolver 127.0.0.11`（Docker 内置 DNS）加变量形式的 `proxy_pass`，按 10 秒间隔重新解析。",
+  "seconds": 1.84,
+  "attempts": 1,
+  "failed": false,
+  "input": 887,
+  "cache_read": 640,
+  "output": 385,
+  "entities": [
+   {
+    "name": "Nginx",
+    "type": "技术组件",
+    "description": "反向代理组件，写死主机名时只在启动时解析一次"
+   },
+   {
+    "name": "Docker 内置 DNS",
+    "type": "技术组件",
+    "description": "地址为 127.0.0.11，供 Nginx 动态解析后端地址"
+   },
+   {
+    "name": "proxy_pass",
+    "type": "技术组件",
+    "description": "Nginx 指令，改为变量形式可按 10 秒间隔重新解析"
+   },
+   {
+    "name": "api 容器",
+    "type": "技术组件",
+    "description": "后端服务容器，单独重建后 IP 会变化"
+   },
+   {
+    "name": "502",
+    "type": "概念术语",
+    "description": "api 容器 IP 变化后 Nginx 持续返回的错误"
+   }
+  ],
+  "relations": [
+   {
+    "source": "Nginx",
+    "target": "Docker 内置 DNS",
+    "relation": "依赖",
+    "description": "Nginx 通过 resolver 使用 Docker 内置 DNS 重新解析后端地址"
+   },
+   {
+    "source": "Nginx",
+    "target": "proxy_pass",
+    "relation": "包含",
+    "description": "Nginx 使用变量形式的 proxy_pass 按 10 秒间隔重新解析"
+   },
+   {
+    "source": "Nginx",
+    "target": "api 容器",
+    "relation": "通过",
+    "description": "Nginx 通过 proxy_pass 转发请求到 api 容器"
+   },
+   {
+    "source": "api 容器",
+    "target": "502",
+    "relation": "导致",
+    "description": "api 容器单独重建、IP 变化后导致持续 502"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 66,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "## 后果\n- 好处：\n  - 上传后自动可检索，失败可见（有错误码）、可重试；\n  - 进程崩溃不丢、不重复处理；\n  - 索引坏了可以从数据库重建，切换时检索不中断；\n  - 对异常输入有界（字符下限）。\n- 代价：\n  - api 进程同时承担向量化，CPU 密集，阶段 4 拆出 worker 后解决；\n  - 一个 10MB 的中文文档处理约 5 分钟（实测 3.3MB、4667 块用了 109 秒）；\n  - 镜像变大。\n- 已知局限：\n  - 单进程假设，同 0005；\n  - 没有删除文档的接口（删除时也要删掉 Qdrant 里的点，到时一并做）；\n  - 只嵌入分块正文，没有加文档标题等上下文，2.4 评测后再决定；\n  - payload 索引和 `is_tenant` 只能在真实 Qdrant 上验证（测试用的进程内模式不支持），已在容器里核对。",
+  "seconds": 2.36,
+  "attempts": 1,
+  "failed": false,
+  "input": 1029,
+  "cache_read": 768,
+  "output": 713,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "概念术语",
+    "description": "上传后自动可检索、失败可见可重试的后台处理流程"
+   },
+   {
+    "name": "向量化",
+    "type": "流程操作",
+    "description": "由 api 进程承担的 CPU 密集处理阶段"
+   },
+   {
+    "name": "worker",
+    "type": "技术组件",
+    "description": "阶段 4 拆出后用于承接向量化的独立进程"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量索引存储，索引坏了可从数据库重建"
+   },
+   {
+    "name": "数据库",
+    "type": "技术组件",
+    "description": "索引损坏时用于重建 Qdrant 索引的数据来源"
+   },
+   {
+    "name": "错误码",
+    "type": "概念术语",
+    "description": "使上传失败可见的标识"
+   },
+   {
+    "name": "重试",
+    "type": "流程操作",
+    "description": "对失败的上传任务重新处理"
+   },
+   {
+    "name": "删除文档接口",
+    "type": "产品服务",
+    "description": "目前没有，删除时需同时删掉 Qdrant 里的点"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "向量化",
+    "relation": "包含",
+    "description": "入库流水线包含向量化阶段"
+   },
+   {
+    "source": "向量化",
+    "target": "worker",
+    "relation": "依赖",
+    "description": "阶段 4 拆出 worker 后解决 api 进程 CPU 密集问题"
+   },
+   {
+    "source": "入库流水线",
+    "target": "错误码",
+    "relation": "提供",
+    "description": "上传失败时给出错误码，使失败可见"
+   },
+   {
+    "source": "入库流水线",
+    "target": "重试",
+    "relation": "包含",
+    "description": "失败任务可重试"
+   },
+   {
+    "source": "Qdrant",
+    "target": "数据库",
+    "relation": "依赖",
+    "description": "索引坏了可以从数据库重建"
+   },
+   {
+    "source": "删除文档接口",
+    "target": "Qdrant",
+    "relation": "需要",
+    "description": "删除文档时也要删掉 Qdrant 里的点"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 67,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "## 验证\n- 新增测试 14 个，全量 174 个通过：\n  - 入库流水线 13 个，其中 2 个使用真实模型，本机有模型缓存时才运行；\n  - 分块的字符下限 2 个。\n- 变异检查共 13 项，全部被测试发现：入库流水线 9 项，字符下限与计数 4 项。\n- 容器实测：\n  - 迁移后启动会自动建集合和别名；2.1 遗留的 pending 文档被扫描补投并处理完成；\n  - 经 Nginx 上传 3.3MB 中文文件：接口 60ms 返回 202，后台处理 4667 块用时 109 秒；处理期间 `/health` 响应 10~20ms；\n  - 3.3MB 无空格文本重新处理后得到 1166 块，每块最多 2880 字符，耗时 4.5 秒；\n  - Qdrant 点数与数据库 ready 分块总数一致（10514）；\n  - api 容器重建后经 Nginx 访问正常；\n  - 在容器里对真实 Qdrant 跑了重建索引命令：15181 块用时 7 分 30 秒；",
+  "seconds": 2.7,
+  "attempts": 1,
+  "failed": false,
+  "input": 1073,
+  "cache_read": 768,
+  "output": 662,
+  "entities": [
+   {
+    "name": "入库流水线",
+    "type": "流程操作",
+    "description": "后台处理、向量化与索引的流水线，含13个测试"
+   },
+   {
+    "name": "分块",
+    "type": "概念术语",
+    "description": "文本切分单元，设有字符下限与计数规则"
+   },
+   {
+    "name": "变异检查",
+    "type": "流程操作",
+    "description": "共13项，全部被测试发现"
+   },
+   {
+    "name": "集合",
+    "type": "技术组件",
+    "description": "迁移后启动时自动创建"
+   },
+   {
+    "name": "别名",
+    "type": "技术组件",
+    "description": "迁移后启动时自动创建"
+   },
+   {
+    "name": "pending 文档",
+    "type": "概念术语",
+    "description": "2.1 遗留的待处理文档，被扫描补投并处理完成"
+   },
+   {
+    "name": "Nginx",
+    "type": "技术组件",
+    "description": "上传与访问入口，经其上传文件、访问 api"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "向量库，点数与数据库 ready 分块总数一致"
+   }
+  ],
+  "relations": [
+   {
+    "source": "入库流水线",
+    "target": "分块",
+    "relation": "包含",
+    "description": "入库流水线对文本进行分块处理"
+   },
+   {
+    "source": "变异检查",
+    "target": "入库流水线",
+    "relation": "适用于",
+    "description": "变异检查中9项针对入库流水线"
+   },
+   {
+    "source": "集合",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "启动时自动在 Qdrant 中建集合"
+   },
+   {
+    "source": "别名",
+    "target": "Qdrant",
+    "relation": "属于",
+    "description": "启动时自动建别名"
+   },
+   {
+    "source": "pending 文档",
+    "target": "入库流水线",
+    "relation": "通过",
+    "description": "遗留 pending 文档被扫描补投并处理完成"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 68,
+  "title": "0016 - 入库流水线：后台处理、向量化与 Qdrant 索引",
+  "text": "- api 容器重建后经 Nginx 访问正常；\n  - 在容器里对真实 Qdrant 跑了重建索引命令：15181 块用时 7 分 30 秒；别名切到新集合、旧集合已删除；点数与数据库一致；租户索引为 `is_tenant: true`。",
+  "seconds": 1.67,
+  "attempts": 1,
+  "failed": false,
+  "input": 865,
+  "cache_read": 640,
+  "output": 390,
+  "entities": [
+   {
+    "name": "api 容器",
+    "type": "技术组件",
+    "description": "重建后经 Nginx 访问正常"
+   },
+   {
+    "name": "Nginx",
+    "type": "技术组件",
+    "description": "用于访问 api 容器的入口"
+   },
+   {
+    "name": "Qdrant",
+    "type": "技术组件",
+    "description": "真实向量库，重建索引后点数与数据库一致"
+   },
+   {
+    "name": "重建索引命令",
+    "type": "流程操作",
+    "description": "在容器内对真实 Qdrant 执行，15181 块用时 7 分 30 秒"
+   },
+   {
+    "name": "集合别名",
+    "type": "概念术语",
+    "description": "重建后别名切到新集合，旧集合已删除"
+   },
+   {
+    "name": "租户索引",
+    "type": "概念术语",
+    "description": "配置为 is_tenant: true"
+   }
+  ],
+  "relations": [
+   {
+    "source": "api 容器",
+    "target": "Nginx",
+    "relation": "通过",
+    "description": "api 容器重建后经 Nginx 访问正常"
+   },
+   {
+    "source": "重建索引命令",
+    "target": "Qdrant",
+    "relation": "适用于",
+    "description": "在容器里对真实 Qdrant 执行重建索引命令"
+   },
+   {
+    "source": "重建索引命令",
+    "target": "集合别名",
+    "relation": "导致",
+    "description": "重建后别名切到新集合、旧集合已删除"
+   },
+   {
+    "source": "重建索引命令",
+    "target": "租户索引",
+    "relation": "导致",
+    "description": "重建后租户索引为 is_tenant: true"
+   }
+  ],
+  "dangling": 0
+ }
+]

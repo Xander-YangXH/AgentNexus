@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 3「知识图谱」——选型草稿 0019 待用户确认
+## 当前阶段：ROADMAP 阶段 3「知识图谱」已完成（里程碑 2026-10-22 验证），下一步阶段 4
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -27,13 +27,15 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **阶段 2「RAG 知识库」已完成**：0014 选型；0015 文档入口；0016 入库流水线、Qdrant、锁文件；0017 检索 + 重排、知识库页面；0018 预检索 + 检索工具、引用快照、Markdown 按标题切分。学习导读 `docs/guides/rag-pipeline.md`。阶段 2 待办（可选）：改了分块策略后“全部重新处理”的管理命令；交给模型前按相似度去重；多轮追问评测集；删除文档接口。
-3. **阶段 3「知识图谱」**：选型草稿 0019 已写（抽取实验 $0.09、存储基准），三个待确认问题：存储（建议只用 PostgreSQL）、抽取触发（建议按知识库手动、先显示预估费用）、图谱参与问答（建议先只做浏览与溯源）。确认后实现：表与迁移 0008 → 抽取任务（去重、预估、上限）→ 图查询 API → cytoscape.js 浏览页 → 评测。
+3. **阶段 3「知识图谱」已完成**（0019）：用户确认引入 Neo4j（派生存储，PostgreSQL 为事实来源）、按知识库手动构建（预估 + 缓存 + 上限）、先只做浏览与溯源。学习导读 `docs/guides/knowledge-graph.md`。待办（可选）：近义实体合并、图谱参与问答（需要多跳评测集）、文档变更后提示重新构建。
+4. **下一步：阶段 4「多智能体、工具与扩展生态」**（ARQ + 独立 worker、lease/heartbeat、MCP、沙盒），按惯例先写选型草稿。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
 - 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
 - 只想看流式效果、不消耗模型额度：`.env` 里设 `LLM_PROVIDER=fake`、`LLM_FAKE_STREAM_DELAY=0.1`。
 - 前端开发：见 `web/README.md`（`npm run dev`，端口 5173）。
+- 知识图谱：知识库页面 →「知识图谱」标签页 → 构建（确认框里有预估费用）。Neo4j 浏览器控制台 `http://localhost:7474`（账号 neo4j，密码见 .env 的 NEO4J_PASSWORD）。从 PostgreSQL 重建 Neo4j：`docker compose exec api python -m agentnexus.knowledge.graph.sync`。
 - 端到端问答评测（花钱，每轮约 $0.008，30 题 + 3 个知识库外的问题）：`python3 backend/eval/eval_answer_api.py`；用量看 `docker compose logs api | grep "llm usage"`。
 - 端到端检索评测（不花钱）：`python3 backend/eval/eval_search_api.py`（服务需已启动，会新建一个用户和知识库）。
 - 重建向量索引（换模型、Qdrant 数据丢失时）：`docker compose exec api python -m agentnexus.knowledge.reindex`。
@@ -42,7 +44,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - **iCloud 提醒**：项目在 iCloud 同步的桌面上，会产生 `xxx 2.py` 之类的冲突副本（已在 `.gitignore` 拦截）；建议移到不同步的目录。
 
 ### 跑测试
-集成测试用真实 Postgres 和 Redis（先 `docker compose up -d postgres redis`）；Qdrant 用进程内模式，不需要起服务；两个真实模型测试在本机有模型缓存时才跑（离线加载，没有就跳过）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
+集成测试用真实 Postgres、Redis 和 Neo4j（先 `docker compose up -d postgres redis neo4j`，并导出 `NEO4J_URL=bolt://localhost:7687`、`NEO4J_PASSWORD`；没有 Neo4j 时图谱测试会跳过；测试只写随机 id 的知识库，结束时删除）；Qdrant 用进程内模式，不需要起服务；两个真实模型测试在本机有模型缓存时才跑（离线加载，没有就跳过）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
 ```bash
 cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis://localhost:6379/0 pytest -q
@@ -53,8 +55,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面；0018 知识库问答（预检索 + 工具、引用快照）。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面；0018 知识库问答（预检索 + 工具、引用快照）；0019 知识图谱（Neo4j 派生存储、手动构建与费用控制）。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q42。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q43。

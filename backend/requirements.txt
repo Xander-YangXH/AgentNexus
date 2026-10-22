@@ -22,3 +22,5 @@ python-multipart>=0.0.32,<0.1
 # 向量化（本地 bge-small-zh，ONNX 运行，不需要 PyTorch）与向量库客户端（decisions/0014）
 fastembed>=0.8,<0.10
 qdrant-client>=1.19,<1.20
+# 知识图谱（decisions/0019）：Neo4j 作为派生存储
+neo4j>=6.4,<7

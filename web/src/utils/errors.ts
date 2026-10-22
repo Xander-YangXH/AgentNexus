@@ -34,8 +34,27 @@ const REQUEST_COPY: Record<string, string> = {
   empty_file: '文件是空的',
   knowledge_base_exists: '已有同名知识库',
   document_not_retryable: '只有处理失败的文档才能重新处理',
+  knowledge_base_empty: '知识库里还没有处理完成的文档',
+  graph_build_in_progress: '这个知识库正在构建图谱，请等它结束',
+  graph_build_too_large: '需要抽取的分块超过单次上限（KG_MAX_CHUNKS_PER_BUILD），可以调大上限或拆分知识库',
+  entity_not_found: '实体不存在（图谱可能已经重新构建，请刷新）',
 }
 
 export function describeRequestError(code: string | null | undefined): string | null {
   return code ? (REQUEST_COPY[code] ?? null) : null
+}
+
+// 图谱构建失败的原因（后端 services/graph.py 的 _error_code）
+const GRAPH_BUILD_COPY: Record<string, string> = {
+  llm_rate_limited: '模型请求太频繁或额度用完，已抽取的部分已缓存，稍后重试只补剩下的',
+  llm_unavailable: '模型服务暂时不可用，已抽取的部分已缓存，稍后重试',
+  llm_config: '模型配置有误（密钥或模型名）',
+  graph_store_unavailable: '图数据库暂时不可用；抽取结果已保存，重试只需重新同步，不再花钱',
+  graph_build_too_large: '需要抽取的分块超过单次上限',
+  interrupted: '服务重启打断了构建，会自动继续',
+  internal: '构建失败（服务内部错误）',
+}
+
+export function describeGraphBuildError(code: string | null | undefined): string {
+  return GRAPH_BUILD_COPY[code ?? 'internal'] ?? GRAPH_BUILD_COPY.internal
 }

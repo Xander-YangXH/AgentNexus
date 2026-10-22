@@ -11,7 +11,7 @@ from qdrant_client import AsyncQdrantClient
 
 from agentnexus.knowledge.reindex import rebuild
 from agentnexus.repositories.knowledge import ChunkRepository, DocumentRepository
-from agentnexus.runtime.ingest import IngestDispatcher
+from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.postgres import DocumentStatus
@@ -134,7 +134,7 @@ async def test_dispatcher_recovers_processing_and_sweeps_pending_on_start(svc, u
     async with svc.sessionmaker() as session, session.begin():
         await DocumentRepository(session).claim(interrupted.id)
 
-    dispatcher = IngestDispatcher(svc, sweep_interval=60)
+    dispatcher = JobDispatcher(svc, name="ingest", sweep_interval=60)
     await dispatcher.start()
     try:
         await _wait_status(svc, interrupted.id, DocumentStatus.READY)
@@ -144,7 +144,7 @@ async def test_dispatcher_recovers_processing_and_sweeps_pending_on_start(svc, u
 
 
 async def test_upload_through_api_is_processed_in_background(sessionmaker, svc):
-    dispatcher = IngestDispatcher(svc, sweep_interval=60)
+    dispatcher = JobDispatcher(svc, name="ingest", sweep_interval=60)
     app = create_app(with_lifespan=False)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.state.knowledge_service = svc

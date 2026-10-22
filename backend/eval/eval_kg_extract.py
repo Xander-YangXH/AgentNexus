@@ -4,8 +4,10 @@
 - customer：评测集的 30 篇客服条目（合成一个 Markdown，按标题切成 30 块）——短小、规则类；
 - decisions：本项目自己的 5 篇决策记录（按标题切块）——技术文档，实体多为技术与组件。
 会调用真实模型（读取仓库根目录 .env 的 LLM_*），产生少量费用。用法：
-    python eval_kg_extract.py [customer|decisions|all]
-输出：每块的抽取结果与用量写到 results/kg_extract_<语料>.json，汇总打印到终端，供人工抽样核对。
+    python eval_kg_extract.py [customer|decisions|all] [v1|v2]
+- v1：选型时的第 1 版提示词与 schema（定义在本文件里，保留作对照）；
+- v2：正式代码里的抽取器（knowledge/graph/extraction.py，收紧了实体粒度与数量）。
+输出：每块的抽取结果与用量写到 results/kg_extract_<语料>_<版本>.json，汇总打印到终端，供人工抽样核对。
 """
 
 import asyncio
@@ -90,6 +92,7 @@ def norm(name: str) -> str:
 
 async def main():
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
+    version = sys.argv[2] if len(sys.argv) > 2 else "v2"
     env = load_env()
     from langchain_anthropic import ChatAnthropic
 
@@ -97,8 +100,19 @@ async def main():
                         thinking={"type": "disabled"}, max_tokens=2048, temperature=0)
     extractor = llm.with_structured_output(Extraction, include_raw=True)
     sem = asyncio.Semaphore(4)
+    if version == "v2":
+        from agentnexus.knowledge.graph.extraction import LLMGraphExtractor
+
+        production = LLMGraphExtractor(llm)
 
     async def one(i, title, text):
+        if version == "v2":
+            async with sem:
+                t0 = time.perf_counter()
+                r = await production.extract(title, text)
+            return {"i": i, "title": title, "text": text, "seconds": round(time.perf_counter() - t0, 2), "attempts": 1,
+                    "failed": False, "input": r.input_tokens, "cache_read": r.cached_tokens, "output": r.output_tokens,
+                    "entities": r.payload["entities"], "relations": r.payload["relations"], "dangling": 0}
         async with sem:
             t0 = time.perf_counter()
             for attempt in (1, 2):  # 解析失败重试一次
@@ -129,13 +143,13 @@ async def main():
         merged = {}
         for e in ents:
             merged.setdefault(norm(e["name"]), set()).add(e["type"])
-        print(f"\n== {name}：{len(chunks)} 块，并发 4，总耗时 {wall:.1f}s，单块中位数 {statistics.median(r['seconds'] for r in rows):.1f}s")
+        print(f"\n== {name}（{version}）：{len(chunks)} 块，并发 4，总耗时 {wall:.1f}s，单块中位数 {statistics.median(r['seconds'] for r in rows):.1f}s")
         print(f"   token：输入 {inp}（缓存 {cache}）输出 {out}；费用 ${cost:.4f}，每块 ${cost / len(chunks):.5f}")
         print(f"   解析失败 {sum(r['failed'] for r in rows)}，重试 {sum(r['attempts'] > 1 for r in rows)}；"
               f"悬空关系（端点不在实体里）{sum(r['dangling'] for r in rows)} 条已丢弃")
         print(f"   实体 {len(ents)} 个（规范化合并后 {len(merged)} 个，其中同名不同类型 {sum(len(t) > 1 for t in merged.values())} 个），关系 {len(rels)} 条")
         print("   出现最多的实体：", sorted(((len([e for e in ents if norm(e['name']) == k]), k) for k in merged), reverse=True)[:12])
-        out_path = Path(__file__).parent / "results" / f"kg_extract_{name}.json"
+        out_path = Path(__file__).parent / "results" / f"kg_extract_{name}_{version}.json"
         out_path.parent.mkdir(exist_ok=True)
         out_path.write_text(json.dumps(rows, ensure_ascii=False, indent=1))
         print(f"   逐块结果：{out_path.relative_to(ROOT)}")

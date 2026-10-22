@@ -17,6 +17,10 @@ from agentnexus.services.errors import (
     DocumentExists,
     DocumentNotFound,
     DocumentNotRetryable,
+    EntityNotFound,
+    GraphBuildInProgress,
+    GraphBuildTooLarge,
+    KnowledgeBaseEmpty,
     EmptyFile,
     FileTooLarge,
     KnowledgeBaseExists,
@@ -46,6 +50,9 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     KnowledgeBaseExists: (409, "knowledge_base_exists", "knowledge base name already exists"),
     DocumentNotFound: (404, "document_not_found", "document not found"),
     DocumentNotRetryable: (409, "document_not_retryable", "only failed documents can be reprocessed"),
+    KnowledgeBaseEmpty: (409, "knowledge_base_empty", "knowledge base has no processed documents"),
+    GraphBuildInProgress: (409, "graph_build_in_progress", "a graph build is already running for this knowledge base"),
+    EntityNotFound: (404, "entity_not_found", "entity not found"),
     UnsupportedFileType: (415, "unsupported_file_type", "supported: .txt .md .markdown .pdf .docx"),
     FileTooLarge: (413, "file_too_large", "file is too large"),
     EmptyFile: (400, "empty_file", "file is empty"),
@@ -101,6 +108,12 @@ def install_error_handlers(app: FastAPI) -> None:
         return error_response(request, 409, "document_exists", "same file already exists in this knowledge base",
                               {"existing_document_id": str(exc.existing_id) if exc.existing_id else None})
 
+    async def graph_build_too_large(request: Request, exc: GraphBuildTooLarge):
+        # 告诉调用方超了多少，前端据此提示（可以调大 KG_MAX_CHUNKS_PER_BUILD，或拆分知识库）
+        return error_response(request, 409, "graph_build_too_large", "too many chunks to extract in one build",
+                              {"extract_count": exc.extract_count, "limit": exc.limit})
+
+    app.add_exception_handler(GraphBuildTooLarge, graph_build_too_large)
     app.add_exception_handler(DocumentExists, document_exists)
     app.add_exception_handler(StarletteHTTPException, http_error)
     app.add_exception_handler(RequestValidationError, validation_error)

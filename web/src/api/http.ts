@@ -1,4 +1,18 @@
-import type { Chunk, Conversation, KnowledgeBase, KnowledgeDocument, Message, Run, SearchResult, User } from './types'
+import type {
+  Chunk,
+  Conversation,
+  EntityDetail,
+  GraphBuild,
+  GraphData,
+  GraphEstimate,
+  GraphNode,
+  KnowledgeBase,
+  KnowledgeDocument,
+  Message,
+  Run,
+  SearchResult,
+  User,
+} from './types'
 
 // 后端统一错误格式（decisions/0011）：{"error": {"code", "message", "request_id", "details"?}}
 export interface ApiErrorBody {
@@ -109,6 +123,16 @@ export const api = {
   uploadDocument: (kbId: string, file: File) => upload<KnowledgeDocument>(`/api/knowledge-bases/${kbId}/documents`, file),
   reprocessDocument: (docId: string) => request<KnowledgeDocument>('POST', `/api/documents/${docId}/reprocess`),
   listChunks: (docId: string) => request<Chunk[]>('GET', `/api/documents/${docId}/chunks`),
+  graphEstimate: (kbId: string) => request<GraphEstimate>('GET', `/api/knowledge-bases/${kbId}/graph/estimate`),
+  createGraphBuild: (kbId: string) => request<GraphBuild>('POST', `/api/knowledge-bases/${kbId}/graph/builds`),
+  listGraphBuilds: (kbId: string) => request<GraphBuild[]>('GET', `/api/knowledge-bases/${kbId}/graph/builds`),
+  graphOverview: (kbId: string, limit = 60) => request<GraphData>('GET', `/api/knowledge-bases/${kbId}/graph/overview?limit=${limit}`),
+  graphSearch: (kbId: string, q: string) =>
+    request<GraphNode[]>('GET', `/api/knowledge-bases/${kbId}/graph/search?q=${encodeURIComponent(q)}`),
+  graphPath: (kbId: string, source: string, target: string) =>
+    request<GraphData | null>('GET', `/api/knowledge-bases/${kbId}/graph/path?source=${source}&target=${target}`),
+  entityDetail: (id: string) => request<EntityDetail>('GET', `/api/graph/entities/${id}`),
+  entityNeighbors: (id: string, limit = 40) => request<GraphData>('GET', `/api/graph/entities/${id}/neighbors?limit=${limit}`),
   search: (kbIds: string[], query: string, topK: number, rerank: boolean) =>
     request<SearchResult>('POST', '/api/knowledge/search', { knowledge_base_ids: kbIds, query, top_k: topK, rerank }),
 }

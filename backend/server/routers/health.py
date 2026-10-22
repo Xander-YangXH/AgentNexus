@@ -29,6 +29,13 @@ async def _check_qdrant(url: str) -> None:
         (await client.get(f"{url.rstrip('/')}/readyz")).raise_for_status()
 
 
+async def _check_neo4j(url: str, user: str, password: str | None) -> None:
+    from neo4j import AsyncGraphDatabase
+
+    async with AsyncGraphDatabase.driver(url, auth=(user, password or ""), connection_timeout=CHECK_TIMEOUT) as driver:
+        await driver.verify_connectivity()
+
+
 async def _check_redis(url: str) -> None:
     client = aioredis.from_url(url, socket_connect_timeout=CHECK_TIMEOUT)
     try:
@@ -39,12 +46,13 @@ async def _check_redis(url: str) -> None:
 
 @router.get("/health/ready")
 async def ready() -> dict:
-    """就绪探针：真去连 Postgres、Redis 和 Qdrant，任一失败返回 503。"""
+    """就绪探针：真去连 Postgres、Redis、Qdrant 和 Neo4j，任一失败返回 503。"""
     settings = get_settings()
     checks = {
         "postgres": _check_postgres(settings.database_url),
         "redis": _check_redis(settings.redis_url),
         "qdrant": _check_qdrant(settings.qdrant_url),
+        "neo4j": _check_neo4j(settings.neo4j_url, settings.neo4j_user, settings.neo4j_password),
     }
     results = await asyncio.gather(*checks.values(), return_exceptions=True)
     status = {

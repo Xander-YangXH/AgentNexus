@@ -1,4 +1,4 @@
-# postgres + redis + qdrant + migrate（一次性）+ api + web。后续阶段在此基础上叠加 neo4j / worker 等。
+# postgres + redis + qdrant + neo4j + migrate（一次性）+ api + web。后续阶段在此基础上叠加 worker 等。
 name: agentnexus
 
 # api 与 migrate 共用同一个镜像和环境变量
@@ -27,6 +27,10 @@ x-backend: &backend
     LOG_FORMAT: ${LOG_FORMAT:-text}
     MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
     QDRANT_URL: http://qdrant:6333
+    NEO4J_URL: bolt://neo4j:7687
+    NEO4J_USER: neo4j
+    NEO4J_PASSWORD: ${NEO4J_PASSWORD:?在 .env 里设置 NEO4J_PASSWORD}
+    KG_MAX_CHUNKS_PER_BUILD: ${KG_MAX_CHUNKS_PER_BUILD:-2000}
     QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
     INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
     EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
@@ -85,6 +89,30 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # 知识图谱的图查询存储（decisions/0019）。派生数据：实体、关系、出处以 PostgreSQL 为准，可以整体重建
+  neo4j:
+    image: neo4j:2026.08.1-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?在 .env 里设置 NEO4J_PASSWORD}
+      # demo 规模的内存：堆 512m + 页缓存 256m（基准测试 5 万实体时用的是 1g / 512m）
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+      NEO4J_dbms_usage__report_enabled: "false"  # 默认会上报使用统计，关掉
+    volumes:
+      - neo4j_data:/data
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"  # 浏览器控制台（Neo4j Browser），本地调试 Cypher 用
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
+    healthcheck:
+      # 能连上 HTTP 端口即视为就绪（镜像里有 wget）；JVM 启动较慢，给足启动时间
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7474"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
   # 一次性任务：建表/迁移后退出（restart: "no"），api 等它成功后再启动
   # 先跑我们自己的 Alembic 迁移，再建 LangGraph checkpoint 表（那套表由 LangGraph 自己管理）
   migrate:
@@ -108,6 +136,8 @@ services:
       redis:
         condition: service_healthy
       qdrant:
+        condition: service_healthy
+      neo4j:
         condition: service_healthy
     healthcheck:
       # slim 镜像没有 curl，用标准库探测
@@ -139,4 +169,5 @@ volumes:
   blob_data:
   pg_data:
   qdrant_data:
+  neo4j_data:
   redis_data:

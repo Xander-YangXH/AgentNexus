@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,13 +14,17 @@ from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.knowledge.embedding import FastEmbedder
+from agentnexus.knowledge.graph.extraction import FakeGraphExtractor, LLMGraphExtractor
+from agentnexus.knowledge.graph.store import Neo4jGraphStore
 from agentnexus.knowledge.rerank import FastReranker
-from agentnexus.runtime.ingest import IngestDispatcher
+from agentnexus.runtime.jobs import JobDispatcher
+from agentnexus.services.graph import GraphService, Prices
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.vectors import ChunkIndex
+from neo4j import AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
 from agentnexus.storage.postgres import make_engine, make_sessionmaker
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -27,7 +32,7 @@ from redis.asyncio import Redis
 from agentnexus.observability.logging import configure_logging
 from server.errors import install_error_handlers
 from server.middleware import RequestContextMiddleware
-from server.routers import conversations, events, health, knowledge, users
+from server.routers import conversations, events, graph, health, knowledge, users
 
 
 @asynccontextmanager
@@ -94,19 +99,38 @@ async def lifespan(app: FastAPI):
     app.state.event_streamer = RunEventStreamer(
         app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
-    app.state.ingest_dispatcher = IngestDispatcher(
+    app.state.ingest_dispatcher = JobDispatcher(
         app.state.knowledge_service,
+        name="ingest",
         concurrency=settings.ingest_concurrency,
         sweep_interval=settings.sweep_interval_seconds,
     )
+    # 知识图谱（decisions/0019）。抽取用强制工具调用（结构化输出），与思考模式不兼容，所以单独建一个关闭思考的模型
+    neo4j_driver = AsyncGraphDatabase.driver(settings.neo4j_url, auth=(settings.neo4j_user, settings.neo4j_password or ""))
+    graph_store = Neo4jGraphStore(neo4j_driver)
+    await graph_store.ensure_schema()
+    extractor = (FakeGraphExtractor() if settings.llm_provider == "fake"
+                 else LLMGraphExtractor(build_chat_model(dataclasses.replace(settings, llm_thinking="disabled"))))
+    app.state.graph_service = GraphService(
+        app.state.sessionmaker, extractor, graph_store,
+        max_chunks_per_build=settings.kg_max_chunks_per_build, concurrency=settings.kg_extract_concurrency,
+        prices=Prices(settings.llm_price_input, settings.llm_price_cached_input, settings.llm_price_output),
+    )
+    # 一次只跑一个构建：每个构建内部已经并发调用模型
+    app.state.graph_dispatcher = JobDispatcher(
+        app.state.graph_service, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds
+    )
     await app.state.dispatcher.start()
     await app.state.ingest_dispatcher.start()
+    await app.state.graph_dispatcher.start()
     janitor.start()
     yield
     await janitor.stop()
+    await app.state.graph_dispatcher.stop()
     await app.state.ingest_dispatcher.stop()
     await app.state.dispatcher.stop()
     await qdrant.close()
+    await neo4j_driver.close()
     await sse_redis.aclose()
     await publish_redis.aclose()
     await checkpoint_pool.close()
@@ -121,6 +145,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(events.router)
     app.include_router(knowledge.router)
+    app.include_router(graph.router)
     # 服务层只抛领域异常，HTTP 状态码与统一错误格式在这里映射（server/errors.py）
     install_error_handlers(app)
     # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式

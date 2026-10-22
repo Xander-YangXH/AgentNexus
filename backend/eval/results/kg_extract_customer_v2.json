@@ -1,0 +1,2133 @@
+[
+ {
+  "i": 0,
+  "title": "客服手册",
+  "text": "## return_policy\n退货政策：商品签收后 7 天内，在不影响二次销售的前提下可以申请无理由退货。定制类商品、已拆封的贴身衣物和虚拟商品不支持无理由退货。",
+  "seconds": 1.49,
+  "attempts": 1,
+  "failed": false,
+  "input": 822,
+  "cache_read": 0,
+  "output": 329,
+  "entities": [
+   {
+    "name": "退货政策",
+    "type": "规则政策",
+    "description": "商品签收后7天内、不影响二次销售可申请无理由退货"
+   },
+   {
+    "name": "无理由退货",
+    "type": "流程操作",
+    "description": "签收后7天内且不影响二次销售时可申请"
+   },
+   {
+    "name": "定制类商品",
+    "type": "产品服务",
+    "description": "不支持无理由退货"
+   },
+   {
+    "name": "贴身衣物",
+    "type": "产品服务",
+    "description": "已拆封的不支持无理由退货"
+   },
+   {
+    "name": "虚拟商品",
+    "type": "产品服务",
+    "description": "不支持无理由退货"
+   }
+  ],
+  "relations": [
+   {
+    "source": "退货政策",
+    "target": "无理由退货",
+    "relation": "包含",
+    "description": "退货政策规定了无理由退货的申请条件"
+   },
+   {
+    "source": "无理由退货",
+    "target": "定制类商品",
+    "relation": "不适用于",
+    "description": "定制类商品不支持无理由退货"
+   },
+   {
+    "source": "无理由退货",
+    "target": "贴身衣物",
+    "relation": "不适用于",
+    "description": "已拆封的贴身衣物不支持无理由退货"
+   },
+   {
+    "source": "无理由退货",
+    "target": "虚拟商品",
+    "relation": "不适用于",
+    "description": "虚拟商品不支持无理由退货"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 1,
+  "title": "客服手册",
+  "text": "## refund_timing\n退款到账时间：退货商品入库检验通过后，原路退款会在 1 到 3 个工作日内发起，银行卡到账可能还需要 3 到 5 个工作日，余额支付即时到账。",
+  "seconds": 1.71,
+  "attempts": 1,
+  "failed": false,
+  "input": 829,
+  "cache_read": 0,
+  "output": 341,
+  "entities": [
+   {
+    "name": "退款到账时间",
+    "type": "概念术语",
+    "description": "退货商品入库检验通过后发起退款的时间规则"
+   },
+   {
+    "name": "原路退款",
+    "type": "流程操作",
+    "description": "退货商品入库检验通过后1到3个工作日内发起"
+   },
+   {
+    "name": "入库检验",
+    "type": "流程操作",
+    "description": "退货商品入库后需检验通过才发起退款"
+   },
+   {
+    "name": "银行卡",
+    "type": "渠道地点",
+    "description": "退款到账可能还需3到5个工作日"
+   },
+   {
+    "name": "余额支付",
+    "type": "渠道地点",
+    "description": "退款即时到账"
+   }
+  ],
+  "relations": [
+   {
+    "source": "原路退款",
+    "target": "入库检验",
+    "relation": "依赖",
+    "description": "退货商品入库检验通过后才发起原路退款"
+   },
+   {
+    "source": "退款到账时间",
+    "target": "原路退款",
+    "relation": "包含",
+    "description": "退款到账时间规则包含原路退款1到3个工作日内发起"
+   },
+   {
+    "source": "退款到账时间",
+    "target": "银行卡",
+    "relation": "适用于",
+    "description": "银行卡到账可能还需3到5个工作日"
+   },
+   {
+    "source": "退款到账时间",
+    "target": "余额支付",
+    "relation": "适用于",
+    "description": "余额支付退款即时到账"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 2,
+  "title": "客服手册",
+  "text": "## exchange_policy\n换货说明：商品存在质量问题时，签收 15 天内可以申请换同款同规格的新品，换货运费由我们承担。非质量问题的尺码更换按退货再重新下单处理。",
+  "seconds": 1.74,
+  "attempts": 1,
+  "failed": false,
+  "input": 826,
+  "cache_read": 0,
+  "output": 392,
+  "entities": [
+   {
+    "name": "换货",
+    "type": "流程操作",
+    "description": "商品有质量问题时，签收15天内可申请换同款同规格新品"
+   },
+   {
+    "name": "换货运费",
+    "type": "概念术语",
+    "description": "质量问题换货的运费由商家承担"
+   },
+   {
+    "name": "质量问题",
+    "type": "概念术语",
+    "description": "换货申请的前提条件"
+   },
+   {
+    "name": "尺码更换",
+    "type": "流程操作",
+    "description": "非质量问题，按退货再重新下单处理"
+   },
+   {
+    "name": "退货",
+    "type": "流程操作",
+    "description": "非质量问题尺码更换需先退货"
+   },
+   {
+    "name": "重新下单",
+    "type": "流程操作",
+    "description": "非质量问题尺码更换在退货后重新下单"
+   }
+  ],
+  "relations": [
+   {
+    "source": "换货",
+    "target": "质量问题",
+    "relation": "适用于",
+    "description": "换货仅适用于商品存在质量问题的情形"
+   },
+   {
+    "source": "换货",
+    "target": "换货运费",
+    "relation": "包含",
+    "description": "质量问题换货的运费由商家承担"
+   },
+   {
+    "source": "尺码更换",
+    "target": "退货",
+    "relation": "需要",
+    "description": "非质量问题尺码更换按退货处理"
+   },
+   {
+    "source": "尺码更换",
+    "target": "重新下单",
+    "relation": "需要",
+    "description": "退货后需重新下单完成尺码更换"
+   },
+   {
+    "source": "尺码更换",
+    "target": "换货",
+    "relation": "不适用于",
+    "description": "非质量问题尺码更换不走换货流程"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 3,
+  "title": "客服手册",
+  "text": "## warranty\n保修条款：电子类商品自签收之日起享受一年免费保修，人为损坏、进水和私自拆机不在保修范围内。保修期内维修完成后寄回运费由我们承担。",
+  "seconds": 1.56,
+  "attempts": 1,
+  "failed": false,
+  "input": 817,
+  "cache_read": 0,
+  "output": 404,
+  "entities": [
+   {
+    "name": "保修条款",
+    "type": "规则政策",
+    "description": "电子类商品自签收之日起一年免费保修"
+   },
+   {
+    "name": "电子类商品",
+    "type": "产品服务",
+    "description": "适用一年免费保修的品类"
+   },
+   {
+    "name": "人为损坏",
+    "type": "概念术语",
+    "description": "不在保修范围内的情形之一"
+   },
+   {
+    "name": "进水",
+    "type": "概念术语",
+    "description": "不在保修范围内的情形之一"
+   },
+   {
+    "name": "私自拆机",
+    "type": "概念术语",
+    "description": "不在保修范围内的情形之一"
+   },
+   {
+    "name": "保修期",
+    "type": "概念术语",
+    "description": "自签收之日起一年，期内维修寄回运费由商家承担"
+   }
+  ],
+  "relations": [
+   {
+    "source": "保修条款",
+    "target": "电子类商品",
+    "relation": "适用于",
+    "description": "电子类商品自签收之日起享受一年免费保修"
+   },
+   {
+    "source": "保修条款",
+    "target": "人为损坏",
+    "relation": "不适用于",
+    "description": "人为损坏不在保修范围内"
+   },
+   {
+    "source": "保修条款",
+    "target": "进水",
+    "relation": "不适用于",
+    "description": "进水不在保修范围内"
+   },
+   {
+    "source": "保修条款",
+    "target": "私自拆机",
+    "relation": "不适用于",
+    "description": "私自拆机不在保修范围内"
+   },
+   {
+    "source": "保修条款",
+    "target": "保修期",
+    "relation": "包含",
+    "description": "保修期为自签收之日起一年"
+   },
+   {
+    "source": "保修期",
+    "target": "保修条款",
+    "relation": "属于",
+    "description": "保修期是保修条款的组成部分"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 4,
+  "title": "客服手册",
+  "text": "## damaged_package\n运输破损处理：如果收到的包裹外箱破损或商品损坏，请在签收后 48 小时内拍照并联系客服，我们会核实后补发或全额赔付，无需寄回损坏的商品。",
+  "seconds": 1.91,
+  "attempts": 1,
+  "failed": false,
+  "input": 823,
+  "cache_read": 640,
+  "output": 450,
+  "entities": [
+   {
+    "name": "运输破损处理",
+    "type": "流程操作",
+    "description": "包裹外箱破损或商品损坏时的处理流程"
+   },
+   {
+    "name": "拍照联系客服",
+    "type": "流程操作",
+    "description": "签收后48小时内拍照并联系客服"
+   },
+   {
+    "name": "补发",
+    "type": "产品服务",
+    "description": "核实后为破损订单重新发货"
+   },
+   {
+    "name": "全额赔付",
+    "type": "产品服务",
+    "description": "核实后对破损订单全额赔偿"
+   },
+   {
+    "name": "无需寄回",
+    "type": "规则政策",
+    "description": "破损商品无需寄回即可获得补发或赔付"
+   },
+   {
+    "name": "客服",
+    "type": "组织角色",
+    "description": "接收破损反馈并核实处理的角色"
+   }
+  ],
+  "relations": [
+   {
+    "source": "运输破损处理",
+    "target": "拍照联系客服",
+    "relation": "需要",
+    "description": "破损处理要求签收后48小时内拍照并联系客服"
+   },
+   {
+    "source": "运输破损处理",
+    "target": "补发",
+    "relation": "包含",
+    "description": "核实后可为破损订单补发商品"
+   },
+   {
+    "source": "运输破损处理",
+    "target": "全额赔付",
+    "relation": "包含",
+    "description": "核实后可为破损订单全额赔付"
+   },
+   {
+    "source": "运输破损处理",
+    "target": "无需寄回",
+    "relation": "包含",
+    "description": "破损处理不要求寄回损坏商品"
+   },
+   {
+    "source": "拍照联系客服",
+    "target": "客服",
+    "relation": "通过",
+    "description": "客户通过联系客服提交破损反馈"
+   },
+   {
+    "source": "客服",
+    "target": "补发",
+    "relation": "提供",
+    "description": "客服核实后提供补发"
+   },
+   {
+    "source": "客服",
+    "target": "全额赔付",
+    "relation": "提供",
+    "description": "客服核实后提供全额赔付"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 5,
+  "title": "客服手册",
+  "text": "## invoice_normal\n电子普通发票：订单完成后可以在订单详情页申请电子普通发票，抬头可以是个人或企业，发票会在 24 小时内发送到预留邮箱。",
+  "seconds": 1.43,
+  "attempts": 1,
+  "failed": false,
+  "input": 812,
+  "cache_read": 640,
+  "output": 265,
+  "entities": [
+   {
+    "name": "电子普通发票",
+    "type": "产品服务",
+    "description": "订单完成后可申请的发票类型，抬头可为个人或企业"
+   },
+   {
+    "name": "订单详情页",
+    "type": "渠道地点",
+    "description": "订单完成后申请电子普通发票的入口"
+   },
+   {
+    "name": "预留邮箱",
+    "type": "渠道地点",
+    "description": "发票在24小时内发送至此邮箱"
+   },
+   {
+    "name": "发票抬头",
+    "type": "概念术语",
+    "description": "可为个人或企业"
+   }
+  ],
+  "relations": [
+   {
+    "source": "电子普通发票",
+    "target": "订单详情页",
+    "relation": "通过",
+    "description": "订单完成后在订单详情页申请电子普通发票"
+   },
+   {
+    "source": "电子普通发票",
+    "target": "预留邮箱",
+    "relation": "通过",
+    "description": "发票在24小时内发送到预留邮箱"
+   },
+   {
+    "source": "电子普通发票",
+    "target": "发票抬头",
+    "relation": "包含",
+    "description": "电子普通发票的抬头可以是个人或企业"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 6,
+  "title": "客服手册",
+  "text": "## invoice_special\n增值税专用发票：企业客户如需专票，需要提供营业执照、税号、开户行和账号等开票资料，审核通过后纸质专票会在 7 个工作日内快递寄出。",
+  "seconds": 1.96,
+  "attempts": 1,
+  "failed": false,
+  "input": 823,
+  "cache_read": 640,
+  "output": 306,
+  "entities": [
+   {
+    "name": "增值税专用发票",
+    "type": "产品服务",
+    "description": "企业客户可申请开具的发票类型，审核通过后7个工作日内快递寄出"
+   },
+   {
+    "name": "企业客户",
+    "type": "组织角色",
+    "description": "需要专票时须提供开票资料的客户类型"
+   },
+   {
+    "name": "开票资料",
+    "type": "概念术语",
+    "description": "含营业执照、税号、开户行和账号等，用于申请专票"
+   },
+   {
+    "name": "开票审核",
+    "type": "流程操作",
+    "description": "开票资料提交后需审核通过才寄出纸质专票"
+   }
+  ],
+  "relations": [
+   {
+    "source": "企业客户",
+    "target": "增值税专用发票",
+    "relation": "适用于",
+    "description": "企业客户如需专票可申请开具"
+   },
+   {
+    "source": "增值税专用发票",
+    "target": "开票资料",
+    "relation": "需要",
+    "description": "开具专票需提供营业执照、税号、开户行和账号等资料"
+   },
+   {
+    "source": "增值税专用发票",
+    "target": "开票审核",
+    "relation": "依赖",
+    "description": "审核通过后纸质专票才在7个工作日内快递寄出"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 7,
+  "title": "客服手册",
+  "text": "## change_address\n修改收货地址：订单在发货前可以在订单详情页自行修改收货地址；已经发货的订单无法修改，可以联系快递员尝试改派，或拒收后重新下单。",
+  "seconds": 1.71,
+  "attempts": 1,
+  "failed": false,
+  "input": 819,
+  "cache_read": 640,
+  "output": 393,
+  "entities": [
+   {
+    "name": "修改收货地址",
+    "type": "流程操作",
+    "description": "发货前可在订单详情页自行修改收货地址"
+   },
+   {
+    "name": "订单详情页",
+    "type": "渠道地点",
+    "description": "用户自行修改收货地址的入口"
+   },
+   {
+    "name": "已发货订单",
+    "type": "概念术语",
+    "description": "已发货的订单无法修改收货地址"
+   },
+   {
+    "name": "快递员",
+    "type": "组织角色",
+    "description": "已发货订单可联系快递员尝试改派"
+   },
+   {
+    "name": "拒收",
+    "type": "流程操作",
+    "description": "已发货订单可拒收后重新下单"
+   },
+   {
+    "name": "重新下单",
+    "type": "流程操作",
+    "description": "拒收后重新下单的替代做法"
+   }
+  ],
+  "relations": [
+   {
+    "source": "修改收货地址",
+    "target": "订单详情页",
+    "relation": "通过",
+    "description": "发货前在订单详情页自行修改收货地址"
+   },
+   {
+    "source": "修改收货地址",
+    "target": "已发货订单",
+    "relation": "不适用于",
+    "description": "已发货的订单无法修改收货地址"
+   },
+   {
+    "source": "已发货订单",
+    "target": "快递员",
+    "relation": "需要",
+    "description": "已发货订单可联系快递员尝试改派"
+   },
+   {
+    "source": "已发货订单",
+    "target": "拒收",
+    "relation": "需要",
+    "description": "已发货订单可拒收后重新下单"
+   },
+   {
+    "source": "拒收",
+    "target": "重新下单",
+    "relation": "导致",
+    "description": "拒收后重新下单"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 8,
+  "title": "客服手册",
+  "text": "## logistics_tracking\n物流查询：发货后在订单详情页可以看到快递单号和实时物流轨迹。如果物流信息超过 72 小时没有更新，请联系客服帮你催件。",
+  "seconds": 1.71,
+  "attempts": 1,
+  "failed": false,
+  "input": 814,
+  "cache_read": 640,
+  "output": 403,
+  "entities": [
+   {
+    "name": "物流查询",
+    "type": "流程操作",
+    "description": "发货后可在订单详情页查看快递单号和实时物流轨迹"
+   },
+   {
+    "name": "订单详情页",
+    "type": "渠道地点",
+    "description": "发货后展示快递单号与实时物流轨迹的页面"
+   },
+   {
+    "name": "快递单号",
+    "type": "概念术语",
+    "description": "发货后可在订单详情页查看"
+   },
+   {
+    "name": "物流轨迹",
+    "type": "概念术语",
+    "description": "实时更新，超过 72 小时未更新需联系客服催件"
+   },
+   {
+    "name": "客服",
+    "type": "组织角色",
+    "description": "物流信息超过 72 小时未更新时协助催件"
+   },
+   {
+    "name": "催件",
+    "type": "流程操作",
+    "description": "物流信息超过 72 小时未更新时由客服协助处理"
+   }
+  ],
+  "relations": [
+   {
+    "source": "物流查询",
+    "target": "订单详情页",
+    "relation": "通过",
+    "description": "物流查询在订单详情页完成"
+   },
+   {
+    "source": "订单详情页",
+    "target": "快递单号",
+    "relation": "提供",
+    "description": "订单详情页展示快递单号"
+   },
+   {
+    "source": "订单详情页",
+    "target": "物流轨迹",
+    "relation": "提供",
+    "description": "订单详情页展示实时物流轨迹"
+   },
+   {
+    "source": "物流轨迹",
+    "target": "客服",
+    "relation": "需要",
+    "description": "超过 72 小时未更新时需联系客服"
+   },
+   {
+    "source": "客服",
+    "target": "催件",
+    "relation": "提供",
+    "description": "客服帮用户催件"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 9,
+  "title": "客服手册",
+  "text": "## overseas_shipping\n海外配送：目前支持配送到港澳台和部分海外国家，运费按重量和目的地计算，清关产生的关税由收件人承担，时效一般为 7 到 20 个工作日。",
+  "seconds": 1.61,
+  "attempts": 1,
+  "failed": false,
+  "input": 824,
+  "cache_read": 640,
+  "output": 381,
+  "entities": [
+   {
+    "name": "海外配送",
+    "type": "产品服务",
+    "description": "支持配送到港澳台和部分海外国家，时效一般7到20个工作日"
+   },
+   {
+    "name": "港澳台",
+    "type": "渠道地点",
+    "description": "海外配送支持的配送目的地之一"
+   },
+   {
+    "name": "部分海外国家",
+    "type": "渠道地点",
+    "description": "海外配送支持的配送目的地之一"
+   },
+   {
+    "name": "运费",
+    "type": "概念术语",
+    "description": "按重量和目的地计算"
+   },
+   {
+    "name": "清关关税",
+    "type": "概念术语",
+    "description": "清关产生的关税由收件人承担"
+   },
+   {
+    "name": "收件人",
+    "type": "组织角色",
+    "description": "承担清关产生的关税"
+   }
+  ],
+  "relations": [
+   {
+    "source": "海外配送",
+    "target": "港澳台",
+    "relation": "适用于",
+    "description": "海外配送支持配送到港澳台"
+   },
+   {
+    "source": "海外配送",
+    "target": "部分海外国家",
+    "relation": "适用于",
+    "description": "海外配送支持配送到部分海外国家"
+   },
+   {
+    "source": "海外配送",
+    "target": "运费",
+    "relation": "包含",
+    "description": "海外配送的运费按重量和目的地计算"
+   },
+   {
+    "source": "海外配送",
+    "target": "清关关税",
+    "relation": "包含",
+    "description": "海外配送清关会产生关税"
+   },
+   {
+    "source": "清关关税",
+    "target": "收件人",
+    "relation": "需要",
+    "description": "清关产生的关税由收件人承担"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 10,
+  "title": "客服手册",
+  "text": "## presale_shipping\n预售商品发货：预售商品需要先付定金、在规定时间内付尾款，发货时间以商品页标注的预计发货日期为准，定金在活动结束后不予退还。",
+  "seconds": 1.34,
+  "attempts": 1,
+  "failed": false,
+  "input": 818,
+  "cache_read": 640,
+  "output": 360,
+  "entities": [
+   {
+    "name": "预售商品",
+    "type": "产品服务",
+    "description": "需先付定金、再在规定时间内付尾款的商品"
+   },
+   {
+    "name": "定金",
+    "type": "概念术语",
+    "description": "预售商品需先支付的款项，活动结束后不予退还"
+   },
+   {
+    "name": "尾款",
+    "type": "概念术语",
+    "description": "预售商品需在规定时间内支付的剩余款项"
+   },
+   {
+    "name": "预计发货日期",
+    "type": "概念术语",
+    "description": "商品页标注，作为预售商品发货时间的依据"
+   },
+   {
+    "name": "商品页",
+    "type": "渠道地点",
+    "description": "标注预售商品预计发货日期的页面"
+   }
+  ],
+  "relations": [
+   {
+    "source": "预售商品",
+    "target": "定金",
+    "relation": "需要",
+    "description": "预售商品需要先支付定金"
+   },
+   {
+    "source": "预售商品",
+    "target": "尾款",
+    "relation": "需要",
+    "description": "预售商品需在规定时间内支付尾款"
+   },
+   {
+    "source": "预售商品",
+    "target": "预计发货日期",
+    "relation": "依赖",
+    "description": "预售商品发货时间以商品页标注的预计发货日期为准"
+   },
+   {
+    "source": "预计发货日期",
+    "target": "商品页",
+    "relation": "属于",
+    "description": "预计发货日期标注在商品页上"
+   },
+   {
+    "source": "定金",
+    "target": "预售商品",
+    "relation": "限制",
+    "description": "定金在活动结束后不予退还"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 11,
+  "title": "客服手册",
+  "text": "## password_reset\n重置登录密码：在登录页点击“忘记密码”，通过绑定的手机号或邮箱接收验证码后即可设置新密码。新密码需要包含字母和数字，长度不少于 8 位。",
+  "seconds": 2.01,
+  "attempts": 1,
+  "failed": false,
+  "input": 824,
+  "cache_read": 640,
+  "output": 426,
+  "entities": [
+   {
+    "name": "重置登录密码",
+    "type": "流程操作",
+    "description": "在登录页点击忘记密码，验证后设置新密码"
+   },
+   {
+    "name": "忘记密码",
+    "type": "流程操作",
+    "description": "登录页上的入口，点击后进入密码重置流程"
+   },
+   {
+    "name": "手机号",
+    "type": "概念术语",
+    "description": "绑定后可用于接收验证码"
+   },
+   {
+    "name": "邮箱",
+    "type": "概念术语",
+    "description": "绑定后可用于接收验证码"
+   },
+   {
+    "name": "验证码",
+    "type": "概念术语",
+    "description": "通过绑定手机号或邮箱接收，用于身份验证"
+   },
+   {
+    "name": "新密码",
+    "type": "概念术语",
+    "description": "需包含字母和数字，长度不少于 8 位"
+   }
+  ],
+  "relations": [
+   {
+    "source": "重置登录密码",
+    "target": "忘记密码",
+    "relation": "通过",
+    "description": "在登录页点击忘记密码进入重置流程"
+   },
+   {
+    "source": "重置登录密码",
+    "target": "验证码",
+    "relation": "需要",
+    "description": "需接收验证码后才能设置新密码"
+   },
+   {
+    "source": "验证码",
+    "target": "手机号",
+    "relation": "通过",
+    "description": "验证码可通过绑定的手机号接收"
+   },
+   {
+    "source": "验证码",
+    "target": "邮箱",
+    "relation": "通过",
+    "description": "验证码可通过绑定的邮箱接收"
+   },
+   {
+    "source": "重置登录密码",
+    "target": "新密码",
+    "relation": "包含",
+    "description": "重置流程最终设置新密码"
+   },
+   {
+    "source": "新密码",
+    "target": "重置登录密码",
+    "relation": "限制",
+    "description": "新密码须含字母和数字且不少于 8 位"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 12,
+  "title": "客服手册",
+  "text": "## two_factor\n两步验证：开启两步验证后，每次在新设备登录时除了密码还需要输入身份验证器应用生成的动态码。如果手机丢失，可以用开启时保存的备用码登录。",
+  "seconds": 1.86,
+  "attempts": 1,
+  "failed": false,
+  "input": 818,
+  "cache_read": 640,
+  "output": 398,
+  "entities": [
+   {
+    "name": "两步验证",
+    "type": "产品服务",
+    "description": "开启后在新设备登录需额外输入动态码的安全功能"
+   },
+   {
+    "name": "动态码",
+    "type": "概念术语",
+    "description": "由身份验证器应用生成，新设备登录时需输入"
+   },
+   {
+    "name": "身份验证器应用",
+    "type": "技术组件",
+    "description": "生成登录所需动态码的应用"
+   },
+   {
+    "name": "备用码",
+    "type": "概念术语",
+    "description": "开启两步验证时保存，手机丢失时可用于登录"
+   },
+   {
+    "name": "密码",
+    "type": "概念术语",
+    "description": "新设备登录时需与动态码一同输入的凭证"
+   },
+   {
+    "name": "手机丢失",
+    "type": "概念术语",
+    "description": "导致无法获取动态码的情形，可用备用码登录"
+   }
+  ],
+  "relations": [
+   {
+    "source": "两步验证",
+    "target": "动态码",
+    "relation": "需要",
+    "description": "开启后在新设备登录时除密码外还需输入动态码"
+   },
+   {
+    "source": "两步验证",
+    "target": "密码",
+    "relation": "需要",
+    "description": "新设备登录时仍需输入密码"
+   },
+   {
+    "source": "动态码",
+    "target": "身份验证器应用",
+    "relation": "依赖",
+    "description": "动态码由身份验证器应用生成"
+   },
+   {
+    "source": "备用码",
+    "target": "两步验证",
+    "relation": "属于",
+    "description": "备用码在开启两步验证时保存"
+   },
+   {
+    "source": "手机丢失",
+    "target": "备用码",
+    "relation": "需要",
+    "description": "手机丢失时可用备用码登录"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 13,
+  "title": "客服手册",
+  "text": "## account_deletion\n注销账号：注销前需要确认没有未完成的订单和未使用的余额。提交注销申请后有 15 天冷静期，冷静期内重新登录会自动撤销注销，冷静期结束后数据将被永久删除。",
+  "seconds": 2.17,
+  "attempts": 1,
+  "failed": false,
+  "input": 824,
+  "cache_read": 640,
+  "output": 448,
+  "entities": [
+   {
+    "name": "注销账号",
+    "type": "流程操作",
+    "description": "提交注销申请后进入15天冷静期，结束后数据永久删除"
+   },
+   {
+    "name": "未完成订单",
+    "type": "概念术语",
+    "description": "注销前需确认没有未完成的订单"
+   },
+   {
+    "name": "未使用余额",
+    "type": "概念术语",
+    "description": "注销前需确认没有未使用的余额"
+   },
+   {
+    "name": "注销申请",
+    "type": "流程操作",
+    "description": "用户提交的账号注销请求"
+   },
+   {
+    "name": "冷静期",
+    "type": "规则政策",
+    "description": "提交注销申请后15天，期间重新登录自动撤销注销"
+   },
+   {
+    "name": "重新登录",
+    "type": "流程操作",
+    "description": "冷静期内重新登录会自动撤销注销"
+   },
+   {
+    "name": "数据永久删除",
+    "type": "流程操作",
+    "description": "冷静期结束后账号数据将被永久删除"
+   }
+  ],
+  "relations": [
+   {
+    "source": "注销账号",
+    "target": "未完成订单",
+    "relation": "需要",
+    "description": "注销前需确认没有未完成的订单"
+   },
+   {
+    "source": "注销账号",
+    "target": "未使用余额",
+    "relation": "需要",
+    "description": "注销前需确认没有未使用的余额"
+   },
+   {
+    "source": "注销账号",
+    "target": "注销申请",
+    "relation": "需要",
+    "description": "注销账号需先提交注销申请"
+   },
+   {
+    "source": "注销申请",
+    "target": "冷静期",
+    "relation": "包含",
+    "description": "提交注销申请后有15天冷静期"
+   },
+   {
+    "source": "重新登录",
+    "target": "注销申请",
+    "relation": "导致",
+    "description": "冷静期内重新登录会自动撤销注销"
+   },
+   {
+    "source": "冷静期",
+    "target": "数据永久删除",
+    "relation": "导致",
+    "description": "冷静期结束后数据将被永久删除"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 14,
+  "title": "客服手册",
+  "text": "## change_phone\n更换绑定手机号：在账号安全设置中可以更换手机号，需要同时验证旧手机号和新手机号；如果旧号码已经停用，可以通过人工审核提交身份证明来更换。",
+  "seconds": 1.77,
+  "attempts": 1,
+  "failed": false,
+  "input": 821,
+  "cache_read": 640,
+  "output": 402,
+  "entities": [
+   {
+    "name": "更换绑定手机号",
+    "type": "流程操作",
+    "description": "在账号安全设置中更换绑定手机号的操作"
+   },
+   {
+    "name": "账号安全设置",
+    "type": "渠道地点",
+    "description": "可更换手机号的入口位置"
+   },
+   {
+    "name": "旧手机号验证",
+    "type": "流程操作",
+    "description": "更换手机号时需验证旧手机号"
+   },
+   {
+    "name": "新手机号验证",
+    "type": "流程操作",
+    "description": "更换手机号时需验证新手机号"
+   },
+   {
+    "name": "人工审核",
+    "type": "流程操作",
+    "description": "旧号码停用时可通过人工审核更换手机号"
+   },
+   {
+    "name": "身份证明",
+    "type": "概念术语",
+    "description": "人工审核时需提交的证明材料"
+   }
+  ],
+  "relations": [
+   {
+    "source": "更换绑定手机号",
+    "target": "账号安全设置",
+    "relation": "通过",
+    "description": "更换手机号在账号安全设置中完成"
+   },
+   {
+    "source": "更换绑定手机号",
+    "target": "旧手机号验证",
+    "relation": "需要",
+    "description": "更换手机号需同时验证旧手机号"
+   },
+   {
+    "source": "更换绑定手机号",
+    "target": "新手机号验证",
+    "relation": "需要",
+    "description": "更换手机号需同时验证新手机号"
+   },
+   {
+    "source": "更换绑定手机号",
+    "target": "人工审核",
+    "relation": "通过",
+    "description": "旧号码停用时可走人工审核更换"
+   },
+   {
+    "source": "人工审核",
+    "target": "身份证明",
+    "relation": "需要",
+    "description": "人工审核需提交身份证明"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 15,
+  "title": "客服手册",
+  "text": "## subscription_renewal\n会员自动续费：开通连续包月后，系统会在到期前一天自动扣费续订。续费前 3 天会通过短信提醒，扣费成功后会员权益立即延续。",
+  "seconds": 1.53,
+  "attempts": 1,
+  "failed": false,
+  "input": 823,
+  "cache_read": 640,
+  "output": 348,
+  "entities": [
+   {
+    "name": "会员自动续费",
+    "type": "产品服务",
+    "description": "开通连续包月后，系统在到期前一天自动扣费续订"
+   },
+   {
+    "name": "连续包月",
+    "type": "产品服务",
+    "description": "开通后触发系统自动扣费续订的会员套餐"
+   },
+   {
+    "name": "短信提醒",
+    "type": "流程操作",
+    "description": "续费前 3 天通过短信提醒用户"
+   },
+   {
+    "name": "会员权益",
+    "type": "产品服务",
+    "description": "扣费成功后立即延续"
+   },
+   {
+    "name": "自动扣费",
+    "type": "流程操作",
+    "description": "系统在到期前一天自动扣费续订"
+   }
+  ],
+  "relations": [
+   {
+    "source": "连续包月",
+    "target": "会员自动续费",
+    "relation": "包含",
+    "description": "开通连续包月后即进入自动续费状态"
+   },
+   {
+    "source": "会员自动续费",
+    "target": "自动扣费",
+    "relation": "需要",
+    "description": "到期前一天由系统自动扣费续订"
+   },
+   {
+    "source": "会员自动续费",
+    "target": "短信提醒",
+    "relation": "需要",
+    "description": "续费前 3 天通过短信提醒用户"
+   },
+   {
+    "source": "自动扣费",
+    "target": "会员权益",
+    "relation": "导致",
+    "description": "扣费成功后会员权益立即延续"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 16,
+  "title": "客服手册",
+  "text": "## cancel_subscription\n取消自动续费：在会员中心的“自动续费管理”里可以随时关闭连续包月，关闭后当前周期的会员权益仍然有效，到期后不再扣费。已经扣除的费用不退。",
+  "seconds": 1.75,
+  "attempts": 1,
+  "failed": false,
+  "input": 823,
+  "cache_read": 640,
+  "output": 417,
+  "entities": [
+   {
+    "name": "取消自动续费",
+    "type": "流程操作",
+    "description": "在会员中心关闭连续包月，可随时操作"
+   },
+   {
+    "name": "自动续费管理",
+    "type": "技术组件",
+    "description": "会员中心内的功能入口，用于关闭连续包月"
+   },
+   {
+    "name": "会员中心",
+    "type": "渠道地点",
+    "description": "提供自动续费管理入口的页面"
+   },
+   {
+    "name": "连续包月",
+    "type": "产品服务",
+    "description": "关闭后当前周期权益仍有效，到期不再扣费"
+   },
+   {
+    "name": "会员权益",
+    "type": "产品服务",
+    "description": "关闭自动续费后当前周期内仍然有效"
+   },
+   {
+    "name": "已扣费用不退",
+    "type": "规则政策",
+    "description": "已经扣除的费用不予退还"
+   }
+  ],
+  "relations": [
+   {
+    "source": "取消自动续费",
+    "target": "自动续费管理",
+    "relation": "通过",
+    "description": "在会员中心的自动续费管理里关闭连续包月"
+   },
+   {
+    "source": "自动续费管理",
+    "target": "会员中心",
+    "relation": "属于",
+    "description": "自动续费管理位于会员中心内"
+   },
+   {
+    "source": "取消自动续费",
+    "target": "连续包月",
+    "relation": "适用于",
+    "description": "取消自动续费即关闭连续包月"
+   },
+   {
+    "source": "取消自动续费",
+    "target": "会员权益",
+    "relation": "限制",
+    "description": "关闭后当前周期权益仍有效，到期后失效"
+   },
+   {
+    "source": "取消自动续费",
+    "target": "已扣费用不退",
+    "relation": "适用于",
+    "description": "取消自动续费时已扣除的费用不退"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 17,
+  "title": "客服手册",
+  "text": "## price_protection\n价格保护：购买后 7 天内如果同一商品降价，可以申请价保，差价会以优惠券或原路退回的方式补偿。秒杀、拼团等活动价格不参与价保。",
+  "seconds": 1.95,
+  "attempts": 1,
+  "failed": false,
+  "input": 825,
+  "cache_read": 640,
+  "output": 439,
+  "entities": [
+   {
+    "name": "价格保护",
+    "type": "规则政策",
+    "description": "购买后7天内同一商品降价可申请价保"
+   },
+   {
+    "name": "价保",
+    "type": "流程操作",
+    "description": "用户申请后补偿差价，以优惠券或原路退回方式"
+   },
+   {
+    "name": "差价补偿",
+    "type": "流程操作",
+    "description": "以优惠券或原路退回的方式补偿差价"
+   },
+   {
+    "name": "优惠券",
+    "type": "产品服务",
+    "description": "差价补偿的一种方式"
+   },
+   {
+    "name": "原路退回",
+    "type": "流程操作",
+    "description": "差价补偿的一种方式"
+   },
+   {
+    "name": "秒杀",
+    "type": "概念术语",
+    "description": "活动价格不参与价保"
+   },
+   {
+    "name": "拼团",
+    "type": "概念术语",
+    "description": "活动价格不参与价保"
+   }
+  ],
+  "relations": [
+   {
+    "source": "价格保护",
+    "target": "价保",
+    "relation": "包含",
+    "description": "价格保护即购买后7天内降价可申请价保"
+   },
+   {
+    "source": "价保",
+    "target": "差价补偿",
+    "relation": "包含",
+    "description": "申请价保后补偿差价"
+   },
+   {
+    "source": "差价补偿",
+    "target": "优惠券",
+    "relation": "通过",
+    "description": "差价可以优惠券方式补偿"
+   },
+   {
+    "source": "差价补偿",
+    "target": "原路退回",
+    "relation": "通过",
+    "description": "差价可以原路退回方式补偿"
+   },
+   {
+    "source": "价格保护",
+    "target": "秒杀",
+    "relation": "不适用于",
+    "description": "秒杀等活动价格不参与价保"
+   },
+   {
+    "source": "价格保护",
+    "target": "拼团",
+    "relation": "不适用于",
+    "description": "拼团等活动价格不参与价保"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 18,
+  "title": "客服手册",
+  "text": "## coupon_rules\n优惠券使用规则：每个订单只能使用一张店铺券和一张平台券，优惠券不能兑换现金，也不能和会员折扣叠加使用。退款时已使用的优惠券会按比例返还。",
+  "seconds": 1.75,
+  "attempts": 1,
+  "failed": false,
+  "input": 822,
+  "cache_read": 640,
+  "output": 464,
+  "entities": [
+   {
+    "name": "优惠券使用规则",
+    "type": "规则政策",
+    "description": "规定优惠券使用、叠加与退款返还方式的规则"
+   },
+   {
+    "name": "店铺券",
+    "type": "产品服务",
+    "description": "每个订单只能使用一张"
+   },
+   {
+    "name": "平台券",
+    "type": "产品服务",
+    "description": "每个订单只能使用一张"
+   },
+   {
+    "name": "会员折扣",
+    "type": "产品服务",
+    "description": "不能与优惠券叠加使用"
+   },
+   {
+    "name": "优惠券退款返还",
+    "type": "流程操作",
+    "description": "退款时已使用的优惠券按比例返还"
+   },
+   {
+    "name": "优惠券兑换现金",
+    "type": "规则政策",
+    "description": "优惠券不能兑换现金"
+   }
+  ],
+  "relations": [
+   {
+    "source": "优惠券使用规则",
+    "target": "店铺券",
+    "relation": "包含",
+    "description": "规则规定每单限用一张店铺券"
+   },
+   {
+    "source": "优惠券使用规则",
+    "target": "平台券",
+    "relation": "包含",
+    "description": "规则规定每单限用一张平台券"
+   },
+   {
+    "source": "优惠券使用规则",
+    "target": "会员折扣",
+    "relation": "限制",
+    "description": "优惠券不能与会员折扣叠加使用"
+   },
+   {
+    "source": "优惠券使用规则",
+    "target": "优惠券兑换现金",
+    "relation": "包含",
+    "description": "规则明确优惠券不能兑换现金"
+   },
+   {
+    "source": "优惠券使用规则",
+    "target": "优惠券退款返还",
+    "relation": "包含",
+    "description": "规则规定退款时优惠券按比例返还"
+   },
+   {
+    "source": "优惠券退款返还",
+    "target": "店铺券",
+    "relation": "适用于",
+    "description": "退款时已使用的店铺券按比例返还"
+   },
+   {
+    "source": "优惠券退款返还",
+    "target": "平台券",
+    "relation": "适用于",
+    "description": "退款时已使用的平台券按比例返还"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 19,
+  "title": "客服手册",
+  "text": "## points_rules\n积分规则：每消费 1 元获得 1 积分，积分可以在下单时按 100 积分抵扣 1 元使用。积分有效期为获得之日起一年，过期自动清零。",
+  "seconds": 1.4,
+  "attempts": 1,
+  "failed": false,
+  "input": 823,
+  "cache_read": 640,
+  "output": 309,
+  "entities": [
+   {
+    "name": "积分规则",
+    "type": "规则政策",
+    "description": "每消费1元得1积分，100积分抵扣1元，有效期一年，过期清零"
+   },
+   {
+    "name": "积分",
+    "type": "概念术语",
+    "description": "消费后获得的回馈，可用于下单抵扣"
+   },
+   {
+    "name": "积分抵扣",
+    "type": "流程操作",
+    "description": "下单时按100积分抵扣1元使用"
+   },
+   {
+    "name": "积分有效期",
+    "type": "规则政策",
+    "description": "自获得之日起一年，过期自动清零"
+   }
+  ],
+  "relations": [
+   {
+    "source": "积分规则",
+    "target": "积分",
+    "relation": "包含",
+    "description": "积分规则规定每消费1元获得1积分"
+   },
+   {
+    "source": "积分规则",
+    "target": "积分抵扣",
+    "relation": "包含",
+    "description": "积分规则规定下单时可按100积分抵扣1元"
+   },
+   {
+    "source": "积分规则",
+    "target": "积分有效期",
+    "relation": "包含",
+    "description": "积分规则规定积分有效期为一年，过期清零"
+   },
+   {
+    "source": "积分抵扣",
+    "target": "积分",
+    "relation": "需要",
+    "description": "抵扣需消耗积分，100积分抵1元"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 20,
+  "title": "客服手册",
+  "text": "## service_hours\n人工客服时间：在线人工客服的服务时间为每天 9:00 到 22:00，节假日照常服务。非服务时间可以留言，我们会在上班后第一时间回复。",
+  "seconds": 1.47,
+  "attempts": 1,
+  "failed": false,
+  "input": 820,
+  "cache_read": 640,
+  "output": 227,
+  "entities": [
+   {
+    "name": "人工客服",
+    "type": "产品服务",
+    "description": "在线人工客服，每天9:00到22:00提供服务，节假日照常"
+   },
+   {
+    "name": "在线留言",
+    "type": "流程操作",
+    "description": "非服务时间可留言，上班后第一时间回复"
+   },
+   {
+    "name": "服务时间",
+    "type": "规则政策",
+    "description": "人工客服每天9:00到22:00，节假日照常服务"
+   }
+  ],
+  "relations": [
+   {
+    "source": "人工客服",
+    "target": "服务时间",
+    "relation": "适用于",
+    "description": "人工客服按每天9:00到22:00的服务时间提供在线服务"
+   },
+   {
+    "source": "在线留言",
+    "target": "人工客服",
+    "relation": "适用于",
+    "description": "非服务时间可通过留言联系人工客服，上班后回复"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 21,
+  "title": "客服手册",
+  "text": "## complaint\n投诉与建议：如果对处理结果不满意，可以在“我的-帮助中心”提交投诉工单，专属专员会在 24 小时内联系你，处理进度可以在工单页查看。",
+  "seconds": 1.73,
+  "attempts": 1,
+  "failed": false,
+  "input": 819,
+  "cache_read": 640,
+  "output": 318,
+  "entities": [
+   {
+    "name": "投诉工单",
+    "type": "流程操作",
+    "description": "对处理结果不满意时可在帮助中心提交，进度可在工单页查看"
+   },
+   {
+    "name": "帮助中心",
+    "type": "渠道地点",
+    "description": "位于“我的”下，可提交投诉工单"
+   },
+   {
+    "name": "专属专员",
+    "type": "组织角色",
+    "description": "负责处理投诉，24 小时内联系用户"
+   },
+   {
+    "name": "投诉与建议",
+    "type": "产品服务",
+    "description": "客服提供的投诉与建议受理服务"
+   }
+  ],
+  "relations": [
+   {
+    "source": "投诉工单",
+    "target": "帮助中心",
+    "relation": "通过",
+    "description": "投诉工单在“我的-帮助中心”提交"
+   },
+   {
+    "source": "投诉工单",
+    "target": "专属专员",
+    "relation": "需要",
+    "description": "投诉工单由专属专员跟进处理"
+   },
+   {
+    "source": "专属专员",
+    "target": "投诉工单",
+    "relation": "提供",
+    "description": "专属专员在 24 小时内联系用户并处理工单"
+   },
+   {
+    "source": "投诉与建议",
+    "target": "投诉工单",
+    "relation": "包含",
+    "description": "投诉与建议服务通过提交投诉工单实现"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 22,
+  "title": "客服手册",
+  "text": "## enterprise_purchase\n企业采购：企业客户单次采购满 5 万元可以申请批量采购价，支持对公转账和账期结算，需要先完成企业认证并签署采购框架协议。",
+  "seconds": 2.14,
+  "attempts": 1,
+  "failed": false,
+  "input": 820,
+  "cache_read": 640,
+  "output": 439,
+  "entities": [
+   {
+    "name": "企业采购",
+    "type": "流程操作",
+    "description": "企业客户单次采购满5万元可申请批量采购价"
+   },
+   {
+    "name": "企业客户",
+    "type": "组织角色",
+    "description": "进行企业采购的主体"
+   },
+   {
+    "name": "批量采购价",
+    "type": "规则政策",
+    "description": "单次采购满5万元可申请的价格政策"
+   },
+   {
+    "name": "对公转账",
+    "type": "流程操作",
+    "description": "企业采购支持的结算方式之一"
+   },
+   {
+    "name": "账期结算",
+    "type": "流程操作",
+    "description": "企业采购支持的结算方式之一"
+   },
+   {
+    "name": "企业认证",
+    "type": "流程操作",
+    "description": "企业采购前需先完成的前置环节"
+   },
+   {
+    "name": "采购框架协议",
+    "type": "概念术语",
+    "description": "企业采购前需签署的协议"
+   }
+  ],
+  "relations": [
+   {
+    "source": "企业客户",
+    "target": "企业采购",
+    "relation": "适用于",
+    "description": "企业客户可进行企业采购"
+   },
+   {
+    "source": "企业采购",
+    "target": "批量采购价",
+    "relation": "适用于",
+    "description": "单次采购满5万元可申请批量采购价"
+   },
+   {
+    "source": "企业采购",
+    "target": "对公转账",
+    "relation": "包含",
+    "description": "企业采购支持对公转账"
+   },
+   {
+    "source": "企业采购",
+    "target": "账期结算",
+    "relation": "包含",
+    "description": "企业采购支持账期结算"
+   },
+   {
+    "source": "企业采购",
+    "target": "企业认证",
+    "relation": "需要",
+    "description": "企业采购需先完成企业认证"
+   },
+   {
+    "source": "企业采购",
+    "target": "采购框架协议",
+    "relation": "需要",
+    "description": "企业采购需签署采购框架协议"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 23,
+  "title": "客服手册",
+  "text": "## api_rate_limit\n开放接口调用频率：开放平台的接口默认每个应用每分钟最多调用 600 次，超出后会返回 429 错误。如需提高额度，可以在开发者后台提交扩容申请。",
+  "seconds": 1.47,
+  "attempts": 1,
+  "failed": false,
+  "input": 819,
+  "cache_read": 640,
+  "output": 377,
+  "entities": [
+   {
+    "name": "开放接口",
+    "type": "产品服务",
+    "description": "开放平台提供的接口，默认每应用每分钟最多调用600次"
+   },
+   {
+    "name": "开放平台",
+    "type": "技术组件",
+    "description": "提供开放接口的平台"
+   },
+   {
+    "name": "调用频率限制",
+    "type": "规则政策",
+    "description": "每个应用每分钟最多调用600次，超出返回429错误"
+   },
+   {
+    "name": "429错误",
+    "type": "概念术语",
+    "description": "调用超出频率限制后返回的错误"
+   },
+   {
+    "name": "扩容申请",
+    "type": "流程操作",
+    "description": "在开发者后台提交，用于提高调用额度"
+   },
+   {
+    "name": "开发者后台",
+    "type": "渠道地点",
+    "description": "提交扩容申请的位置"
+   }
+  ],
+  "relations": [
+   {
+    "source": "开放平台",
+    "target": "开放接口",
+    "relation": "提供",
+    "description": "开放平台对外提供开放接口"
+   },
+   {
+    "source": "调用频率限制",
+    "target": "开放接口",
+    "relation": "适用于",
+    "description": "默认每应用每分钟最多调用600次"
+   },
+   {
+    "source": "调用频率限制",
+    "target": "429错误",
+    "relation": "导致",
+    "description": "超出调用次数后返回429错误"
+   },
+   {
+    "source": "扩容申请",
+    "target": "调用频率限制",
+    "relation": "限制",
+    "description": "提交扩容申请可提高调用额度"
+   },
+   {
+    "source": "扩容申请",
+    "target": "开发者后台",
+    "relation": "通过",
+    "description": "扩容申请需在开发者后台提交"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 24,
+  "title": "客服手册",
+  "text": "## data_export\n数据导出：管理员可以在后台把订单、客户和对账数据导出为 Excel 或 CSV 文件，单次最多导出 10 万行，导出任务完成后会通过站内信通知下载。",
+  "seconds": 1.91,
+  "attempts": 1,
+  "failed": false,
+  "input": 824,
+  "cache_read": 640,
+  "output": 553,
+  "entities": [
+   {
+    "name": "数据导出",
+    "type": "流程操作",
+    "description": "管理员在后台导出订单、客户和对账数据，单次最多10万行"
+   },
+   {
+    "name": "管理员",
+    "type": "组织角色",
+    "description": "可在后台执行数据导出的角色"
+   },
+   {
+    "name": "后台",
+    "type": "渠道地点",
+    "description": "管理员执行数据导出的系统位置"
+   },
+   {
+    "name": "订单数据",
+    "type": "概念术语",
+    "description": "可被导出为 Excel 或 CSV 的数据类型之一"
+   },
+   {
+    "name": "客户数据",
+    "type": "概念术语",
+    "description": "可被导出为 Excel 或 CSV 的数据类型之一"
+   },
+   {
+    "name": "对账数据",
+    "type": "概念术语",
+    "description": "可被导出为 Excel 或 CSV 的数据类型之一"
+   },
+   {
+    "name": "Excel",
+    "type": "技术组件",
+    "description": "数据导出可选的文件格式"
+   },
+   {
+    "name": "CSV",
+    "type": "技术组件",
+    "description": "数据导出可选的文件格式"
+   }
+  ],
+  "relations": [
+   {
+    "source": "管理员",
+    "target": "数据导出",
+    "relation": "适用于",
+    "description": "管理员可在后台执行数据导出"
+   },
+   {
+    "source": "数据导出",
+    "target": "后台",
+    "relation": "通过",
+    "description": "数据导出在后台完成"
+   },
+   {
+    "source": "数据导出",
+    "target": "订单数据",
+    "relation": "包含",
+    "description": "导出内容包含订单数据"
+   },
+   {
+    "source": "数据导出",
+    "target": "客户数据",
+    "relation": "包含",
+    "description": "导出内容包含客户数据"
+   },
+   {
+    "source": "数据导出",
+    "target": "对账数据",
+    "relation": "包含",
+    "description": "导出内容包含对账数据"
+   },
+   {
+    "source": "数据导出",
+    "target": "Excel",
+    "relation": "提供",
+    "description": "导出结果可提供 Excel 文件"
+   },
+   {
+    "source": "数据导出",
+    "target": "CSV",
+    "relation": "提供",
+    "description": "导出结果可提供 CSV 文件"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 25,
+  "title": "客服手册",
+  "text": "## privacy_request\n个人信息查询与删除：用户可以申请查询我们保存的个人信息，或要求删除非必要的个人数据。我们会在 15 个工作日内完成核验并书面答复。",
+  "seconds": 1.84,
+  "attempts": 1,
+  "failed": false,
+  "input": 815,
+  "cache_read": 640,
+  "output": 348,
+  "entities": [
+   {
+    "name": "个人信息查询与删除",
+    "type": "流程操作",
+    "description": "用户可申请查询保存的个人信息或删除非必要个人数据"
+   },
+   {
+    "name": "个人信息",
+    "type": "概念术语",
+    "description": "我们保存的用户个人数据，用户可申请查询"
+   },
+   {
+    "name": "非必要个人数据",
+    "type": "概念术语",
+    "description": "用户可要求删除的个人数据范围"
+   },
+   {
+    "name": "用户",
+    "type": "组织角色",
+    "description": "可提出个人信息查询或删除申请的一方"
+   },
+   {
+    "name": "核验与书面答复",
+    "type": "流程操作",
+    "description": "15个工作日内完成核验并书面答复"
+   }
+  ],
+  "relations": [
+   {
+    "source": "个人信息查询与删除",
+    "target": "用户",
+    "relation": "适用于",
+    "description": "用户可申请查询个人信息或删除非必要个人数据"
+   },
+   {
+    "source": "个人信息查询与删除",
+    "target": "个人信息",
+    "relation": "包含",
+    "description": "该流程包含对保存个人信息的查询申请"
+   },
+   {
+    "source": "个人信息查询与删除",
+    "target": "非必要个人数据",
+    "relation": "包含",
+    "description": "该流程包含删除非必要个人数据的申请"
+   },
+   {
+    "source": "个人信息查询与删除",
+    "target": "核验与书面答复",
+    "relation": "需要",
+    "description": "申请需经核验并在15个工作日内书面答复"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 26,
+  "title": "客服手册",
+  "text": "## gift_card\n礼品卡：礼品卡购买后不记名、不挂失，可以在结算时抵扣商品金额，但不能购买其他礼品卡，也不能提现。礼品卡有效期为 3 年。",
+  "seconds": 1.63,
+  "attempts": 1,
+  "failed": false,
+  "input": 821,
+  "cache_read": 640,
+  "output": 311,
+  "entities": [
+   {
+    "name": "礼品卡",
+    "type": "产品服务",
+    "description": "购买后不记名、不挂失，可在结算时抵扣商品金额，有效期3年"
+   },
+   {
+    "name": "结算抵扣",
+    "type": "流程操作",
+    "description": "结算时用礼品卡抵扣商品金额"
+   },
+   {
+    "name": "提现",
+    "type": "流程操作",
+    "description": "礼品卡不能提现"
+   },
+   {
+    "name": "不记名不挂失",
+    "type": "规则政策",
+    "description": "礼品卡购买后不记名、不挂失"
+   }
+  ],
+  "relations": [
+   {
+    "source": "礼品卡",
+    "target": "结算抵扣",
+    "relation": "适用于",
+    "description": "礼品卡可在结算时抵扣商品金额"
+   },
+   {
+    "source": "礼品卡",
+    "target": "提现",
+    "relation": "不适用于",
+    "description": "礼品卡不能提现"
+   },
+   {
+    "source": "礼品卡",
+    "target": "不记名不挂失",
+    "relation": "适用于",
+    "description": "礼品卡购买后不记名、不挂失"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 27,
+  "title": "客服手册",
+  "text": "## student_discount\n学生优惠：完成学生身份认证后，会员年费可以享受五折优惠，每个学生身份最多享受 4 年，毕业后自动恢复原价。",
+  "seconds": 1.67,
+  "attempts": 1,
+  "failed": false,
+  "input": 815,
+  "cache_read": 640,
+  "output": 282,
+  "entities": [
+   {
+    "name": "学生优惠",
+    "type": "规则政策",
+    "description": "完成学生身份认证后会员年费享五折，最多享受4年"
+   },
+   {
+    "name": "学生身份认证",
+    "type": "流程操作",
+    "description": "学生优惠的前置条件，需先完成认证"
+   },
+   {
+    "name": "会员年费",
+    "type": "产品服务",
+    "description": "学生认证后可享五折优惠，毕业后恢复原价"
+   },
+   {
+    "name": "学生身份",
+    "type": "概念术语",
+    "description": "每个学生身份最多享受4年优惠"
+   }
+  ],
+  "relations": [
+   {
+    "source": "学生优惠",
+    "target": "学生身份认证",
+    "relation": "需要",
+    "description": "享受学生优惠需先完成学生身份认证"
+   },
+   {
+    "source": "学生优惠",
+    "target": "会员年费",
+    "relation": "适用于",
+    "description": "学生优惠作用于会员年费，享五折"
+   },
+   {
+    "source": "学生优惠",
+    "target": "学生身份",
+    "relation": "限制",
+    "description": "每个学生身份最多享受4年，毕业后恢复原价"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 28,
+  "title": "客服手册",
+  "text": "## store_pickup\n门店自提：下单时选择门店自提，商品到店后会发送取货码短信。请在 7 天内凭取货码到店领取，超时未取的订单将自动取消并退款。",
+  "seconds": 1.83,
+  "attempts": 1,
+  "failed": false,
+  "input": 827,
+  "cache_read": 640,
+  "output": 345,
+  "entities": [
+   {
+    "name": "门店自提",
+    "type": "产品服务",
+    "description": "下单时可选择的配送方式，商品到店后发送取货码短信"
+   },
+   {
+    "name": "取货码",
+    "type": "概念术语",
+    "description": "商品到店后通过短信发送，凭此到店领取商品"
+   },
+   {
+    "name": "取货码短信",
+    "type": "流程操作",
+    "description": "商品到店后向顾客发送取货码的通知"
+   },
+   {
+    "name": "超时未取自动取消",
+    "type": "规则政策",
+    "description": "7 天内未凭取货码领取的订单自动取消并退款"
+   }
+  ],
+  "relations": [
+   {
+    "source": "门店自提",
+    "target": "取货码短信",
+    "relation": "包含",
+    "description": "选择门店自提后，商品到店会发送取货码短信"
+   },
+   {
+    "source": "取货码短信",
+    "target": "取货码",
+    "relation": "提供",
+    "description": "短信中提供取货码"
+   },
+   {
+    "source": "门店自提",
+    "target": "取货码",
+    "relation": "需要",
+    "description": "到店领取需凭取货码"
+   },
+   {
+    "source": "超时未取自动取消",
+    "target": "门店自提",
+    "relation": "适用于",
+    "description": "7 天内未取的门店自提订单自动取消并退款"
+   }
+  ],
+  "dangling": 0
+ },
+ {
+  "i": 29,
+  "title": "客服手册",
+  "text": "## installment\n分期付款：单笔订单满 500 元可以选择信用卡分期，支持 3 期、6 期和 12 期，其中 3 期免手续费，其他期数的手续费以银行页面显示为准。",
+  "seconds": 1.36,
+  "attempts": 1,
+  "failed": false,
+  "input": 829,
+  "cache_read": 640,
+  "output": 270,
+  "entities": [
+   {
+    "name": "分期付款",
+    "type": "产品服务",
+    "description": "单笔订单满500元可选择的信用卡分期付款方式"
+   },
+   {
+    "name": "信用卡分期",
+    "type": "产品服务",
+    "description": "支持3期、6期和12期，3期免手续费"
+   },
+   {
+    "name": "手续费",
+    "type": "概念术语",
+    "description": "3期免收，其他期数以银行页面显示为准"
+   },
+   {
+    "name": "银行页面",
+    "type": "渠道地点",
+    "description": "展示其他期数手续费标准的渠道"
+   }
+  ],
+  "relations": [
+   {
+    "source": "分期付款",
+    "target": "信用卡分期",
+    "relation": "包含",
+    "description": "分期付款通过信用卡分期实现"
+   },
+   {
+    "source": "信用卡分期",
+    "target": "手续费",
+    "relation": "需要",
+    "description": "除3期外其他期数需收取手续费"
+   },
+   {
+    "source": "手续费",
+    "target": "银行页面",
+    "relation": "依赖",
+    "description": "其他期数的手续费以银行页面显示为准"
+   }
+  ],
+  "dangling": 0
+ }
+]

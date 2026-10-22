@@ -5,6 +5,7 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { api, HttpError } from '../api/http'
 import type { Chunk, KnowledgeBase, KnowledgeDocument, SearchResult } from '../api/types'
 import { formatSize, formatTimings, needsPolling, STATUS_TAG } from '../composables/knowledge'
+import GraphPanel from './GraphPanel.vue'
 import { describeDocumentError, describeRequestError } from '../utils/errors'
 
 const props = defineProps<{ userId: string }>()
@@ -20,6 +21,7 @@ const uploading = ref(false)
 const chunksOf = ref<KnowledgeDocument | null>(null)
 const chunks = ref<Chunk[]>([])
 
+const tab = ref<'docs' | 'graph'>('docs')
 const query = ref('')
 const topK = ref(5)
 const rerank = ref(true)
@@ -153,60 +155,66 @@ const columns = [
       </a-upload>
     </div>
 
-    <template v-if="kbId">
-      <a-table :columns="columns" :data-source="docs" row-key="id" size="small" :pagination="false" class="docs">
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'size'">{{ formatSize(record.size_bytes) }}</template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="STATUS_TAG[record.status as keyof typeof STATUS_TAG].color">
-              {{ STATUS_TAG[record.status as keyof typeof STATUS_TAG].label }}
-            </a-tag>
-            <span v-if="record.status === 'failed'" class="error">{{ describeDocumentError(record.error_code) }}</span>
+    <a-tabs v-if="kbId" v-model:active-key="tab">
+      <a-tab-pane key="docs" tab="文档与检索">
+        <a-table :columns="columns" :data-source="docs" row-key="id" size="small" :pagination="false" class="docs">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'size'">{{ formatSize(record.size_bytes) }}</template>
+            <template v-else-if="column.key === 'status'">
+              <a-tag :color="STATUS_TAG[record.status as keyof typeof STATUS_TAG].color">
+                {{ STATUS_TAG[record.status as keyof typeof STATUS_TAG].label }}
+              </a-tag>
+              <span v-if="record.status === 'failed'" class="error">{{ describeDocumentError(record.error_code) }}</span>
+            </template>
+            <template v-else-if="column.key === 'actions'">
+              <a-button v-if="record.status === 'ready'" size="small" type="link" @click="openChunks(record)">查看分块</a-button>
+              <a-button v-if="record.status === 'failed'" size="small" type="link" @click="reprocess(record)">重新处理</a-button>
+            </template>
           </template>
-          <template v-else-if="column.key === 'actions'">
-            <a-button v-if="record.status === 'ready'" size="small" type="link" @click="openChunks(record)">查看分块</a-button>
-            <a-button v-if="record.status === 'failed'" size="small" type="link" @click="reprocess(record)">重新处理</a-button>
-          </template>
-        </template>
-      </a-table>
+        </a-table>
 
-      <a-divider orientation="left">检索测试</a-divider>
-      <div class="search">
-        <a-input-search
-          v-model:value="query"
-          placeholder="输入一个问题，看会召回哪些片段"
-          enter-button="检索"
-          :loading="searching"
-          @search="runSearch"
-        />
-        <span>返回</span>
-        <a-input-number v-model:value="topK" :min="1" :max="20" style="width: 70px" />
-        <span>条</span>
-        <a-switch v-model:checked="rerank" checked-children="重排" un-checked-children="不重排" />
-      </div>
-      <template v-if="result">
-        <div class="meta">
-          {{ result.hits.length }} 条结果 · {{ formatTimings(result.timings_ms) }}
-          <template v-if="rerank && !result.reranked">（服务端未启用重排）</template>
+        <a-divider orientation="left">检索测试</a-divider>
+        <div class="search">
+          <a-input-search
+            v-model:value="query"
+            placeholder="输入一个问题，看会召回哪些片段"
+            enter-button="检索"
+            :loading="searching"
+            @search="runSearch"
+          />
+          <span>返回</span>
+          <a-input-number v-model:value="topK" :min="1" :max="20" style="width: 70px" />
+          <span>条</span>
+          <a-switch v-model:checked="rerank" checked-children="重排" un-checked-children="不重排" />
         </div>
-        <a-list :data-source="result.hits" size="small">
-          <template #renderItem="{ item, index }">
-            <a-list-item>
-              <div class="hit">
-                <div class="hit-head">
-                  <b>#{{ index + 1 }}</b> {{ item.filename }}
-                  <template v-if="item.page"> · 第 {{ item.page }} 页</template>
-                  · 第 {{ item.seq + 1 }} 块
-                  <a-tag>向量 {{ item.vector_score.toFixed(3) }}</a-tag>
-                  <a-tag v-if="item.rerank_score !== null" color="blue">重排 {{ item.rerank_score.toFixed(2) }}</a-tag>
+        <template v-if="result">
+          <div class="meta">
+            {{ result.hits.length }} 条结果 · {{ formatTimings(result.timings_ms) }}
+            <template v-if="rerank && !result.reranked">（服务端未启用重排）</template>
+          </div>
+          <a-list :data-source="result.hits" size="small">
+            <template #renderItem="{ item, index }">
+              <a-list-item>
+                <div class="hit">
+                  <div class="hit-head">
+                    <b>#{{ index + 1 }}</b> {{ item.filename }}
+                    <template v-if="item.page"> · 第 {{ item.page }} 页</template>
+                    · 第 {{ item.seq + 1 }} 块
+                    <a-tag>向量 {{ item.vector_score.toFixed(3) }}</a-tag>
+                    <a-tag v-if="item.rerank_score !== null" color="blue">重排 {{ item.rerank_score.toFixed(2) }}</a-tag>
+                  </div>
+                  <div class="hit-text">{{ item.text }}</div>
                 </div>
-                <div class="hit-text">{{ item.text }}</div>
-              </div>
-            </a-list-item>
-          </template>
-        </a-list>
-      </template>
-    </template>
+              </a-list-item>
+            </template>
+          </a-list>
+        </template>
+      </a-tab-pane>
+      <!-- 切到这个标签页时才创建画布（cytoscape 需要可见的容器才能算尺寸） -->
+      <a-tab-pane key="graph" tab="知识图谱">
+        <GraphPanel v-if="tab === 'graph'" :kb-id="kbId" />
+      </a-tab-pane>
+    </a-tabs>
     <a-empty v-else class="empty" description="先新建一个知识库" />
 
     <a-drawer :open="!!chunksOf" :title="chunksOf?.filename" width="640" @close="chunksOf = null">

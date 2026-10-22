@@ -111,3 +111,67 @@ export interface SearchResult {
   reranked: boolean
   timings_ms: Record<string, number>
 }
+
+// ---------- 知识图谱（decisions/0019） ----------
+
+export interface GraphEstimate {
+  chunk_count: number
+  unique_count: number
+  cached_count: number
+  extract_count: number
+  estimated_cost_usd: number
+  max_extract_count: number
+}
+
+export type GraphBuildStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+
+export interface GraphBuild {
+  id: string
+  status: GraphBuildStatus
+  chunk_count: number
+  unique_count: number
+  extract_count: number
+  estimated_cost_usd: number
+  done_count: number
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  cost_usd: number
+  entity_count: number
+  relation_count: number
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface GraphNode {
+  id: string
+  name: string
+  type: string
+  mentions: number
+}
+
+export interface GraphEdge {
+  id: string
+  source: string
+  target: string
+  predicate: string
+  weight: number
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
+export interface EntityDetail {
+  id: string
+  knowledge_base_id: string
+  name: string
+  type: string
+  description: string
+  mention_count: number
+  relations: { id: string; direction: 'in' | 'out'; predicate: string; description: string; other_id: string; other_name: string; mentions: number }[]
+  mentions: { chunk_id: string; filename: string; page: number | null; seq: number; text: string }[]
+}

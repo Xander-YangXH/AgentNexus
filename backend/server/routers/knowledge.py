@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, UploadFile
 from agentnexus.services.errors import FileTooLarge
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
-from agentnexus.runtime.ingest import IngestDispatcher
+from agentnexus.runtime.jobs import JobDispatcher
 from server.deps import CurrentUser, get_ingest_dispatcher, get_knowledge_service, get_search_service
 from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut, SearchOut, SearchRequest
 
@@ -35,7 +35,7 @@ async def upload_document(
     file: UploadFile,
     user_id: CurrentUser,
     svc: KnowledgeService = Depends(get_knowledge_service),
-    ingest: IngestDispatcher = Depends(get_ingest_dispatcher),
+    ingest: JobDispatcher = Depends(get_ingest_dispatcher),
 ):
     """上传文档：先落库（pending）再投递给后台处理（解析、分块、向量化），用文档 id 查进度。
     投递丢了也没关系，后台扫描会补上（数据库为准）。"""
@@ -63,7 +63,7 @@ async def reprocess_document(
     document_id: uuid.UUID,
     user_id: CurrentUser,
     svc: KnowledgeService = Depends(get_knowledge_service),
-    ingest: IngestDispatcher = Depends(get_ingest_dispatcher),
+    ingest: JobDispatcher = Depends(get_ingest_dispatcher),
 ):
     """重新处理失败的文档（例如处理时向量库暂时不可用）。只允许 failed 的文档。"""
     doc = await svc.reprocess(user_id, document_id)

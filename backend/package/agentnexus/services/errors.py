@@ -63,3 +63,24 @@ class FileTooLarge(Exception):
 
 class EmptyFile(Exception):
     pass
+
+
+class KnowledgeBaseEmpty(Exception):
+    """知识库里还没有可用的分块（没有处理完成的文档），无法构建图谱。"""
+
+
+class GraphBuildInProgress(Exception):
+    """这个知识库已经有一个进行中的图谱构建。"""
+
+
+class GraphBuildTooLarge(Exception):
+    """需要抽取的分块数超过单次构建的上限（防止误操作花掉一大笔模型费用）。"""
+
+    def __init__(self, extract_count: int, limit: int):
+        super().__init__(f"{extract_count} > {limit}")
+        self.extract_count = extract_count
+        self.limit = limit
+
+
+class EntityNotFound(Exception):
+    pass

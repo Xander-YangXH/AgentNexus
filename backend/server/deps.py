@@ -5,8 +5,9 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.runtime.dispatcher import RunDispatcher
-from agentnexus.runtime.ingest import IngestDispatcher
+from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.repositories.users import UserRepository
+from agentnexus.services.graph import GraphService
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
 from agentnexus.services.run_events import RunEventStreamer
@@ -32,12 +33,20 @@ def get_knowledge_service(request: Request) -> KnowledgeService:
     return request.app.state.knowledge_service
 
 
-def get_ingest_dispatcher(request: Request) -> IngestDispatcher:
+def get_ingest_dispatcher(request: Request) -> JobDispatcher:
     return request.app.state.ingest_dispatcher
 
 
 def get_search_service(request: Request) -> SearchService:
     return request.app.state.search_service
+
+
+def get_graph_service(request: Request) -> GraphService:
+    return request.app.state.graph_service
+
+
+def get_graph_dispatcher(request: Request) -> JobDispatcher:
+    return request.app.state.graph_dispatcher
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]
