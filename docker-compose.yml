@@ -32,6 +32,8 @@ x-backend: &backend
     EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
     RERANK_ENABLED: ${RERANK_ENABLED:-true}
     RERANK_CANDIDATES: ${RERANK_CANDIDATES:-10}
+    KNOWLEDGE_PREFETCH: ${KNOWLEDGE_PREFETCH:-true}
+    KNOWLEDGE_TOP_K: ${KNOWLEDGE_TOP_K:-4}
     # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
 
 services:

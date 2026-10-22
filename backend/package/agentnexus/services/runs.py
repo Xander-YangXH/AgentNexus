@@ -89,14 +89,16 @@ class RunService:
             return await AgentRunRepository(session).claim(run_id)
 
     async def complete(
-        self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str
+        self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str, citations: list | None = None
     ) -> uuid.UUID | None:
         """助手回复落库 + run 置为 succeeded，同一事务，返回助手消息 id。
 
         run 不在 running 时整体回滚（不留孤儿消息），返回 None。
         """
         async with self.sessionmaker() as session, session.begin():
-            msg = await MessageRepository(session).add(conversation_id, MessageRole.ASSISTANT, content)
+            msg = await MessageRepository(session).add(
+                conversation_id, MessageRole.ASSISTANT, content, citations=citations
+            )
             ok = await AgentRunRepository(session).finish(
                 run_id, RunStatus.SUCCEEDED, output_message_id=msg.id
             )
@@ -166,10 +168,15 @@ class RunService:
             messages = MessageRepository(session)
             input_msg = await messages.get(run.input_message_id)
             history = await messages.list_by_conversation(run.conversation_id, up_to_seq=input_msg.seq)
+            conversations = ConversationRepository(session)
+            conv = await conversations.get(run.conversation_id)
             return RunContext(
                 run_id=run.id,
                 conversation_id=run.conversation_id,
                 history=[ChatMessage(m.role, m.content) for m in history],
+                user_id=conv.user_id,
+                # 执行时读取当前的关联：用户在排队期间改了关联，以执行时为准
+                knowledge_base_ids=tuple(await conversations.knowledge_base_ids(run.conversation_id)),
             )
 
     async def fail_orphaned_running(self, error: str, error_code: str) -> list[uuid.UUID]:

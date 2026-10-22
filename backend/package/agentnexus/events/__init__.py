@@ -6,6 +6,8 @@ from agentnexus.events.types import (
     RUN_STARTED,
     TERMINAL_EVENTS,
     TOKEN,
+    TOOL_FINISHED,
+    TOOL_STARTED,
     EventSink,
     RunEvent,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "RUN_STARTED",
     "TERMINAL_EVENTS",
     "TOKEN",
+    "TOOL_FINISHED",
+    "TOOL_STARTED",
     "EventSink",
     "RunEvent",
 ]

@@ -40,12 +40,33 @@ class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
 
 
+class CitationOut(BaseModel):
+    """助手回答引用的片段快照（decisions/0018）。n 对应正文里的 [n]；cited=False 表示检索到了但回答里没有引用。"""
+
+    n: int
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    filename: str
+    page: int | None
+    seq: int
+    text: str
+    vector_score: float
+    rerank_score: float | None
+    cited: bool
+
+
 class MessageOut(_Out):
     id: uuid.UUID
     seq: int  # 分页游标：GET .../messages?before_seq=<最早一条的 seq> 取更早的
     role: str
     content: str
+    citations: list[CitationOut] | None = None
     created_at: datetime
+
+
+class ConversationKnowledgeBases(BaseModel):
+    knowledge_base_ids: list[uuid.UUID] = Field(max_length=10)
 
 
 class RunOut(_Out):

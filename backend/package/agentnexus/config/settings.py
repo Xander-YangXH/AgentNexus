@@ -33,7 +33,9 @@ class Settings:
     embedding_threads: int | None = None  # None：用满所有核。设小可给同时进行的检索留 CPU，但入库变慢（见 knowledge/embedding.py）
     rerank_enabled: bool = True  # 关闭则不加载重排模型（省约 0.8GB 内存），检索只用向量召回
     rerank_model: str = "BAAI/bge-reranker-v2-m3-int8"
-    rerank_candidates: int = 10  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
+    rerank_candidates: int = 10
+    knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
+    knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
     ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
@@ -72,6 +74,8 @@ def get_settings() -> Settings:
         rerank_enabled=os.environ.get("RERANK_ENABLED", "true").lower() not in ("0", "false", "no", "off"),
         rerank_model=os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3-int8"),
         rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", 10)),
+        knowledge_top_k=int(os.environ.get("KNOWLEDGE_TOP_K", 4)),
+        knowledge_prefetch=os.environ.get("KNOWLEDGE_PREFETCH", "true").lower() not in ("0", "false", "no", "off"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

@@ -99,6 +99,10 @@ export const api = {
   cancelRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/cancel`),
   retryRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/retry`),
 
+  getConversationKnowledgeBases: (cid: string) =>
+    request<{ knowledge_base_ids: string[] }>('GET', `/api/conversations/${cid}/knowledge-bases`),
+  setConversationKnowledgeBases: (cid: string, ids: string[]) =>
+    request<{ knowledge_base_ids: string[] }>('PUT', `/api/conversations/${cid}/knowledge-bases`, { knowledge_base_ids: ids }),
   listKnowledgeBases: () => request<KnowledgeBase[]>('GET', '/api/knowledge-bases'),
   createKnowledgeBase: (name: string) => request<KnowledgeBase>('POST', '/api/knowledge-bases', { name }),
   listDocuments: (kbId: string) => request<KnowledgeDocument[]>('GET', `/api/knowledge-bases/${kbId}/documents`),

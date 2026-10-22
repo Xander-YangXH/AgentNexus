@@ -39,7 +39,6 @@ async def lifespan(app: FastAPI):
     # checkpoint 表由 migrate 服务建好；这里只负责连接
     checkpoint_pool = await open_pool(settings.database_url)
     checkpointer = AsyncPostgresSaver(checkpoint_pool)
-    agent = ChatbotAgent(ChatbotContext(model=build_chat_model(settings)), checkpointer=checkpointer)
     janitor = CheckpointJanitor(
         app.state.sessionmaker,
         checkpointer,
@@ -53,19 +52,6 @@ async def lifespan(app: FastAPI):
         settings.redis_url,
         block_seconds=settings.sse_poll_interval_seconds,
         max_connections=settings.sse_redis_max_connections,
-    )
-    app.state.dispatcher = RunDispatcher(
-        app.state.sessionmaker,
-        agent.run,
-        concurrency=settings.worker_concurrency,
-        run_timeout=settings.run_timeout_seconds,
-        sweep_interval=settings.sweep_interval_seconds,
-        events=RunEventPublisher(
-            publish_redis, maxlen=settings.event_stream_maxlen, ttl_seconds=settings.event_stream_ttl_seconds
-        ),
-    )
-    app.state.event_streamer = RunEventStreamer(
-        app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
     # 加载 embedding 模型要读文件、建 ONNX 会话，放到线程里；模型在构建镜像时已下载，这里不联网
     embedder = await asyncio.to_thread(FastEmbedder, settings.embedding_model, threads=settings.embedding_threads)
@@ -83,6 +69,30 @@ async def lifespan(app: FastAPI):
     reranker = await asyncio.to_thread(FastReranker, settings.rerank_model) if settings.rerank_enabled else None
     app.state.search_service = SearchService(
         app.state.sessionmaker, embedder, index, reranker, candidates=settings.rerank_candidates
+    )
+    search_service = app.state.search_service
+
+    async def knowledge_search(user_id, kb_ids, query):
+        return (await search_service.search(user_id, kb_ids, query, top_k=settings.knowledge_top_k)).hits
+
+    agent = ChatbotAgent(
+        ChatbotContext(
+            model=build_chat_model(settings), knowledge_search=knowledge_search, prefetch=settings.knowledge_prefetch
+        ),
+        checkpointer=checkpointer,
+    )
+    app.state.dispatcher = RunDispatcher(
+        app.state.sessionmaker,
+        agent.run,
+        concurrency=settings.worker_concurrency,
+        run_timeout=settings.run_timeout_seconds,
+        sweep_interval=settings.sweep_interval_seconds,
+        events=RunEventPublisher(
+            publish_redis, maxlen=settings.event_stream_maxlen, ttl_seconds=settings.event_stream_ttl_seconds
+        ),
+    )
+    app.state.event_streamer = RunEventStreamer(
+        app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
     app.state.ingest_dispatcher = IngestDispatcher(
         app.state.knowledge_service,

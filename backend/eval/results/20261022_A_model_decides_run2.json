@@ -1,0 +1,436 @@
+[
+ {
+  "q": "买的衣服不想要了，拆开没穿过能退吗",
+  "answer_doc": "return_policy",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "return_policy",
+   "exchange_policy"
+  ],
+  "content": "如果衣服仅拆开外包装、没有穿过，且不影响二次销售，那么签收后 7 天内可以申请无理由退货 [1]。\n\n不过有两点需要注意：\n- 已拆封的**贴身衣物**不支持无理由退货 [1]；您要退的是不是贴身衣物，会决定能不能退。\n- 定制类商品也不支持无理由退货 [1]。\n\n另外，如果衣物因为尺码不合适想更换，会按“退货再重新下单”处理 [2]；若商品有质量问题，签收 15 天内可换同款同规格新品，运费由商家承担 [2]。",
+  "seconds": 3.6
+ },
+ {
+  "q": "钱什么时候能退回我卡里",
+  "answer_doc": "refund_timing",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": false,
+  "retrieved": false,
+  "cited_correct": false,
+  "cited": [],
+  "content": "请问您指的是哪笔退款？方便告诉我具体情况（比如是退货退款、订单取消还是其他场景），我去帮您查相应的到账时间。",
+  "seconds": 1.0
+ },
+ {
+  "q": "收到的鞋子开胶了，能给我换一双一样的吗",
+  "answer_doc": "exchange_policy",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "exchange_policy",
+   "damaged_package"
+  ],
+  "content": "可以。鞋子开胶属于质量问题，签收 15 天内可以申请换同款同规格的新品，换货运费由我们承担 [1]。建议你尽快拍照留证并联系客服办理。\n\n另外，如果鞋子开胶是运输途中造成的损坏（包裹外箱也有破损），需在签收后 48 小时内拍照联系客服，我们会核实后补发或全额赔付 [4]。",
+  "seconds": 3.5
+ },
+ {
+  "q": "耳机用了半年坏了，还管修吗",
+  "answer_doc": "warranty",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "warranty"
+  ],
+  "content": "**耳机使用了半年后坏掉，通常还在保修期内。**\n\n- 电子类商品自签收之日起享有一年免费保修 [1]\n- 但如果是人为损坏、进水或私自拆机，就不在保修范围内 [1]\n- 保修期内维修完成后，寄回运费由我们承担 [1]\n\n所以，只要不是进水、摔坏等人为原因，你可以申请保修维修。建议你联系客服说明损坏情况，确认是否属于保修范围。",
+  "seconds": 2.9
+ },
+ {
+  "q": "快递送来的时候箱子都压扁了，里面的杯子碎了",
+  "answer_doc": "damaged_package",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "damaged_package"
+  ],
+  "content": "很抱歉遇到这种情况，可以这样处理：\n\n- 收到包裹外箱破损或商品损坏时，请在签收后 48 小时内拍照并联系客服；我们会核实后为您补发或全额赔付，损坏的商品无需寄回 [1]。\n\n建议你现在先把压扁的外箱和碎掉的杯子都拍下来（外箱和商品最好在同一张图里），然后尽快联系客服处理。",
+  "seconds": 2.9
+ },
+ {
+  "q": "我想给公司报销，怎么开个电子的票",
+  "answer_doc": "invoice_normal",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "invoice_normal",
+   "invoice_special"
+  ],
+  "content": "如果你要用于报销，可以按以下方式开票：\n\n- **电子普通发票**：订单完成后，在订单详情页申请，抬头可以填个人或企业，发票会在 24 小时内发到你预留的邮箱 [1]。\n- **增值税专用发票**：如果公司报销要求专票，需要先提供营业执照、税号、开户行和账号等开票资料；审核通过后，纸质专票会在 7 个工作日内快递寄出 [2]，这种是纸质发票，不是电子发票。\n\n需要注意：知识库里只提到电子普通发票可以线上开具，专票是纸质的。如果你们公司必须收电子专票，建议先和财务或客服确认是否支持。\n\n另外，报销时记得把发票抬头填成公司名称和税号 [1]。",
+  "seconds": 2.9
+ },
+ {
+  "q": "我们财务要那种能抵扣进项税的票",
+  "answer_doc": "invoice_special",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "invoice_special",
+   "invoice_normal"
+  ],
+  "content": "如果财务需要能抵扣进项税，那应该开**增值税专用发票**：企业客户开专票需提供营业执照、税号、开户行和账号等开票资料，审核通过后纸质专票会在 7 个工作日内快递寄出 [1]。\n\n另外，电子普通发票的抬头可以是个人或企业，并在 24 小时内发到预留邮箱 [2]；如果你只是需要发票入账、不涉及抵扣，普通发票也能满足这项需求。\n\n需要我进一步说明开专票的具体申请入口或所需资料清单吗？",
+  "seconds": 2.9
+ },
+ {
+  "q": "下单写错地址了，还没寄出能改吗",
+  "answer_doc": "change_address",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "change_address"
+  ],
+  "content": "可以修改。订单在发货前，你可以直接在订单详情页自行修改收货地址 [1]。如果已发货就不能改了，需要联系快递员尝试改派，或者拒收后重新下单 [1]。\n\n如果订单详情页里没有找到修改入口，建议尽快联系客服处理，避免商品发出。",
+  "seconds": 2.6
+ },
+ {
+  "q": "包裹三天没动静了怎么办",
+  "answer_doc": "logistics_tracking",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "logistics_tracking",
+   "complaint"
+  ],
+  "content": "物流超过 72 小时没有更新，可以联系客服帮你催件 [1]。\n\n你可以在订单详情页查看快递单号和实时物流轨迹 [1]。如果对客服的处理结果不满意，还可以在“我的-帮助中心”提交投诉工单，专属专员会在 24 小时内联系你 [4]。",
+  "seconds": 2.6
+ },
+ {
+  "q": "能寄到新加坡吗，税谁出",
+  "answer_doc": "overseas_shipping",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "overseas_shipping"
+  ],
+  "content": "根据知识库：可配送至港澳台和部分海外国家，但**没有明确列出新加坡是否在可配送范围内**，建议下单前向客服确认 [1]。\n\n如果可配送：运费按重量和目的地计算；清关产生的关税由**收件人（买家）承担**，时效一般 7–20 个工作日 [1]。",
+  "seconds": 3.3
+ },
+ {
+  "q": "交了定金的东西什么时候发",
+  "answer_doc": "presale_shipping",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "presale_shipping"
+  ],
+  "content": "如果这是预售商品（先付定金的通常是预售）：发货时间以商品页标注的预计发货日期为准，并且需要先付定金、在规定时间内付完尾款；定金在活动结束后不予退还 [1]。\n\n如果你想让我确认具体某一单的发货日期，可以把商品或订单信息告诉我。",
+  "seconds": 2.6
+ },
+ {
+  "q": "密码忘了登不上去",
+  "answer_doc": "password_reset",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "password_reset",
+   "two_factor",
+   "change_phone"
+  ],
+  "content": "在登录页点击“忘记密码”，通过绑定的手机号或邮箱接收验证码后即可设置新密码；新密码需包含字母和数字，长度不少于 8 位 [1]。\n\n如果开启了两步验证、在新设备上登录，还要输入身份验证器生成的动态码；手机丢了可以用开启时保存的备用码登录 [2]。\n\n如果绑定手机号也停用了，就需要通过人工审核提交身份证明来更换手机号 [3]。需要我帮你查人工审核的具体入口吗？",
+  "seconds": 3.5
+ },
+ {
+  "q": "换了新手机登录要输一串动态数字，手机丢了怎么办",
+  "answer_doc": "two_factor",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "two_factor",
+   "change_phone",
+   "complaint"
+  ],
+  "content": "你输的那串动态数字，应该是两步验证中身份验证器生成的动态码。手机丢失时，可以用开启两步验证时保存的**备用码**登录 [1]。\n\n如果备用码也没有或已丢失，知识库里只提到：绑定手机号可在账号安全设置中更换，旧号停用可通过人工审核提交身份证明办理 [2]；但这部分没有说明在两步验证消失后如何重置验证器 [1][2]。建议提交人工审核或在“帮助中心”提工单请专员处理 [2][5]。",
+  "seconds": 3.2
+ },
+ {
+  "q": "我不想用了，怎么把账户彻底删掉",
+  "answer_doc": "account_deletion",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "account_deletion",
+   "cancel_subscription",
+   "privacy_request"
+  ],
+  "content": "注销账户的流程如下：\n\n1. **先确认前置条件**：注销前需要确认没有未完成的订单、没有未使用的余额 [1]。\n2. **提交注销申请**：提交后有 **15 天冷静期**；冷静期内只要重新登录，就会自动撤销注销 [1]。\n3. **冷静期结束**：账户数据会被**永久删除** [1]。\n\n如果你只想删除部分个人信息、不想整个账号注销，也可以单独申请删除非必要的个人数据，官方会在 15 个工作日内核验并书面答复 [5]。\n\n另外提醒一点：如果你只是不想继续付费，不需要注销账号，在会员中心的「自动续费管理」关闭连续包月即可，当前周期的权益到期前仍然有效 [2]。\n\n如果你有未完成的订单或余额，需要先处理掉才能提交注销 [1]。",
+  "seconds": 3.9
+ },
+ {
+  "q": "原来的手机号不用了，怎么换成新号码",
+  "answer_doc": "change_phone",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "change_phone"
+  ],
+  "content": "更换手机号有两个办法：\n\n- **旧手机号仍能接收验证码**：在「账号安全设置」中更换手机号，需要同时验证旧号码和新号码 [1]。\n- **旧号码已停用**：走人工审核，提交身份证明即可更换 [1]。\n\n你的情况属于第二种。知识库里只写了“提交身份证明”这一点，没有具体说明要提交哪些材料、审核需要多久。建议联系客服确认具体需要哪些证明、要审核多久。",
+  "seconds": 3.5
+ },
+ {
+  "q": "包月到期会自己扣钱吗",
+  "answer_doc": "subscription_renewal",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "cancel_subscription",
+   "subscription_renewal"
+  ],
+  "content": "如果开通的是连续包月，会的：系统会在到期前一天自动扣费续订，续费前 3 天会发短信提醒 [2]。\n\n如果不想续费，可以在会员中心「自动续费管理」里关闭连续包月；关闭后当前周期权益仍然有效，到期后不再扣费，但已扣除的费用不退 [1]。",
+  "seconds": 2.9
+ },
+ {
+  "q": "怎么关掉每个月自动扣费",
+  "answer_doc": "cancel_subscription",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "cancel_subscription",
+   "subscription_renewal"
+  ],
+  "content": "在会员中心的「自动续费管理」里，可以随时关闭连续包月 [1]。\n\n几点说明：\n- 关闭后当前周期的会员权益仍然有效，到期后不再扣费 [1]。\n- 已经扣除的费用不退 [1]。\n- 系统会在到期前一天自动扣费续订，续费前 3 天会发短信提醒，方便你在此之前处理 [2]。\n\n如果你说的扣费不是会员连续包月（比如其他第三方支付渠道的订阅），知识库里没有相关内容，可以告诉我具体是哪个服务，我再帮你查。",
+  "seconds": 3.6
+ },
+ {
+  "q": "刚买完就降价了，能补差价吗",
+  "answer_doc": "price_protection",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "price_protection"
+  ],
+  "content": "可以，但要看情况：\n\n- 购买后 7 天内，如果同一商品降价，可以申请价保；差价会以优惠券或原路退回的方式补偿 [1]。\n- 秒杀、拼团等活动价格不参与价保 [1]。\n\n如果已经超过 7 天，或者这次降价属于秒杀、拼团等活动价，就不符合价保条件。",
+  "seconds": 2.6
+ },
+ {
+  "q": "两张满减券能一起用吗",
+  "answer_doc": "coupon_rules",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "coupon_rules"
+  ],
+  "content": "不能随意叠加，但规则允许一单同时使用两张不同类型的券：每个订单只能使用一张店铺券和一张平台券，优惠券不能兑换现金，也不能与会员折扣叠加使用 [1]。\n\n所以：\n- 如果两张都是店铺券（或都是平台券），不能一起用。\n- 如果一张是店铺券、一张是平台券，可以一起用。\n\n退款时，已使用的优惠券会按比例返还 [1]。",
+  "seconds": 2.2
+ },
+ {
+  "q": "攒的分能当钱花吗，会不会过期",
+  "answer_doc": "points_rules",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "points_rules"
+  ],
+  "content": "可以当钱花，但有过期限制：\n\n- **抵扣规则**：每消费 1 元得 1 积分；下单时 **100 积分抵 1 元** [1]。\n- **有效期**：积分从获得之日起 **一年内有效**，过期自动清零 [1]。\n\n如果全年攒下的积分较多，建议在快到期前用掉。",
+  "seconds": 2.9
+ },
+ {
+  "q": "晚上十一点还有人工吗",
+  "answer_doc": "service_hours",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "service_hours"
+  ],
+  "content": "没有。在线人工客服的服务时间是每天 9:00 到 22:00，节假日照常服务 [1]。你可以在非服务时间留言，客服会在上班后第一时间回复 [1]。",
+  "seconds": 2.3
+ },
+ {
+  "q": "对客服处理结果不满意，去哪里反映",
+  "answer_doc": "complaint",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "complaint",
+   "service_hours"
+  ],
+  "content": "如果对客服处理结果不满意，可以在 App 的「我的 - 帮助中心」提交投诉工单，专属专员会在 24 小时内联系你，处理进度可以在工单页查看 [1]。\n\n另外，在线人工客服的服务时间是每天 9:00–22:00，节假日照常服务；非服务时间你可以留言，客服会在上班后第一时间回复 [2]。",
+  "seconds": 2.9
+ },
+ {
+  "q": "公司要买一大批，能便宜点、月结吗",
+  "answer_doc": "enterprise_purchase",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "enterprise_purchase"
+  ],
+  "content": "可以。\n\n- **批量采购价**：企业客户单次采购满 5 万元可申请批量采购价 [1]\n- **月结/账期**：支持对公转账和账期结算，但需先完成**企业认证**并签署**采购框架协议** [1]\n\n如果采购金额达不到 5 万，或者想了解具体账期天数、认证流程，知识库里没有更多细节，建议联系对接的销售或客户经理确认。",
+  "seconds": 2.9
+ },
+ {
+  "q": "调接口老是报 429，怎么提高上限",
+  "answer_doc": "api_rate_limit",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "api_rate_limit"
+  ],
+  "content": "429 是接口调用频率超限：开放平台的接口默认每个应用每分钟最多调用 600 次，超出后会返回 429 错误。如需提高额度，可以在开发者后台提交扩容申请 [1]。\n\n除此之外，知识库里没有更细的扩容审核标准、可申请的具体档位或加急渠道。如果你能说明是哪个应用、当前的调用量峰值，我可以帮你确认还有没有别的相关说明。",
+  "seconds": 3.6
+ },
+ {
+  "q": "怎么把后台的订单数据下载成表格",
+  "answer_doc": "data_export",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "data_export"
+  ],
+  "content": "管理员可在后台将订单数据导出为 Excel 或 CSV 文件，单次最多导出 10 万行；导出任务完成后，系统会通过站内信通知下载 [1]。\n\n如果你要的是其他内容（如对账数据、客户数据），同一入口也支持导出 [1]。",
+  "seconds": 2.3
+ },
+ {
+  "q": "我想知道你们存了我哪些个人资料",
+  "answer_doc": "privacy_request",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "privacy_request"
+  ],
+  "content": "知识库里没有关于我们具体收集哪些个人资料的清单或隐私政策明细，这方面的规则我没有找到。\n\n不过有一项相关流程：你可以申请查询我们保存的个人信息，或要求删除非必要的个人数据；我们会在 15 个工作日内完成核验并书面答复 [1]。如果你需要知道具体存了哪些资料，建议按这个渠道提交个人信息查询申请。\n\n如果你问的不是平台或产品层面，而是这个助手在对话中保存了你哪些信息，我也需要说明：知识库里同样没有这方面的说明，我不能自行推断。",
+  "seconds": 3.9
+ },
+ {
+  "q": "购物卡丢了能补办吗",
+  "answer_doc": "gift_card",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "gift_card"
+  ],
+  "content": "根据知识库中的礼品卡说明，礼品卡购买后不记名、不挂失 [1]，也就是说没有补办机制，遗失后无法通过挂失补办来补回余额。另外，礼品卡有效期是 3 年，可用于结算时抵扣商品金额，但不能购买其他礼品卡，也不能提现 [1]。\n\n如果你实际丢失的是其他类型的卡，或者想确认具体卡种的处理方式，建议联系客服核实。",
+  "seconds": 2.9
+ },
+ {
+  "q": "在校生办会员有没有打折",
+  "answer_doc": "student_discount",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "student_discount",
+   "coupon_rules"
+  ],
+  "content": "有的。在校生完成学生身份认证后，会员年费可享五折优惠；每个学生身份最多享受 4 年，毕业后自动恢复原价 [1]。另外，优惠券不能与会员折扣叠加使用 [2]。",
+  "seconds": 2.9
+ },
+ {
+  "q": "我想下单后自己去店里拿",
+  "answer_doc": "store_pickup",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "store_pickup",
+   "presale_shipping"
+  ],
+  "content": "可以，支持门店自提：下单时选择「门店自提」，商品到店后会给你发送取货码短信；请在 7 天内凭取货码到店领取，超过 7 天未取的订单会自动取消并退款 [1]。\n\n如果你买的是预售商品，到店时间要以商品页标注的预计发货日期为准 [2]。",
+  "seconds": 2.9
+ },
+ {
+  "q": "买个 2000 块的东西能分几个月付吗",
+  "answer_doc": "installment",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "installment"
+  ],
+  "content": "可以。单笔订单满 500 元就支持信用卡分期，2000 元符合要求 [1]。可选期数为 3 期、6 期、12 期，其中 3 期免手续费，其他期数的手续费以银行页面显示为准 [1]。",
+  "seconds": 2.9
+ }
+]

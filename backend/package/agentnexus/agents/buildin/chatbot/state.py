@@ -1,4 +1,9 @@
+import operator
+from typing import Annotated
+
 from langgraph.graph import MessagesState
 
-# 当前只需要消息列表；后续需要额外状态（如检索结果、计划）时在这里扩展
-ChatState = MessagesState
+
+class ChatState(MessagesState):
+    # 本次执行里检索到的片段（按编号 n 追加）。每次执行用新的 thread（run_id），所以从空开始（decisions/0006、0018）
+    citations: Annotated[list[dict], operator.add]

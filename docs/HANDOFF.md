@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 2「RAG 知识库」进行中（2.1~2.3 完成，下一步 2.4）
+## 当前阶段：ROADMAP 阶段 2「RAG 知识库」已完成（里程碑 2026-10-22 验证），下一步阶段 3
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -26,13 +26,15 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
-2. **阶段 2「RAG 知识库」**：0014 已定；**2.1**（文档入口，0015）、**2.2**（入库流水线、Qdrant、锁文件，0016）、**2.3**（检索 + 重排、知识库页面、端到端评测，0017）已完成。下一步 2.4：`knowledge_search` 工具接入 chatbot（回答附引用片段）；用评测集做端到端回答评估（注意控制 DeepSeek 调用次数）；顺带用数据决定是否改“按标题切分”。待办：改了分块策略后“全部重新处理”的管理命令。
+2. **阶段 2「RAG 知识库」已完成**：0014 选型；0015 文档入口；0016 入库流水线、Qdrant、锁文件；0017 检索 + 重排、知识库页面；0018 预检索 + 检索工具、引用快照、Markdown 按标题切分。学习导读 `docs/guides/rag-pipeline.md`。阶段 2 待办（可选）：改了分块策略后“全部重新处理”的管理命令；交给模型前按相似度去重；多轮追问评测集；删除文档接口。
+3. **下一步：阶段 3「知识图谱」**（先写选型草稿再实现，按惯例）。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
 - 一键：`docker compose up -d --build`，打开 `http://localhost:8080`。
 - 只想看流式效果、不消耗模型额度：`.env` 里设 `LLM_PROVIDER=fake`、`LLM_FAKE_STREAM_DELAY=0.1`。
 - 前端开发：见 `web/README.md`（`npm run dev`，端口 5173）。
+- 端到端问答评测（花钱，每轮约 $0.008，30 题 + 3 个知识库外的问题）：`python3 backend/eval/eval_answer_api.py`；用量看 `docker compose logs api | grep "llm usage"`。
 - 端到端检索评测（不花钱）：`python3 backend/eval/eval_search_api.py`（服务需已启动，会新建一个用户和知识库）。
 - 重建向量索引（换模型、Qdrant 数据丢失时）：`docker compose exec api python -m agentnexus.knowledge.reindex`。
 - 依赖：改了 `backend/requirements.txt` 要重新生成锁文件（命令写在 requirements.txt 顶部），镜像和测试环境都按 `requirements.lock` 安装。
@@ -51,8 +53,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面；0018 知识库问答（预检索 + 工具、引用快照）。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q40。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q41。

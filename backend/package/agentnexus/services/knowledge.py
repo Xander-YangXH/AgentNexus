@@ -233,7 +233,8 @@ class KnowledgeService:
         return "ready", len(rows)
 
     def _prepare(self, filename: str, data: bytes) -> tuple[list[Chunk], list[list[float]]]:
-        chunks = chunk_sections(parse(filename, data), self.token_counter)
+        markdown = extension_of(filename) in (".md", ".markdown")  # 只有 Markdown 的 # 才确定是标题
+        chunks = chunk_sections(parse(filename, data), self.token_counter, heading_boundaries=markdown)
         return chunks, self.embedder.embed_documents([c.text for c in chunks])
 
     async def _discard_points(self, document_id: uuid.UUID) -> None:

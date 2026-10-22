@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { HttpError } from './api/http'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
@@ -10,6 +10,10 @@ import { useChat } from './composables/useChat'
 
 const chat = useChat()
 const view = ref<'chat' | 'knowledge'>('chat')
+// 从知识库页面切回对话时刷新知识库列表（可能刚新建了知识库）
+watch(view, (v) => {
+  if (v === 'chat' && chat.userId.value) run(chat.loadKnowledgeBases())
+})
 
 const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
 
@@ -68,6 +72,9 @@ function run(action: Promise<unknown>) {
         @retry="(runId: string) => run(chat.retry(runId))"
         @load-older="run(chat.loadOlder())"
         @unarchive="run(chat.setArchived(chat.conversationId.value!, false))"
+        :knowledge-bases="chat.knowledgeBases.value"
+        :kb-ids="chat.conversationKbIds.value"
+        @set-kbs="(ids: string[]) => run(chat.setConversationKbs(ids))"
       />
       <a-empty v-else class="empty" :description="chat.userId.value ? '新建或选择一个对话' : '先选择或创建一个用户'" />
     </a-layout-content>

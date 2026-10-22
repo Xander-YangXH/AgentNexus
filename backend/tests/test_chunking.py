@@ -137,3 +137,24 @@ def test_pages_are_separated_by_a_newline():
     chunks = chunk_sections([Section("第一页结尾", page=1), Section("第二页开头", page=2)], LenCounter(),
                             target_tokens=1000, hard_limit=1000, overlap_tokens=0)
     assert chunks[0].text == "第一页结尾\n第二页开头"
+
+
+def test_markdown_headings_start_new_chunks_without_overlap():
+    text = "# 客服手册\n## 退货\n签收后七天内可以退货。定制商品除外。\n## 发票\n订单完成后申请电子发票。\n## 积分\n一元一分。"
+    chunks = chunk_sections([Section(text)], LenCounter(), target_tokens=1000, hard_limit=1000, overlap_tokens=50,
+                            heading_boundaries=True)
+    assert [c.text for c in chunks] == [
+        "# 客服手册\n## 退货\n签收后七天内可以退货。定制商品除外。",  # 只有标题的块不单独切出来
+        "## 发票\n订单完成后申请电子发票。",
+        "## 积分\n一元一分。",
+    ]
+    plain = chunk_sections([Section(text)], LenCounter(), target_tokens=1000, hard_limit=1000, overlap_tokens=50)
+    assert len(plain) == 1  # 不开启时（txt 等）不按 # 切
+
+
+def test_long_section_still_splits_by_size_within_a_heading():
+    body = "".join(f"第{i}句" + "字" * 20 + "。" for i in range(20))
+    chunks = chunk_sections([Section(f"## 长章节\n{body}\n## 下一节\n短。")], LenCounter(), target_tokens=100,
+                            hard_limit=150, overlap_tokens=30, heading_boundaries=True)
+    assert all(c.token_count <= 150 for c in chunks)
+    assert chunks[-1].text == "## 下一节\n短。" and len(chunks) > 3

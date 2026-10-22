@@ -1,11 +1,12 @@
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
-from agentnexus.services.errors import ConversationNotFound
-from agentnexus.storage.postgres import Conversation, Message
+from agentnexus.services.errors import ConversationNotFound, KnowledgeBaseNotFound
+from agentnexus.storage.postgres import Conversation, KnowledgeBase, Message
 
 _UNSET = object()
 
@@ -46,3 +47,30 @@ class ConversationService:
             if conv is None or conv.user_id != user_id:
                 raise ConversationNotFound(str(conversation_id))
             return await MessageRepository(session).list_page(conversation_id, before_seq=before_seq, limit=limit)
+
+    async def knowledge_bases(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> list[uuid.UUID]:
+        async with self.sessionmaker() as session:
+            repo = ConversationRepository(session)
+            conv = await repo.get(conversation_id)
+            if conv is None or conv.user_id != user_id:
+                raise ConversationNotFound(str(conversation_id))
+            return await repo.knowledge_base_ids(conversation_id)
+
+    async def set_knowledge_bases(
+        self, user_id: uuid.UUID, conversation_id: uuid.UUID, kb_ids: list[uuid.UUID]
+    ) -> list[uuid.UUID]:
+        """设置对话关联的知识库（整体替换）。对话和每个知识库都必须属于该用户。"""
+        kb_ids = list(dict.fromkeys(kb_ids))
+        async with self.sessionmaker() as session, session.begin():
+            repo = ConversationRepository(session)
+            conv = await repo.get(conversation_id)
+            if conv is None or conv.user_id != user_id:
+                raise ConversationNotFound(str(conversation_id))
+            if kb_ids:
+                stmt = select(KnowledgeBase.id).where(KnowledgeBase.id.in_(kb_ids), KnowledgeBase.user_id == user_id)
+                owned = set((await session.scalars(stmt)).all())
+                missing = [k for k in kb_ids if k not in owned]
+                if missing:
+                    raise KnowledgeBaseNotFound(str(missing[0]))
+            await repo.set_knowledge_bases(conversation_id, kb_ids)
+            return await repo.knowledge_base_ids(conversation_id)

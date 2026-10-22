@@ -13,6 +13,7 @@ from agentnexus.storage.postgres import RunStatus
 from server.deps import CurrentUser, OwnedRun, get_conversation_service, get_dispatcher, get_run_service
 from server.schemas import (
     ConversationCreate,
+    ConversationKnowledgeBases,
     ConversationOut,
     ConversationUpdate,
     MessageCreate,
@@ -55,6 +56,24 @@ async def update_conversation(
     if "title" in body.model_fields_set:  # 区分“没传 title”和“title 传了 null（清空）”
         kwargs["title"] = body.title
     return await svc.update(user_id, conversation_id, **kwargs)
+
+
+@router.get("/conversations/{conversation_id}/knowledge-bases", response_model=ConversationKnowledgeBases)
+async def get_conversation_knowledge_bases(
+    conversation_id: uuid.UUID, user_id: CurrentUser, svc: ConversationService = Depends(get_conversation_service)
+):
+    return {"knowledge_base_ids": await svc.knowledge_bases(user_id, conversation_id)}
+
+
+@router.put("/conversations/{conversation_id}/knowledge-bases", response_model=ConversationKnowledgeBases)
+async def set_conversation_knowledge_bases(
+    conversation_id: uuid.UUID,
+    body: ConversationKnowledgeBases,
+    user_id: CurrentUser,
+    svc: ConversationService = Depends(get_conversation_service),
+):
+    """设置对话关联的知识库（整体替换，空列表表示不用知识库）。关联后 Agent 才会使用 knowledge_search 工具。"""
+    return {"knowledge_base_ids": await svc.set_knowledge_bases(user_id, conversation_id, body.knowledge_base_ids)}
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageOut])

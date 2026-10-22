@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import type { Message } from '../api/types'
+import type { KnowledgeBase, Message } from '../api/types'
+import { citedSources, sourceLabel } from '../composables/knowledge'
 import { isActive, type PendingReply } from '../composables/pendingReply'
 import type { RunNotice } from '../composables/runNotices'
 import { describeError } from '../utils/errors'
@@ -14,8 +15,17 @@ const props = defineProps<{
   busy: boolean
   hasMore: boolean
   archived: boolean
+  knowledgeBases: KnowledgeBase[]
+  kbIds: string[]
 }>()
-const emit = defineEmits<{ send: [text: string]; stop: []; retry: [runId: string]; loadOlder: []; unarchive: [] }>()
+const emit = defineEmits<{
+  send: [text: string]
+  stop: []
+  retry: [runId: string]
+  loadOlder: []
+  unarchive: []
+  setKbs: [ids: string[]]
+}>()
 
 const SLOW_HINT_SECONDS = 20 // Gemini 免费档首字实测 7~173 秒；超过这个时间提示用户可以停止
 
@@ -74,13 +84,34 @@ watch(
 
 <template>
   <div class="panel">
+    <!-- 对话关联的知识库（decisions/0018）：关联后 Agent 才会检索，回答附引用 -->
+    <div class="kb-bar">
+      <span class="kb-label">知识库</span>
+      <a-select
+        mode="multiple"
+        :value="kbIds"
+        :options="knowledgeBases.map((k) => ({ value: k.id, label: k.name }))"
+        placeholder="不使用知识库（直接对话）"
+        style="flex: 1"
+        :disabled="archived"
+        @change="(v: unknown) => emit('setKbs', v as string[])"
+      />
+    </div>
     <div ref="scroller" class="messages">
       <div v-if="hasMore" class="older">
         <a-button size="small" @click="emit('loadOlder')">加载更早的消息</a-button>
       </div>
       <template v-for="m in messages" :key="m.id">
         <div :class="['row', m.role]">
-          <div v-if="m.role === 'assistant'" class="bubble md" v-html="renderMarkdown(m.content)" />
+          <div v-if="m.role === 'assistant'" class="bubble md">
+            <div v-html="renderMarkdown(m.content)" />
+            <div v-if="citedSources(m.citations).length" class="sources">
+              <a-popover v-for="c in citedSources(m.citations)" :key="c.n" :title="sourceLabel(c)" placement="topLeft">
+                <template #content><div class="source-text">{{ c.text }}</div></template>
+                <a-tag class="source">{{ sourceLabel(c) }}</a-tag>
+              </a-popover>
+            </div>
+          </div>
           <div v-else class="bubble plain">{{ m.content }}</div>
         </div>
         <div
@@ -101,7 +132,7 @@ watch(
 
       <div v-if="pending" class="row assistant">
         <div v-if="pending.status === 'waiting'" class="bubble waiting">
-          <a-spin size="small" /> 等待模型开始输出… {{ waitedSeconds }} 秒
+          <a-spin size="small" /> {{ pending.activity ?? '等待模型开始输出…' }} {{ waitedSeconds }} 秒
           <div v-if="waitedSeconds >= SLOW_HINT_SECONDS" class="slow">模型响应较慢，可以继续等待，或点击“停止”。</div>
         </div>
         <div
@@ -146,6 +177,35 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+.kb-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.kb-label {
+  color: #888;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sources {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.source {
+  cursor: pointer;
+}
+.source-text {
+  max-width: 480px;
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .messages {
   flex: 1;

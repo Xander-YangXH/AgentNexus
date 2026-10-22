@@ -1,9 +1,9 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentnexus.storage.postgres import Conversation, Message, MessageRole
+from agentnexus.storage.postgres import Conversation, ConversationKnowledgeBase, Message, MessageRole
 
 
 def conversations_list_stmt(user_id: uuid.UUID, *, archived: bool = False):
@@ -32,13 +32,31 @@ class ConversationRepository:
     async def list_by_user(self, user_id: uuid.UUID, *, archived: bool = False) -> list[Conversation]:
         return list((await self.session.scalars(conversations_list_stmt(user_id, archived=archived))).all())
 
+    async def knowledge_base_ids(self, conversation_id: uuid.UUID) -> list[uuid.UUID]:
+        stmt = (
+            select(ConversationKnowledgeBase.knowledge_base_id)
+            .where(ConversationKnowledgeBase.conversation_id == conversation_id)
+            .order_by(ConversationKnowledgeBase.created_at, ConversationKnowledgeBase.knowledge_base_id)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def set_knowledge_bases(self, conversation_id: uuid.UUID, kb_ids: list[uuid.UUID]) -> None:
+        """整体替换（先删后插）：关联最多几十条，比逐条比对增删简单，也不会留下半套。"""
+        await self.session.execute(
+            delete(ConversationKnowledgeBase).where(ConversationKnowledgeBase.conversation_id == conversation_id)
+        )
+        self.session.add_all(ConversationKnowledgeBase(conversation_id=conversation_id, knowledge_base_id=k) for k in kb_ids)
+        await self.session.flush()
+
 
 class MessageRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def add(self, conversation_id: uuid.UUID, role: MessageRole, content: str) -> Message:
-        msg = Message(conversation_id=conversation_id, role=role, content=content)
+    async def add(
+        self, conversation_id: uuid.UUID, role: MessageRole, content: str, *, citations: list | None = None
+    ) -> Message:
+        msg = Message(conversation_id=conversation_id, role=role, content=content, citations=citations)
         self.session.add(msg)
         await self.session.flush()  # 触发 INSERT，拿到 id / seq
         return msg

@@ -40,3 +40,22 @@ describe('cancel and error codes', () => {
     expect([p.status, p.errorCode]).toEqual(['failed', 'internal'])
   })
 })
+
+describe('knowledge search events', () => {
+  it('clears pre-tool text, shows activity, then streams the answer', () => {
+    let p = applyRunEvent(newPending('r', 0), tok('我查一下'))
+    p = applyRunEvent(p, { type: 'tool.started', data: { name: 'knowledge_search', query: '退货政策' }, id: null })
+    expect([p.status, p.text, p.activity]).toEqual(['waiting', '', '正在检索知识库：退货政策'])
+    p = applyRunEvent(p, { type: 'tool.finished', data: { name: 'knowledge_search', hits: 3, ok: true }, id: null })
+    expect(p.activity).toBe('检索到 3 条资料，正在生成回答')
+    p = applyRunEvent(p, tok('签收后'))
+    expect([p.status, p.text, p.activity]).toEqual(['streaming', '签收后', null])
+  })
+
+  it('reports a failed search and ignores unknown event types', () => {
+    let p = applyRunEvent(newPending('r', 0), { type: 'tool.finished', data: { name: 'knowledge_search', hits: 0, ok: false }, id: null })
+    expect(p.activity).toBe('知识库检索失败，正在生成回答')
+    const unknown = { type: 'something.new', data: {}, id: null } as unknown as RunEvent
+    expect(applyRunEvent(p, unknown)).toBe(p)
+  })
+})

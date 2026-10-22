@@ -28,7 +28,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from agentnexus.agents.types import RunHandler
+from agentnexus.agents.types import AgentReply, RunHandler
 from agentnexus.events import NULL_SINK, RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RUN_STARTED
 from agentnexus.events.redis_stream import RunEventPublisher
 from agentnexus.observability.context import run_id_var
@@ -168,7 +168,7 @@ class RunDispatcher:
             self._inflight[run_id] = task
             if run_id in self._cancel_requested:  # 取消请求在任务创建之前就到了
                 task.cancel()
-            content = await asyncio.wait_for(task, timeout=self._run_timeout)
+            result = await asyncio.wait_for(task, timeout=self._run_timeout)
         except asyncio.CancelledError:
             current = asyncio.current_task()
             if run_id in self._cancel_requested and current is not None and current.cancelling() == 0:
@@ -190,7 +190,8 @@ class RunDispatcher:
             log.warning("run failed", exc_info=True)  # 原始异常写日志，便于排查（run_id 由上下文带上）
             await self._fail(run_id, f"{type(exc).__name__}: {exc}"[:2000], outcome)
         else:
-            message_id = await self._svc.complete(run_id, ctx.conversation_id, content)
+            reply = result if isinstance(result, AgentReply) else AgentReply(content=result)
+            message_id = await self._svc.complete(run_id, ctx.conversation_id, reply.content, reply.citations)
             if message_id is None:
                 outcome = "discarded"
                 log.warning("run was no longer running when it finished; result discarded")

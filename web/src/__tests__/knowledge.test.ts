@@ -31,3 +31,16 @@ describe('knowledge helpers', () => {
     expect(describeRequestError(null)).toBeNull()
   })
 })
+
+describe('citations', () => {
+  const c = (n: number, cited: boolean, page: number | null = null) => ({
+    n, cited, page, chunk_id: `c${n}`, document_id: 'd', knowledge_base_id: 'k', filename: '退货.txt', seq: 0,
+    text: '...', vector_score: 0.5, rerank_score: 1,
+  })
+
+  it('lists only cited sources in order, with page when known', async () => {
+    const { citedSources, sourceLabel } = await import('../composables/knowledge')
+    expect(citedSources([c(3, true), c(1, false), c(2, true, 5)]).map(sourceLabel)).toEqual(['[2] 退货.txt · 第 5 页', '[3] 退货.txt'])
+    expect(citedSources(null)).toEqual([])
+  })
+})

@@ -259,3 +259,13 @@ def test_real_embedding_ranks_the_relevant_chunk_first(real_embedder):
     q = real_embedder.embed_query("买的东西不想要了怎么办")
     scores = [sum(a * b for a, b in zip(q, v)) for v in vecs]
     assert scores.index(max(scores)) == 0
+
+
+async def test_only_markdown_files_are_split_by_headings(svc, user):
+    text = "## 退货\n签收后七天内可以退货。\n## 发票\n订单完成后申请电子发票。"
+    md = await _doc(svc, user, text=text, name="手册.md")
+    txt = await _doc(svc, user, text=text + "\n", name="手册.txt")  # 内容略不同，避免被当成重复文件
+    for d in (md, txt):
+        await svc.process(d.id)
+    assert (await svc.get_document(user.id, md.id)).chunk_count == 2
+    assert (await svc.get_document(user.id, txt.id)).chunk_count == 1

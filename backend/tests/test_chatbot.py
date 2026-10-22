@@ -139,7 +139,7 @@ async def test_agent_feeds_full_history_with_system_prompt_first(checkpointer):
     agent = ChatbotAgent(ChatbotContext(model=model, system_prompt="SYS"), checkpointer)
     reply = await agent.run(_ctx([("user", "u1"), ("assistant", "a1"), ("user", "u2")]))
 
-    assert reply == "echo: u2"
+    assert reply.content == "echo: u2" and reply.citations is None  # 没有关联知识库：不检索、没有引用
     seen = model.calls[0]
     assert [type(m) for m in seen] == [SystemMessage, HumanMessage, AIMessage, HumanMessage]
     assert seen[0].content == "SYS"

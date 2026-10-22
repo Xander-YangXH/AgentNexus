@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -95,6 +95,9 @@ class Message(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"))
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
+    # 助手回答引用的知识库片段（decisions/0018）。存快照而不是只存分块 id：文档以后重新处理、分块被替换，
+    # 历史回答的引用仍然能展示当时的原文。没有检索的回答为 NULL
+    citations: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -193,4 +196,18 @@ class DocumentChunk(Base):
     text: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int] = mapped_column(Integer)
     page: Mapped[int | None] = mapped_column(Integer)  # PDF 页码，用于标注引用出处
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConversationKnowledgeBase(Base):
+    """对话关联的知识库（decisions/0018）。Agent 检索哪些知识库只由这里和对话归属决定，模型不能自己指定。"""
+
+    __tablename__ = "conversation_knowledge_bases"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

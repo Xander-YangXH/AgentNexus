@@ -16,23 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.knowledge.embedding import Embedder
+from agentnexus.knowledge.hits import SearchHit
 from agentnexus.knowledge.rerank import Reranker
 from agentnexus.services.errors import KnowledgeBaseNotFound
 from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase
 from agentnexus.storage.vectors import ChunkIndex
-
-
-@dataclasses.dataclass(frozen=True)
-class SearchHit:
-    chunk_id: uuid.UUID
-    document_id: uuid.UUID
-    knowledge_base_id: uuid.UUID
-    filename: str
-    seq: int
-    page: int | None
-    text: str
-    vector_score: float  # 余弦相似度，-1~1
-    rerank_score: float | None  # 重排模型的原始分数，只在同一个问题内部可比
 
 
 @dataclasses.dataclass(frozen=True)

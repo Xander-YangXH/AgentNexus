@@ -1,7 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import { api, authHeaders, HttpError, setCurrentUser } from '../api/http'
 import { streamRunEvents } from '../api/sse'
-import type { Conversation, Message, Run, User } from '../api/types'
+import type { Conversation, KnowledgeBase, Message, Run, User } from '../api/types'
 import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
 import { mergeMessages } from './messagePages'
 import { computeNotices } from './runNotices'
@@ -38,6 +38,9 @@ export function useChat() {
   const pending = ref<PendingReply | null>(null)
   const error = ref<string | null>(null)
   const sending = ref(false)
+  // 知识库（decisions/0018）：当前用户的全部知识库，以及当前对话关联了哪些
+  const knowledgeBases = ref<KnowledgeBase[]>([])
+  const conversationKbIds = ref<string[]>([])
   // 当前订阅的事件流；切换对话或用户时中止，避免旧流把 token 写进新对话
   const streamAbort = shallowRef<AbortController | null>(null)
 
@@ -115,7 +118,8 @@ export function useChat() {
     runs.value = []
     pending.value = null
     showArchived.value = false
-    await loadConversations()
+    conversationKbIds.value = []
+    await Promise.all([loadConversations(), loadKnowledgeBases()])
     if (conversations.value.length) await selectConversation(conversations.value[0].id)
   }
 
@@ -133,7 +137,9 @@ export function useChat() {
     hasMore.value = false
     pending.value = null
     error.value = null
-    await reload(id, { reset: true })
+    conversationKbIds.value = []
+    const [, kbs] = await Promise.all([reload(id, { reset: true }), api.getConversationKnowledgeBases(id)])
+    if (conversationId.value === id) conversationKbIds.value = kbs.knowledge_base_ids
     // 刷新页面或切回来时，这个对话可能还有正在生成的回复：找回来并重新订阅。
     // 事件流从头回放（decisions/0007），所以已经生成的部分会立刻补齐。
     const active = await api.activeRun(id)
@@ -185,6 +191,17 @@ export function useChat() {
       })
   }
 
+  async function loadKnowledgeBases() {
+    knowledgeBases.value = await api.listKnowledgeBases()
+  }
+
+  async function setConversationKbs(ids: string[]) {
+    const cid = conversationId.value
+    if (!cid) return
+    const r = await api.setConversationKnowledgeBases(cid, ids)
+    if (conversationId.value === cid) conversationKbIds.value = r.knowledge_base_ids
+  }
+
   async function stop() {
     const runId = pending.value?.runId
     if (!runId || !isActive(pending.value)) return
@@ -222,6 +239,10 @@ export function useChat() {
     rename,
     setArchived,
     messages,
+    knowledgeBases,
+    conversationKbIds,
+    loadKnowledgeBases,
+    setConversationKbs,
     notices,
     pending,
     error,

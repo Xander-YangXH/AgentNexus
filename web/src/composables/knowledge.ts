@@ -1,4 +1,4 @@
-import type { DocumentStatus, KnowledgeDocument } from '../api/types'
+import type { Citation, DocumentStatus, KnowledgeDocument } from '../api/types'
 
 /** 还有文档在排队或处理中：需要继续轮询状态 */
 export function needsPolling(docs: KnowledgeDocument[]): boolean {
@@ -26,4 +26,13 @@ export function formatTimings(timings: Record<string, number>): string {
     .filter((k) => k in timings)
     .map((k) => `${TIMING_LABELS[k]} ${Math.round(timings[k])}ms`)
     .join(' · ')
+}
+
+/** 回答下方展示的来源：只列回答里实际标注了的 [n]，按编号排序；同一文件的多个片段各占一行（页码 / 块号不同） */
+export function citedSources(citations: Citation[] | null | undefined): Citation[] {
+  return (citations ?? []).filter((c) => c.cited).sort((a, b) => a.n - b.n)
+}
+
+export function sourceLabel(c: Citation): string {
+  return `[${c.n}] ${c.filename}${c.page ? ` · 第 ${c.page} 页` : ''}`
 }
