@@ -112,6 +112,8 @@
 | 102 | 3 | 图谱详情栏宽度为 0 | cytoscape 的 canvas 固定宽度，flex 布局里画布不收缩；`min-width: 0` + `flex: none` + `cy.resize()` |
 | 103 | 3 | 提示词 v2 没有提高关系准确率（约 76%） | 收紧提示词去掉了噪声、降了成本，治不了理解错；靠溯源核对 |
 | 104 | 3 | Neo4j 堆设 512m，容器实际约 1.0GB | JVM 的非堆开销；配置值不等于实际占用，要实测 |
+| 105 | 4 | 原型 worker 第一次空等就退出 | `wait_for` 超时取消 `anext()` 会关闭异步生成器；改用驱动自带的 `notifies(timeout=)`，并用最小复现确认 |
+| 106 | 4 | 实验脚本在 psycopg 游标上调用 `.scalar()` | 那是 SQLAlchemy 的方法；psycopg 用 `fetchone()[0]` |
 
 ---
 
@@ -1125,3 +1127,32 @@ request-id 的生成、沿用与防注入；为什么用纯 ASGI 中间件；con
 - PostgreSQL 事实来源 + Neo4j 派生存储：失败时怎么办、怎么重建、为什么可以接受非原子写入。
 - 提示词迭代的诚实结论：能去掉噪声，治不了理解错——所以要做溯源。
 - 选型时的基准测试（递归 CTE 遇到枢纽时路径爆炸），以及为什么最终仍然选了 Neo4j。
+
+---
+
+## 2026-10 · 阶段 4.1 选型：worker 崩溃接管实验，ARQ vs PostgreSQL 租约队列（决策 0020 草稿）
+
+### 目标
+在实现独立 worker 之前，用实验回答里程碑的核心问题：杀掉或卡住 worker 时，任务多久被接手、会不会重复执行。
+
+### 做了什么
+- `backend/eval/queue_exp/arq_exp.py`：真实的 ARQ 0.28.0 worker，任务分 8 步，每步写台账；分别对 worker 做 `kill -9` 和 `SIGSTOP` / `SIGCONT`，记录接手时间和重复的步骤数。
+- `backend/eval/queue_exp/pg_exp.py`：PostgreSQL 租约队列原型（`SKIP LOCKED` + 租约 + 心跳 + fencing token + 按进度续做 + `LISTEN/NOTIFY`），跑同样的场景，外加入队延迟测试。
+- 不调用模型，零费用。
+
+### 技术选型明细（实验用，正式选型待确认）
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| arq 0.28.0（只用于实验） | 路线图原计划；发布满两周 | — |
+| `SKIP LOCKED` 认领 | 多个 worker 并发认领不重复、不互相阻塞 | `FOR UPDATE` 不加 `SKIP LOCKED`：worker 之间会排队等锁 |
+| fencing token（版本号） | 被接管后旧 worker 的写入一定失败 | 只靠租约时间：旧 worker 恢复后仍可能写回 |
+| `LISTEN/NOTIFY` 唤醒 + 1s 轮询兜底 | 唤醒延迟约 20ms；轮询用来发现租约过期的任务 | 只轮询：延迟取决于轮询间隔，间隔调小又增加数据库负载 |
+
+### 遇到的问题
+1. **超时取消 `anext()` 会关掉异步生成器**：原型 worker 用 `asyncio.wait_for(anext(notifies), 1)` 等通知，第一次空等超时后，生成器就被关闭了，下一次读取直接是 `StopAsyncIteration`，worker 进程退出。现象是 B 一行台账都没有（stderr 被丢掉了，看不到报错）。我先根据代码推断了原因、改了实现，又补了一个最小复现确认根因（第二次读取得到 `StopAsyncIteration`）。改用 psycopg 自带的 `notifies(timeout=…, stop_after=1)`。教训：实验脚本也应该保留子进程的错误输出；先确认根因再下结论。
+2. **psycopg 游标没有 `.scalar()`**：把 SQLAlchemy 的习惯带到了 psycopg 上，脚本报错一次。
+3. **ARQ 暂停场景的结果需要读懂**：A 恢复后没有继续写，不是 ARQ 能防重复，而是 A 自己的 `job_timeout` 先到期、取消了任务。ARQ 把“进行中”标记的过期时间设为“超时 + 10 秒”，就是为了让旧 worker 先超时——代价是接管时间与任务时长绑定。
+
+### 验证 / 面试可讲点
+- 数据见 decisions/0020：kill -9 后 ARQ 34 秒接手、重复 3 步；租约原型 6 秒接手、0 重复；暂停后恢复的旧 worker 被 fencing 拒绝。
+- 可讲：租约 + 心跳 + fencing token 为什么缺一不可；“至多重复一步”的边界；为什么接管时间要和任务时长解耦。
