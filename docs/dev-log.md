@@ -125,6 +125,10 @@
 | 115 | 4 | 测试进程退出时偶发 SIGABRT（134） | onnxruntime 等原生库在解释器清理后析构；对照实验定位，测试里用 os._exit 绕过 |
 | 116 | 4 | 两个后台测试循环重叠，大量假失败 | 误把 zsh 的 no matches found 当成循环结束；共用测试库不能并发跑 |
 | 117 | 4 | SSE“断开后释放阻塞读”测试偶发失败（35 次全量中 1 次） | 未能复现；大概率 4.1 之前就存在，已让断言打印每次采样值，下次出现可定位 |
+| 118 | 4 | 只换网络挡不住 SSRF（host.docker.internal 仍可达） | 需要出口代理按解析后的 IP 过滤私有地址 |
+| 119 | 4 | mcp-server-fetch 的依赖运行时执行 npm install，输出污染 stdio 协议 | readabilipy 检测到 Node 就装 Readability.js；第三方服务用不带 Node 的专用镜像 |
+| 120 | 4 | mcp 2.x 与 langchain-mcp-adapters 不兼容 | 适配库要求 mcp<2；锁到 1.30.0 |
+| 121 | 4 | 代理没在运行，探测结果却像“全部拦下” | squid 无权写 /dev/stdout 启动即退出；探测前先确认代理在运行，并核对访问日志 |
 
 ---
 
@@ -1222,3 +1226,36 @@ request-id 的生成、沿用与防注入；为什么用纯 ASGI 中间件；con
 - 取消为什么写两份（数据库 + 广播），以及取消与关停交错时的边界。
 - 接管后从 checkpoint 续做，以及前端怎么避免两次执行的文字混在一起。
 - 排查一个只在进程退出时出现的原生库崩溃：怎么定位到 C++ 析构阶段、怎么用对照实验缩小范围。
+
+---
+
+## 2026-10 · 阶段 4.2 选型：沙盒隔离、Docker socket 风险、MCP 与 SSRF（决策 0021 草稿）
+
+### 目标
+在让 Agent 执行代码、联网、接入 MCP 之前，用实验确定安全边界：容器加固能挡住什么、谁能持有 Docker socket、联网工具怎么防 SSRF。
+
+### 做了什么
+- `backend/eval/sandbox_exp/isolation.py`：11 个“恶意或失控”的代码用例，在加固后的容器里运行，并测启动延迟。
+- `backend/eval/sandbox_exp/socket_risk.py`：演示持有 socket 能做什么；验证 volume subpath 的按 run 隔离。
+- `backend/eval/mcp_exp/fetch_stdio.py`：通过 langchain-mcp-adapters 接入 mcp-server-fetch，演示 SSRF。
+- `backend/eval/mcp_exp/egress.sh` + `squid.conf`：internal 网络 + Squid 出口代理，验证防 SSRF 的规则（含重定向），以及 fetch 服务的 `--proxy-url`。
+- 不调用模型，零费用。
+
+### 技术选型明细（实验用，正式选型待确认）
+| 选了什么 | 为什么 | 否掉了什么 / 代价 |
+|---|---|---|
+| docker SDK 7.2.0 | 官方 Python SDK，支持 volume subpath | 调用 docker 命令行：要解析输出，参数注入风险 |
+| python:3.12-slim 作为沙盒基础镜像 | 与 api 镜像一致 | alpine：musl 和很多科学计算 wheel 不兼容 |
+| langchain-mcp-adapters 0.3.2 + mcp 1.30.0 | 适配库要求 `mcp<2`；均满两周 | mcp 2.3.0：与适配库不兼容 |
+| mcp-server-fetch 2026.8.18 | 官方参考实现；满两周（2026.10.19 版不足两周） | 自己写抓取工具：接入 MCP 生态正是这一步的目标 |
+| ubuntu/squid:6.6-24.04_edge | Canonical 维护，基于 LTS；按解析后的 IP 做 ACL | smokescreen：要自己构建；只在应用里校验 URL：防不住重定向和 DNS 重绑定 |
+
+### 遇到的问题
+1. **只换网络挡不住 SSRF**：把 fetch 放到独立网络后，服务名解析不到了，但 `host.docker.internal:6333` 仍然可达。必须靠出口代理按 IP 过滤。
+2. **第三方 MCP 服务的依赖在运行时执行 `npm install`**：mcp-server-fetch 的依赖 readabilipy 检测到 Node.js 就会运行 npm，输出混进了 stdio 协议流（一条 JSON 解析错误），还绕过了锁文件。读源码确认后，结论是第三方 MCP 服务必须跑在构建时装好依赖、不带 Node、只读的专用镜像里。
+3. **`mcp` 2.x 与适配库不兼容**：pip 直接报 ResolutionImpossible。适配库和 fetch 服务都要求 `mcp<2`。
+4. **【实验失误】代理没在运行，结果却像“全部拦下了”**：Squid 以 proxy 用户运行，没权限写 `/dev/stdout`（我配置的 access_log），启动即退出；又因为用了 `--rm`，容器被自动删除。第一轮所有探测都因“找不到代理”失败，与“规则生效”的表现一样。是从清理时的 `No such container` 发现的。改为探测前先确认代理在运行。教训：安全测试里“被拦下”必须确认是被**规则**拦下的（看代理的访问日志），而不是因为环境坏了。
+
+### 验证 / 面试可讲点
+- 数据见 decisions/0021：加固容器 11 个用例全部符合预期，新建容器 126ms；持有 socket 等于宿主机 root；SSRF 在独立网络下仍能经 `host.docker.internal` 发生，Squid 按 IP 过滤后全部拦下（含重定向）。
+- 可讲：威胁模型（模型的工具参数由攻击者决定）；为什么“socket 代理”不够；SSRF 为什么要按解析后的 IP 过滤；第三方工具服务的供应链风险。
