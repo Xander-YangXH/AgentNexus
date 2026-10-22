@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 2「RAG 知识库」已完成（里程碑 2026-10-22 验证），下一步阶段 3
+## 当前阶段：ROADMAP 阶段 3「知识图谱」——选型草稿 0019 待用户确认
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -27,7 +27,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 ## 下一步
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **阶段 2「RAG 知识库」已完成**：0014 选型；0015 文档入口；0016 入库流水线、Qdrant、锁文件；0017 检索 + 重排、知识库页面；0018 预检索 + 检索工具、引用快照、Markdown 按标题切分。学习导读 `docs/guides/rag-pipeline.md`。阶段 2 待办（可选）：改了分块策略后“全部重新处理”的管理命令；交给模型前按相似度去重；多轮追问评测集；删除文档接口。
-3. **下一步：阶段 3「知识图谱」**（先写选型草稿再实现，按惯例）。
+3. **阶段 3「知识图谱」**：选型草稿 0019 已写（抽取实验 $0.09、存储基准），三个待确认问题：存储（建议只用 PostgreSQL）、抽取触发（建议按知识库手动、先显示预估费用）、图谱参与问答（建议先只做浏览与溯源）。确认后实现：表与迁移 0008 → 抽取任务（去重、预估、上限）→ 图查询 API → cytoscape.js 浏览页 → 评测。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
@@ -57,4 +57,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q41。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q42。
