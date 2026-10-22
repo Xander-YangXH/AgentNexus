@@ -14,10 +14,11 @@ from agentnexus.services.errors import (
     ConversationArchived,
     ConversationNotFound,
     RunConflict,
+    RunNotAwaitingApproval,
     RunNotFound,
     RunNotRetryable,
 )
-from agentnexus.storage.postgres import AgentRun, MessageRole, RunStatus
+from agentnexus.storage.postgres import AgentRun, Artifact, MessageRole, RunStatus
 
 
 AUTO_TITLE_MAX = 30
@@ -93,15 +94,25 @@ class RunService:
 
     async def complete(
         self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str, citations: list | None = None,
-        *, version: int | None = None,
+        *, version: int | None = None, attachments: list[dict] | None = None,
     ) -> uuid.UUID | None:
         """助手回复落库 + run 置为 succeeded，同一事务，返回助手消息 id。
 
-        run 不在 running 时整体回滚（不留孤儿消息），返回 None。
+        attachments（decisions/0022）：产物元数据在同一事务里写入 artifacts 表，消息里存快照。
+        run 不在 running 时整体回滚（不留孤儿消息和产物记录），返回 None。
         """
         async with self.sessionmaker() as session, session.begin():
+            snapshot = None
+            if attachments:
+                conv = await ConversationRepository(session).get(conversation_id)
+                for a in attachments:
+                    session.add(Artifact(id=uuid.UUID(str(a["id"])), user_id=conv.user_id, conversation_id=conversation_id,
+                                         run_id=run_id, filename=a["filename"], content_type=a["content_type"],
+                                         size=a["size"], blob_key=a["blob_key"]))
+                snapshot = [{k: str(a[k]) if k == "id" else a[k] for k in ("id", "filename", "content_type", "size")}
+                            for a in attachments]
             msg = await MessageRepository(session).add(
-                conversation_id, MessageRole.ASSISTANT, content, citations=citations
+                conversation_id, MessageRole.ASSISTANT, content, citations=citations, attachments=snapshot
             )
             ok = await AgentRunRepository(session).finish(
                 run_id, RunStatus.SUCCEEDED, output_message_id=msg.id, version=version
@@ -127,6 +138,27 @@ class RunService:
         """running -> cancelled。与 complete/fail 一样只允许从 running 转出，先到者赢。"""
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).finish(run_id, RunStatus.CANCELLED, version=version)
+
+    async def await_approval(self, run_id: uuid.UUID, request: dict, *, version: int) -> bool:
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).await_approval(run_id, request, version=version)
+
+    async def respond(self, user_id: uuid.UUID, run_id: uuid.UUID, response: dict) -> AgentRun:
+        """用户批准或给出修改意见（decisions/0022）：run 回到 queued，事务内发通知唤醒 worker。"""
+        async with self.sessionmaker() as session, session.begin():
+            runs = AgentRunRepository(session)
+            run = await runs.get(run_id)
+            conv = await ConversationRepository(session).get(run.conversation_id) if run else None
+            if run is None or conv is None or conv.user_id != user_id:
+                raise RunNotFound(str(run_id))
+            if not await runs.respond(run_id, response):
+                raise RunNotAwaitingApproval(str(run_id))
+            await notify_jobs(session, "run")
+        return await self.find(run_id)
+
+    async def expire_approvals(self, requested_before) -> list[uuid.UUID]:
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).expire_approvals(requested_before)
 
     async def request_cancel(self, run_id: uuid.UUID) -> bool:
         async with self.sessionmaker() as session, session.begin():
@@ -189,5 +221,7 @@ class RunService:
                 user_id=conv.user_id,
                 # 执行时读取当前的关联：用户在排队期间改了关联，以执行时为准
                 knowledge_base_ids=tuple(await conversations.knowledge_base_ids(run.conversation_id)),
+                agent=conv.agent,
+                approval=run.approval_response,
             )
 

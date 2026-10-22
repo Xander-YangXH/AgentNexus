@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Conversation } from '../api/types'
+import type { AgentKind, Conversation } from '../api/types'
 
 defineProps<{ conversations: Conversation[]; activeId: string | null; showArchived: boolean }>()
 const emit = defineEmits<{
   select: [id: string]
-  create: []
+  create: [agent: AgentKind]
   rename: [id: string, title: string | null]
   archive: [id: string, archived: boolean]
   toggleArchived: [value: boolean]
 }>()
 
 function label(c: Conversation) {
-  return c.title || `对话 · ${new Date(c.created_at).toLocaleString()}`
+  const title = c.title || `对话 · ${new Date(c.created_at).toLocaleString()}`
+  return c.agent === 'research' ? `【调研】${title}` : title
 }
 
 // 重命名用一个对话框：留空表示清空标题（列表回退显示创建时间）
@@ -36,7 +37,11 @@ function onAction(c: Conversation, key: string) {
 
 <template>
   <div>
-    <a-button v-if="!showArchived" type="primary" block @click="emit('create')">新对话</a-button>
+    <!-- 对话类型建好后不能改（decisions/0022）：聊天，或深度调研（先审批计划，再并行调研、汇总成报告） -->
+    <div v-if="!showArchived" class="create">
+      <a-button type="primary" @click="emit('create', 'chat')">新对话</a-button>
+      <a-button @click="emit('create', 'research')">深度调研</a-button>
+    </div>
     <!-- 用 label 包住：点文字也能切换（开关本身是 <button>，label 会把点击转发给它） -->
     <label class="toggle">
       <a-switch size="small" :checked="showArchived" @change="(v: unknown) => emit('toggleArchived', Boolean(v))" />
@@ -71,6 +76,13 @@ function onAction(c: Conversation, key: string) {
 </template>
 
 <style scoped>
+.create {
+  display: flex;
+  gap: 8px;
+}
+.create > * {
+  flex: 1;
+}
 .toggle {
   cursor: pointer;
   display: flex;

@@ -4,6 +4,9 @@
 - 正常情况：从 Redis 读到终态事件就结束；
 - 事件丢了（流过期、Redis 抖动、上一个进程来不及发）：空闲时查数据库，run 已到终态就按数据库“合成”一个终态事件再结束；
 - Redis 不可用：退化成定期查数据库，仍然能在 run 结束时收尾。
+- 等待审批（decisions/0022）：流在 run.awaiting_approval 处“暂停”——结束响应，不让客户端挂着连接等几个小时；
+  批准后客户端带 Last-Event-ID 重新订阅。流里已经被批准过的旧 run.awaiting_approval（例如刷新后从头回放）
+  以数据库为准：run 已不在等待审批，就跳过它继续读，不能让它把流提前结束。
 调用方必须已经做过归属校验。
 """
 
@@ -15,7 +18,7 @@ from collections.abc import AsyncIterator
 from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from agentnexus.events import RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RunEvent
+from agentnexus.events import PAUSE_EVENTS, RUN_AWAITING_APPROVAL, RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RunEvent
 from agentnexus.events.redis_stream import RunEventReader
 from agentnexus.services.runs import RunService
 from agentnexus.storage.postgres import AgentRun, RunStatus
@@ -72,7 +75,7 @@ class RunEventStreamer:
         if run is None:
             return
         # 连接时 run 已结束：不阻塞，回放流里剩下的；流已过期就直接合成，不让客户端白等一个轮询周期
-        block = run.status not in _FINISHED
+        block = run.status not in _FINISHED and run.status != RunStatus.AWAITING_APPROVAL
         state: dict = {}
 
         while True:
@@ -83,6 +86,12 @@ class RunEventStreamer:
                 events = []
             for event in events:
                 cursor = event.id
+                if event.type in PAUSE_EVENTS:
+                    current = await self._runs.find(run_id)
+                    if current is None or current.status != RunStatus.AWAITING_APPROVAL:
+                        continue  # 已经答复过的旧审批请求：跳过，接着读后面的事件
+                    yield event
+                    return
                 yield event
                 if event.terminal:
                     return
@@ -101,5 +110,9 @@ class RunEventStreamer:
                     if event.terminal:
                         return
                 yield _synthesize(run)
+                return
+            if run.status == RunStatus.AWAITING_APPROVAL:
+                # 流里没有审批事件（流过期、发布失败）：按数据库合成，客户端照样能看到要审批的内容
+                yield RunEvent(RUN_AWAITING_APPROVAL, {"request": run.approval_request or {}, "synthesized": True})
                 return
             block = True

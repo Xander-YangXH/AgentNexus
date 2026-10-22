@@ -20,8 +20,8 @@ class ConversationRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, user_id: uuid.UUID, title: str | None = None) -> Conversation:
-        conv = Conversation(user_id=user_id, title=title)
+    async def create(self, user_id: uuid.UUID, title: str | None = None, agent: str = "chat") -> Conversation:
+        conv = Conversation(user_id=user_id, title=title, agent=agent)
         self.session.add(conv)
         await self.session.flush()
         return conv
@@ -54,9 +54,11 @@ class MessageRepository:
         self.session = session
 
     async def add(
-        self, conversation_id: uuid.UUID, role: MessageRole, content: str, *, citations: list | None = None
+        self, conversation_id: uuid.UUID, role: MessageRole, content: str, *, citations: list | None = None,
+        attachments: list | None = None,
     ) -> Message:
-        msg = Message(conversation_id=conversation_id, role=role, content=content, citations=citations)
+        msg = Message(conversation_id=conversation_id, role=role, content=content, citations=citations,
+                      attachments=attachments)
         self.session.add(msg)
         await self.session.flush()  # 触发 INSERT，拿到 id / seq
         return msg

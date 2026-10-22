@@ -17,6 +17,7 @@ from server.schemas import (
     ConversationOut,
     ConversationUpdate,
     MessageCreate,
+    ApprovalDecision,
     MessageOut,
     RunOut,
 )
@@ -31,7 +32,7 @@ async def create_conversation(
     user_id: CurrentUser,
     svc: ConversationService = Depends(get_conversation_service),
 ):
-    return await svc.create(user_id, body.title)
+    return await svc.create(user_id, body.title, body.agent)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -154,6 +155,24 @@ async def cancel_run(
     elif outcome == CancelOutcome.FINISHED and current.status != RunStatus.CANCELLED:
         raise RunAlreadyFinished(str(run.id))
     return current
+
+
+@router.post("/runs/{run_id}/approval", response_model=RunOut, status_code=202)
+async def answer_approval(
+    run_id: uuid.UUID,
+    body: ApprovalDecision,
+    user_id: CurrentUser,
+    svc: RunService = Depends(get_run_service),
+    dispatcher: RunDispatcher = Depends(get_dispatcher),
+):
+    """答复等待审批的 run（decisions/0022）：批准则按计划执行；不批准则按修改意见重新制定计划（之后会再次请求审批）。
+
+    不想继续：用 POST /runs/{id}/cancel。run 不在等待审批（已答复、已取消或已过期）时 409。
+    答复后 run 回到 queued；客户端带 Last-Event-ID 重新订阅 /runs/{id}/events 接着看进度。
+    """
+    run = await svc.respond(user_id, run_id, body.model_dump())
+    dispatcher.enqueue(run.id)
+    return run
 
 
 @router.post("/runs/{run_id}/retry", response_model=RunOut, status_code=202)

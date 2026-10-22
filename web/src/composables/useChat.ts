@@ -1,7 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import { api, authHeaders, HttpError, setCurrentUser } from '../api/http'
 import { streamRunEvents } from '../api/sse'
-import type { Conversation, KnowledgeBase, Message, Run, User } from '../api/types'
+import type { AgentKind, Attachment, Conversation, KnowledgeBase, Message, Run, User } from '../api/types'
 import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
 import { mergeMessages } from './messagePages'
 import { computeNotices } from './runNotices'
@@ -123,8 +123,8 @@ export function useChat() {
     if (conversations.value.length) await selectConversation(conversations.value[0].id)
   }
 
-  async function newConversation() {
-    const c = await api.createConversation(null)
+  async function newConversation(agent: AgentKind = 'chat') {
+    const c = await api.createConversation(null, agent)
     conversations.value = [c, ...conversations.value]
     await selectConversation(c.id)
   }
@@ -166,21 +166,25 @@ export function useChat() {
     }
   }
 
-  function follow(runId: string, cid: string, startedAt: number) {
+  /** 订阅 run 的事件。resume=true：审批答复后接着订阅同一个 run，保留当前的临时回复，从审批事件之后继续 */
+  function follow(runId: string, cid: string, startedAt: number, resume = false) {
     stopStream()
     const controller = new AbortController()
     streamAbort.value = controller
-    pending.value = newPending(runId, startedAt)
+    const lastEventId = resume && pending.value?.runId === runId ? pending.value.resumeFrom : null
+    if (!resume || pending.value?.runId !== runId) pending.value = newPending(runId, startedAt)
 
     streamRunEvents(runId, {
       headers: authHeaders(),
       signal: controller.signal,
+      lastEventId,
       onEvent: (event) => {
         if (pending.value?.runId === runId) pending.value = applyRunEvent(pending.value, event)
       },
     })
       .then(async (terminal) => {
         if (conversationId.value !== cid) return
+        if (terminal.type === 'run.awaiting_approval') return // 暂停：等用户答复，不是结束
         await reload(cid) // 完成：用库里的最终回复替换临时回复；失败/取消：拿到 run 的终态，显示原因与重试入口
         if (terminal.type === 'run.completed') pending.value = null
         // 失败/取消时保留 pending，界面继续显示已收到的半截文本
@@ -202,12 +206,41 @@ export function useChat() {
     if (conversationId.value === cid) conversationKbIds.value = r.knowledge_base_ids
   }
 
+  /** 答复审批（decisions/0022）：批准，或给修改意见让它重新制定计划；然后接着订阅同一个 run */
+  async function answerApproval(approved: boolean, feedback?: string) {
+    const p = pending.value
+    const cid = conversationId.value
+    if (!p || p.status !== 'awaiting' || !cid) return
+    error.value = null
+    try {
+      await api.answerApproval(p.runId, approved, feedback)
+      pending.value = { ...p, status: 'waiting', approval: null, activity: approved ? '已确认计划，等待执行' : '正在按意见修改计划' }
+      follow(p.runId, cid, p.startedAt, true)
+    } catch (e) {
+      error.value = e instanceof HttpError && e.status === 409 ? '这个计划已经处理过了（可能已取消或过期）' : `提交失败：${e instanceof HttpError ? e.describe() : String(e)}`
+    }
+  }
+
+  async function download(a: Attachment) {
+    try {
+      await api.downloadArtifact(a)
+    } catch (e) {
+      error.value = `下载失败：${e instanceof HttpError ? e.describe() : String(e)}`
+    }
+  }
+
   async function stop() {
     const runId = pending.value?.runId
     if (!runId || !isActive(pending.value)) return
     try {
       // 200（排队中已取消）或 202（执行中已发信号）：结果以随后到达的 run.cancelled 事件为准
       await api.cancelRun(runId)
+      // 等待审批时事件流已经暂停（没有在订阅），收不到 run.cancelled：直接按接口结果更新，再以数据库为准刷新。
+      // 第一版漏了这一点，浏览器里点“取消”后审批卡片一直不消失（后端其实已经取消了）
+      if (pending.value?.runId === runId && pending.value.status === 'awaiting') {
+        pending.value = applyRunEvent(pending.value, { type: 'run.cancelled', data: {}, id: null })
+        if (conversationId.value) await reload(conversationId.value)
+      }
     } catch (e) {
       if (!(e instanceof HttpError && e.status === 409)) error.value = `停止失败：${e instanceof HttpError ? e.describe() : String(e)}` // 409：恰好已经结束
     }
@@ -255,5 +288,7 @@ export function useChat() {
     send,
     stop,
     retry,
+    answerApproval,
+    download,
   }
 }

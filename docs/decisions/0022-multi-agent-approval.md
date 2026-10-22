@@ -1,6 +1,6 @@
 # 0022 - 阶段 4.3：多 Agent 编排、审批中断与报告产物
 
-**状态**：草稿（2026-10-22），待用户确认第三节的选择。
+**状态**：已决定（2026-10-22）。用户确认四项均按建议：同一 run 内 Send 扇出、调研计划审批、产物表 + 原件存储 + 下载接口、对话级 Agent 类型。
 
 **背景**：阶段 4 的里程碑是“给 Agent 一个复杂任务（例如调研 A、B、C 三个主题分别写一段），能看到它拆解成子任务、并行执行、最后汇总成一份可下载的报告”。4.1 解决了“worker 崩溃后任务被接管、不重复执行”，4.2 解决了“工具在安全边界内执行”。这一步要回答：
 
@@ -88,3 +88,35 @@
 - 子 Agent 抓取的网页内容可能包含提示注入：子 Agent 没有沙盒执行和写文件的工具，只能检索和抓取；汇总节点没有工具。
 - DeepSeek 的并发与限流：并发上限设为 3，限流错误按现有的模型调用重试处理（实现时确认）。
 - 报告内容来自模型，下载接口返回 `Content-Disposition: attachment` 和 `text/markdown`，不在页面里以 HTML 渲染。
+
+## 六、确认结果
+1. 子 Agent：同一个 run 里用 Send 扇出，`max_concurrency` 限制同时调用模型的数量。
+2. 审批：调研计划审批；按工具审批等有外部副作用的工具出现后再加（同一套机制）。
+3. 报告：`artifacts` 表 + 原件存储 + `GET /api/artifacts/{id}/download`。
+4. 入口：对话级 Agent 类型（`chat` / `research`），建对话时选定。
+
+## 七、实现（2026-10-22）
+| 部件 | 代码 | 要点 |
+|---|---|---|
+| 数据 | 迁移 `0010_research_approval.py` | `conversations.agent`；`agent_runs` 加 `awaiting_approval` 状态（status 列从 16 加宽到 24）、`approval_request` / `approval_response` / `approval_requested_at`，重建“活跃 run”的部分唯一索引与检查约束；`messages.attachments`；`artifacts` 表 |
+| 派发器 | `runtime/dispatcher.py` | Agent 返回 `ApprovalRequired` → 带租约版本把 run 改为 `awaiting_approval`、清空租约 → 发 `run.awaiting_approval`；按 Agent 类型的超时（调研 900 秒） |
+| 答复 | `POST /api/runs/{id}/approval` | 批准或带修改意见（不批准必须给意见；不想继续用取消接口）；run 回到 `queued`、`attempts` 清零、事务内 NOTIFY |
+| 过期 | `runtime/janitor.py` | 等待超过 24 小时取消（`error_code=approval_expired`），之后按 finished_at 回收 checkpoint |
+| 事件流 | `services/run_events.py` | 在 `run.awaiting_approval` 处结束响应；刷新后从头回放时，已答复过的旧审批事件按数据库状态跳过 |
+| 调研 Agent | `agents/buildin/research/` | 计划（结构化输出、最多 5 个子任务）→ 审批（只含 interrupt）→ Send 扇出子 Agent（独立上下文，只有知识库检索和 fetch，最多 4 轮工具）→ 汇总写报告并保存产物；只流式输出汇总节点的 token；子任务进度事件 `research.subtask` |
+| 产物 | `services/artifacts.py`、`server/routers/artifacts.py` | 原件先写（键 `artifacts/<id>`），元数据与助手消息同一事务、带租约校验；下载按用户校验，`attachment` + `nosniff` |
+| 前端 | `pendingReply.ts`、`useChat.ts`、`ChatPanel.vue`、`ConversationList.vue` | “深度调研”按钮；审批卡片（计划、预计调用次数、批准 / 按意见修改 / 取消）；子任务进度；附件下载（带鉴权头 fetch 成 Blob） |
+
+## 八、验证
+- **自动化测试**：后端 254 个（新增调研 10 个、迁移与模型一致性 1 个），前端 47 个。
+- **变异检查 11 项全部被发现**：恢复时不用 `Command(resume)` 而从头开始（计划被重新生成）、答复时不清零 attempts、等待时不清空租约、等待中的 run 不能取消、事件流不跳过旧审批事件、下载不校验归属、子 Agent 不过滤工具、活跃状态不含等待审批、过期不处理、等待审批不带租约版本、前端对生命周期事件按 attempt 过滤。
+- **真实 DeepSeek（compose）**：
+  - 计划（4 个子任务）→ 修改意见“只保留两个” → 新计划（2 个）→ 批准 → 2 个子 Agent 并行各调用一次 fetch → 报告（2.7KB）→ 下载 200、别的用户 404。批准后 9 秒完成。7 次模型调用：**计划 2 次（每版一次，恢复时没有重新生成）**、子 Agent 4 次、汇总 1 次，约 $0.004。
+  - **里程碑**：3 个子任务并行，第 1 个完成后 `kill -9` worker 并重启；租约过期后（约 30 秒）接管，日志 `resuming research from checkpoint before ['research', 'research']`，**只重做了另外 2 个子任务**，最后只有 1 条回复和 1 份报告。约 $0.004。
+  - 浏览器：审批卡片、刷新后恢复、取消、报告下载按钮均正常（取消的问题见 dev-log #136）。
+- **已知局限**：
+  - 日志里的用量来自图状态，崩溃那次执行中“在途”的模型调用没有计入（接管后实际花费比日志多一点）；
+  - 被接管的旧执行者可能已经写了原件（孤儿文件，没有元数据，不可下载），没有清理；
+  - 审批过期取消时没有发事件（流已暂停，前端刷新后从数据库看到“已取消”）；
+  - 下载文件名的 ASCII 兜底在纯中文名时只剩时间戳（主流浏览器用 `filename*`，不受影响）。
+

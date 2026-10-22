@@ -1,5 +1,8 @@
 from agentnexus.storage.postgres.models import (
+    ACTIVE_STATUSES,
+    AgentKind,
     AgentRun,
+    Artifact,
     Base,
     Conversation,
     ConversationKnowledgeBase,
@@ -21,7 +24,10 @@ from agentnexus.storage.postgres.models import (
 from agentnexus.storage.postgres.session import make_engine, make_sessionmaker
 
 __all__ = [
+    "ACTIVE_STATUSES",
+    "AgentKind",
     "AgentRun",
+    "Artifact",
     "Base",
     "Conversation",
     "ConversationKnowledgeBase",

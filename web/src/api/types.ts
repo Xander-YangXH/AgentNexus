@@ -11,6 +11,26 @@ export interface Conversation {
   created_at: string
   last_activity_at: string
   archived_at: string | null
+  agent: AgentKind
+}
+
+/** 对话的 Agent 类型（decisions/0022）：建对话时选定 */
+export type AgentKind = 'chat' | 'research'
+
+/** 消息附带的产物（decisions/0022），下载走 /api/artifacts/{id}/download */
+export interface Attachment {
+  id: string
+  filename: string
+  content_type: string
+  size: number
+}
+
+/** 调研计划审批（decisions/0022） */
+export interface ResearchPlanRequest {
+  kind: 'research_plan'
+  request: string
+  plan: { title: string; question: string }[]
+  estimate: { subtasks: number; model_calls: string }
 }
 
 /** 助手回答引用的知识库片段快照（decisions/0018）。n 对应正文里的 [n]；cited=false 表示检索到但回答没用上 */
@@ -34,10 +54,11 @@ export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   citations?: Citation[] | null
+  attachments?: Attachment[] | null
   created_at: string
 }
 
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'awaiting_approval'
 
 export interface Run {
   id: string
@@ -49,6 +70,7 @@ export interface Run {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  approval_request?: ResearchPlanRequest | null // 等待审批时要展示的内容
 }
 
 // 事件契约见后端 agentnexus/events/types.py 与 decisions/0007
@@ -60,10 +82,15 @@ export type RunEvent =
   | { type: 'run.cancelled'; data: { synthesized?: boolean }; id: string | null }
   | { type: 'run.resumed'; data: { attempt: number }; id: string | null }
   // detail：参数摘要（检索词、网址、文件路径、技能名或代码第一行），decisions/0021 起所有工具都有
-  | { type: 'tool.started'; data: { name: string; query: string; detail?: string; attempt?: number }; id: string | null }
-  | { type: 'tool.finished'; data: { name: string; hits: number; ok: boolean; attempt?: number }; id: string | null }
+  | { type: 'tool.started'; data: { name: string; query: string; detail?: string; subtask?: number; attempt?: number }; id: string | null }
+  | { type: 'tool.finished'; data: { name: string; hits: number; ok: boolean; subtask?: number; attempt?: number }; id: string | null }
+  // 等待审批（decisions/0022）：服务端在这里结束事件流；答复后带 Last-Event-ID 重新订阅
+  | { type: 'run.awaiting_approval'; data: { request: ResearchPlanRequest; synthesized?: boolean }; id: string | null }
+  | { type: 'research.subtask'; data: { index: number; title: string; status: 'started' | 'finished' | 'failed'; total: number }; id: string | null }
 
 export const TERMINAL_EVENTS = new Set(['run.completed', 'run.failed', 'run.cancelled'])
+// 事件流在这些事件处结束，但 run 还没结束
+export const PAUSE_EVENTS = new Set(['run.awaiting_approval'])
 
 // ---------- 知识库（decisions/0015、0016、0017） ----------
 

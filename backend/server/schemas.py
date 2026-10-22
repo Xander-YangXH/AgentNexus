@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Out(BaseModel):
@@ -19,6 +20,8 @@ class UserOut(_Out):
 
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
+    # 对话用哪种 Agent（decisions/0022）：chat = 聊天（知识库、工具、技能），research = 深度调研。建好后不能改
+    agent: Literal["chat", "research"] = "chat"
 
 
 class ConversationUpdate(BaseModel):
@@ -34,6 +37,7 @@ class ConversationOut(_Out):
     created_at: datetime
     last_activity_at: datetime
     archived_at: datetime | None
+    agent: str
 
 
 class MessageCreate(BaseModel):
@@ -62,7 +66,17 @@ class MessageOut(_Out):
     role: str
     content: str
     citations: list[CitationOut] | None = None
+    attachments: list["AttachmentOut"] | None = None
     created_at: datetime
+
+
+class AttachmentOut(BaseModel):
+    """消息附带的产物（decisions/0022），下载：GET /api/artifacts/{id}/download。"""
+
+    id: uuid.UUID
+    filename: str
+    content_type: str
+    size: int
 
 
 class ConversationKnowledgeBases(BaseModel):
@@ -79,6 +93,21 @@ class RunOut(_Out):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    # 等待审批时展示给用户的内容（decisions/0022，例如调研计划）；其他状态为 null
+    approval_request: dict | None = None
+
+
+class ApprovalDecision(BaseModel):
+    """对等待审批的 run 的答复。拒绝时必须给修改意见（会按意见重新制定计划）；不想继续就用取消接口。"""
+
+    approved: bool
+    feedback: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _feedback_when_rejected(self):
+        if not self.approved and not (self.feedback or "").strip():
+            raise ValueError("feedback is required when rejecting")
+        return self
 
 
 # ---------- 知识库（阶段 2） ----------

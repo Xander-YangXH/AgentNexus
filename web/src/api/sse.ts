@@ -9,7 +9,7 @@
  * - streamRunEvents：负责连接、断线重连（带 Last-Event-ID 续传）、收到终态事件后结束。
  */
 import { HttpError, parseErrorBody } from './http'
-import { TERMINAL_EVENTS, type RunEvent } from './types'
+import { PAUSE_EVENTS, TERMINAL_EVENTS, type RunEvent } from './types'
 
 export interface SseMessage {
   event: string
@@ -82,6 +82,7 @@ export interface StreamOptions {
   maxRetries?: number
   retryDelayMs?: number
   fetchImpl?: typeof fetch // 测试注入
+  lastEventId?: string | null // 从这个事件之后继续（审批后重新订阅时用，decisions/0022）
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -94,7 +95,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 /**
- * 订阅一个 run 的事件，直到收到终态事件为止，返回该终态事件。
+ * 订阅一个 run 的事件，直到收到终态事件（或“暂停”事件，例如等待审批）为止，返回该事件。
  * 网络中断或服务端在终态前关闭连接时自动重连，并带上 Last-Event-ID，从断点继续，不重复、不遗漏。
  * 401/404 这类“请求本身错了”的情况不重试。
  */
@@ -102,7 +103,7 @@ export async function streamRunEvents(runId: string, opts: StreamOptions): Promi
   const doFetch = opts.fetchImpl ?? fetch
   const maxRetries = opts.maxRetries ?? 5
   const retryDelayMs = opts.retryDelayMs ?? 1000
-  let lastEventId: string | null = null
+  let lastEventId: string | null = opts.lastEventId ?? null
   let failures = 0
 
   for (;;) {
@@ -130,7 +131,7 @@ export async function streamRunEvents(runId: string, opts: StreamOptions): Promi
           const event = { type: msg.event, data: JSON.parse(msg.data), id: msg.id } as RunEvent
           failures = 0 // 收到数据说明连接正常，重置失败计数
           opts.onEvent(event)
-          if (TERMINAL_EVENTS.has(event.type)) {
+          if (TERMINAL_EVENTS.has(event.type) || PAUSE_EVENTS.has(event.type)) {
             await reader.cancel()
             return event
           }

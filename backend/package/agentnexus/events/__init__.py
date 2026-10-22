@@ -1,5 +1,8 @@
 from agentnexus.events.types import (
     NULL_SINK,
+    PAUSE_EVENTS,
+    RESEARCH_SUBTASK,
+    RUN_AWAITING_APPROVAL,
     RUN_CANCELLED,
     RUN_COMPLETED,
     RUN_FAILED,
@@ -15,6 +18,9 @@ from agentnexus.events.types import (
 
 __all__ = [
     "NULL_SINK",
+    "PAUSE_EVENTS",
+    "RESEARCH_SUBTASK",
+    "RUN_AWAITING_APPROVAL",
     "RUN_CANCELLED",
     "RUN_COMPLETED",
     "RUN_FAILED",

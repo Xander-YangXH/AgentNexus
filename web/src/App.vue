@@ -2,6 +2,7 @@
 import { message } from 'ant-design-vue'
 import { onMounted, ref, watch } from 'vue'
 import { HttpError } from './api/http'
+import type { AgentKind, Attachment } from './api/types'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
 import KnowledgePanel from './components/KnowledgePanel.vue'
@@ -50,7 +51,7 @@ function run(action: Promise<unknown>) {
         :active-id="chat.conversationId.value"
         :show-archived="chat.showArchived.value"
         @select="(id: string) => run(chat.selectConversation(id))"
-        @create="run(chat.newConversation())"
+        @create="(agent: AgentKind) => run(chat.newConversation(agent))"
         @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
         @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
         @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
@@ -67,9 +68,12 @@ function run(action: Promise<unknown>) {
         :busy="chat.busy.value"
         :has-more="chat.hasMore.value"
         :archived="!!chat.conversation.value?.archived_at"
+        :agent="chat.conversation.value?.agent ?? 'chat'"
         @send="(text: string) => run(chat.send(text))"
         @stop="run(chat.stop())"
         @retry="(runId: string) => run(chat.retry(runId))"
+        @approve="(approved: boolean, feedback?: string) => run(chat.answerApproval(approved, feedback))"
+        @download="(a: Attachment) => run(chat.download(a))"
         @load-older="run(chat.loadOlder())"
         @unarchive="run(chat.setArchived(chat.conversationId.value!, false))"
         :knowledge-bases="chat.knowledgeBases.value"

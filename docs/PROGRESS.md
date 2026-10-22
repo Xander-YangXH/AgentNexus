@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 4 进行中：4.1 独立 worker 与租约队列（0020）、4.2 工具 / 沙盒 / MCP / Skills（0021）已完成。下一步 4.3：多 Agent 编排与审批中断（先写选型草稿）。**
+**阶段 4 已完成：4.1 独立 worker 与租约队列（0020）、4.2 工具 / 沙盒 / MCP / Skills（0021）、4.3 深度调研（计划审批 + 并行子 Agent + 报告产物，0022）。下一步阶段 5：多租户权限与 Dashboard（先写选型草稿）。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -13,7 +13,8 @@
 生成中可以“停止”，失败或停止后可一键重试，失败原因以友好文案显示且刷新后仍在。
 对话可改名、归档 / 恢复，列表按最近活动排序，长对话分页加载。
 Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、读写对话的工作目录、经 MCP 网关抓取网页（出口代理拦截内部地址）。
-当前做不到的：还没有多 Agent 编排与审批中断，沙盒生成的文件还不能在网页上下载；没有真正的登录（`X-User-Id` 占位）。真实模型验证过 Gemini 与 DeepSeek（两种格式）。
+可以新建“深度调研”对话：Agent 先给出计划请用户确认或修改，再并行执行子任务、汇总成可下载的报告；执行中 worker 崩溃，已完成的子任务不重做。
+当前做不到的：沙盒里生成的文件还不能在网页上下载（调研报告可以）；没有真正的登录（`X-User-Id` 占位）。真实模型验证过 Gemini 与 DeepSeek（两种格式）。
 
 ### 完成度（由勾选框统计，粒度不等，仅作参考）
 
@@ -23,11 +24,11 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 | M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
 | M2 RAG 知识库 | 12 | 0 | 12 | 100% |
 | M3 知识图谱 | 7 | 0 | 8 | 87% |
-| M4 多智能体/工具/沙盒/worker | 6 | 0 | 11 | 54% |
+| M4 多智能体/工具/沙盒/worker | 11 | 0 | 11 | 100% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 4 | 0 | 8 | 50% |
-| **合计** | **94** | 2 | **118** | **79%** |
+| **合计** | **99** | 2 | **118** | **83%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -227,14 +228,14 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 - [x] **独立 worker 容器 + PostgreSQL 租约队列**（实验后替代 ARQ，decisions/0020）：`worker.py`、`runtime/lease.py`；api 只提交（事务内 NOTIFY），worker 执行 run / 入库 / 图谱构建 / checkpoint 清理；可多副本
 - [x] **租约 / 心跳 / fencing**：迁移 0009（三张表加租约字段 + 取消标记）；SKIP LOCKED 认领、10 秒心跳、版本号校验写回；run 从 checkpoint 续做（最多 3 次）；跨进程取消（数据库标记 + Redis 广播）
 - [x] 崩溃恢复测试：compose 2 副本，kill -9 后 24.8 秒接管、docker stop 后 0.9 秒接管，均只有 1 条回复；测试覆盖过期接管、fencing、多 worker 恰好一次
-- [ ] `agents/middlewares/`：subagent 派发、摘要压缩、审批中断（interrupt + resume）
-- [ ] 多 Agent 编排：supervisor 派发 + 子 Agent 并行执行 + 汇总
-- [ ] “深度调研”Agent：拆解任务 → 并行子任务 → 汇总成可下载文件（产物进 MinIO）
+- [x] 子 Agent 派发与审批中断（decisions/0022）：Send 扇出 + `max_concurrency`；`interrupt` / `Command(resume)`，run 新状态 `awaiting_approval`（放弃租约）。摘要压缩没有单独做：子 Agent 上下文隔离、汇总只拿结论，起到同样作用
+- [x] 多 Agent 编排：计划 → 审批 → 并行子 Agent（独立上下文、只有检索与 fetch）→ 汇总
+- [x] “深度调研”Agent（`agents/buildin/research/`）：报告存为产物（`artifacts` 表 + 原件存储，MinIO 仍暂缓），`GET /api/artifacts/{id}/download` 按用户校验
 - [x] 沙盒（decisions/0021）：独立 sandbox 服务独占 Docker socket（`sandbox/`），每次执行新建加固容器（断网、只读、nobody、进程 / 内存 / CPU 上限、超时）；工作空间按对话划分（卷子目录挂载 + 路径校验）；威胁模型见 0021；工具 `python_exec` / `list_files` / `read_file` / `write_file`
 - [x] MCP：网关（`mcp_gateway/`，只接入 internal 网络、每次调用新起子进程）接入官方 fetch 服务，Squid 出口代理按解析后的 IP 拒绝内部地址；worker 直接用 mcp SDK（实验后未用 langchain-mcp-adapters）
 - [x] Skills：`backend/skills/*.md`（data-analysis、web-research）+ `load_skill`；工具只在加载技能后启用，执行前再检查；真实 DeepSeek 跑通数据分析与网页问答
-- [ ] 审批流 UI：中断后用户批准/拒绝再恢复
-- [ ] **里程碑：复杂任务被拆解并行执行并产出可下载报告；杀 worker 后任务被正确接管**
+- [x] 审批流 UI：计划卡片（批准 / 按意见修改 / 取消）、子任务进度、刷新后恢复；SSE 在审批处暂停、答复后续订
+- [x] **里程碑：复杂任务被拆解并行执行并产出可下载报告；杀 worker 后任务被正确接管**（2026-10-22，compose + DeepSeek：并行中 kill -9，约 30 秒后接管，只重做未完成的 2 个子任务，1 条回复、1 份报告）
 
 ### M5 多租户权限与 Dashboard（阶段 5）
 

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.repositories.users import UserRepository
+from agentnexus.services.artifacts import ArtifactService
 from agentnexus.services.graph import GraphService
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
@@ -27,6 +28,10 @@ def get_dispatcher(request: Request) -> RunDispatcher:
 
 def get_event_streamer(request: Request) -> RunEventStreamer:
     return request.app.state.event_streamer
+
+
+def get_artifact_service(request: Request) -> ArtifactService:
+    return request.app.state.artifact_service
 
 
 def get_knowledge_service(request: Request) -> KnowledgeService:

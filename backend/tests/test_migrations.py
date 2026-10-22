@@ -110,3 +110,24 @@ def test_0005_backfills_last_activity_from_messages(fresh_db):
     assert got[with_msgs] == "2026-03-05"  # 最后一条消息的时间
     assert got[empty] == "2026-02-01"  # 没有消息：用创建时间
     assert archived == 0
+
+
+def test_migrations_match_the_models(fresh_db):
+    """迁移升级到最新后，表结构要和 ORM 模型一致（列、类型、索引、外键）。
+
+    0010 起补的：手写迁移容易漏改（例如加宽 status 列、重建部分唯一索引），模型与库不一致时运行期才报错。
+    """
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+    from sqlalchemy import create_engine
+
+    from agentnexus.storage.postgres import Base
+
+    command.upgrade(_alembic(fresh_db), "head")
+    engine = create_engine(to_sqlalchemy_url(fresh_db))  # psycopg 3 同步、异步都支持
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn, opts={"compare_type": True})
+        diff = [d for d in compare_metadata(ctx, Base.metadata)
+                if not (isinstance(d, tuple) and d[0] in ("remove_table",) and d[1].name.startswith("checkpoint"))]
+    engine.dispose()
+    assert diff == []

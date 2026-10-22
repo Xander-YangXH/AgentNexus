@@ -15,13 +15,23 @@
  *
  * 通用工具（decisions/0021）：按工具名显示“正在执行代码”“正在抓取网页”等；不认识的工具显示“正在调用 xxx”。
  *
+ * 审批（decisions/0022）：run.awaiting_approval → awaiting（显示计划和“批准 / 修改 / 取消”），服务端在这里结束事件流；
+ * 记下这个事件的 id，答复后从它之后重新订阅。批准后的执行会重新发 run.started，回到 waiting。
+ * 审批后的执行 attempt 从 1 重新计（服务端清零了），所以进入 awaiting 时把 attempt 也重置为 1，否则新事件会被当成“旧尝试的残余”丢掉。
+ * 调研的子任务进度（research.subtask）显示成“子任务 2/3 完成：…”。
+ *
  * 接管（decisions/0020）：执行它的 worker 中断后，别的 worker 从 checkpoint 接着做，先发 run.resumed {attempt}。
  * 这时清空已显示的半截文字（新的执行会重新流出被打断的那一步）；之后只接受这一次尝试的事件——
  * 旧 worker 在心跳发现自己被接管之前，可能还会流出几个 token，它们带着更小的 attempt，直接忽略。
  */
-import type { RunEvent } from '../api/types'
+import type { ResearchPlanRequest, RunEvent } from '../api/types'
 
-export type PendingStatus = 'waiting' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+export type PendingStatus = 'waiting' | 'streaming' | 'awaiting' | 'completed' | 'failed' | 'cancelled'
+
+export interface SubtaskProgress {
+  title: string
+  status: 'started' | 'finished' | 'failed'
+}
 
 export interface PendingReply {
   runId: string
@@ -31,14 +41,20 @@ export interface PendingReply {
   startedAt: number // 用于显示“等待首字 N 秒”，取服务端的 run 创建时间
   activity: string | null // 正在做什么（如“正在检索：退货政策”），等待阶段显示
   attempt: number // 当前接受的是第几次执行的事件（被接管后递增）
+  approval: ResearchPlanRequest | null // 等待审批的内容
+  resumeFrom: string | null // 审批事件的 id：答复后从它之后重新订阅
+  subtasks: SubtaskProgress[] // 调研子任务进度，按 index
 }
 
 export function newPending(runId: string, now: number = Date.now()): PendingReply {
-  return { runId, status: 'waiting', text: '', errorCode: null, startedAt: now, activity: null, attempt: 1 }
+  return {
+    runId, status: 'waiting', text: '', errorCode: null, startedAt: now, activity: null, attempt: 1,
+    approval: null, resumeFrom: null, subtasks: [],
+  }
 }
 
 export function isActive(p: PendingReply | null): boolean {
-  return p?.status === 'waiting' || p?.status === 'streaming'
+  return p?.status === 'waiting' || p?.status === 'streaming' || p?.status === 'awaiting'
 }
 
 const TOOL_LABELS: Record<string, [string, string]> = {
@@ -70,18 +86,34 @@ export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
   // 第一次执行的事件不带 attempt（后端只在接管后才加），当作 1。第一版写成“有 attempt 才比较”，
   // 第一次执行的残余 token 就漏过去了（补测试时发现）
   const attempt = (e.data as { attempt?: number }).attempt ?? 1
-  if (e.type !== 'run.resumed' && attempt < p.attempt) return p // 被接管前那次执行的残余事件
+  // 只过滤 Agent 执行中产生的事件（token、工具、子任务进度）。run.* 生命周期事件由派发器发布、不带 attempt，
+  // 第一版对它们也做了过滤：接管后的 run.completed、run.awaiting_approval 都会被当成“旧尝试的残余”丢掉
+  // （完成时恰好被“流结束后从数据库重新加载”掩盖了，审批卡片则会直接不显示；补审批测试时发现）
+  if (!e.type.startsWith('run.') && attempt < p.attempt) return p // 被接管前那次执行的残余事件
   switch (e.type) {
     case 'run.resumed':
       if (e.data.attempt <= p.attempt) return p
       return { ...p, status: 'waiting', text: '', attempt: e.data.attempt, activity: '执行中断，已由其他进程接着生成' }
     case 'run.started':
-      return p
+      // 审批后的继续执行：回到等待输出
+      return p.status === 'awaiting' ? { ...p, status: 'waiting', approval: null, activity: '已确认计划，开始执行' } : p
+    case 'run.awaiting_approval':
+      return { ...p, status: 'awaiting', text: '', activity: null, approval: e.data.request, resumeFrom: e.id ?? p.resumeFrom, attempt: 1 }
+    case 'research.subtask': {
+      const subtasks = [...p.subtasks]
+      subtasks[e.data.index] = { title: e.data.title, status: e.data.status }
+      const done = subtasks.filter((s) => s && s.status !== 'started').length
+      const verb = e.data.status === 'started' ? '开始' : e.data.status === 'finished' ? '完成' : '失败'
+      return { ...p, status: 'waiting', subtasks, activity: `子任务 ${done}/${e.data.total}，${verb}：${e.data.title}` }
+    }
     case 'token':
       return { ...p, status: 'streaming', text: p.text + e.data.text, activity: null }
-    case 'tool.started':
+    case 'tool.started': {
       // 旧版后端只有 query，没有 detail
-      return { ...p, status: 'waiting', text: '', activity: toolActivity(e.data.name, e.data.detail ?? e.data.query) }
+      const label = toolActivity(e.data.name, e.data.detail ?? e.data.query)
+      const prefix = e.data.subtask !== undefined ? `子任务 ${e.data.subtask + 1} ` : ''
+      return { ...p, status: 'waiting', text: '', activity: prefix + label }
+    }
     case 'tool.finished':
       return { ...p, activity: toolDone(e.data.name, e.data.hits, e.data.ok) }
     case 'run.completed':

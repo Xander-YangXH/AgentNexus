@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunEvent } from '../api/types'
-import { applyRunEvent, newPending } from '../composables/pendingReply'
+import { applyRunEvent, isActive, newPending } from '../composables/pendingReply'
 
 const tok = (text: string): RunEvent => ({ type: 'token', data: { text }, id: null })
 
@@ -85,6 +85,49 @@ describe('agent tools (decisions/0021)', () => {
   it('falls back to query when an older backend sends no detail', () => {
     const old = { type: 'tool.started', data: { name: 'knowledge_search', query: '退货' }, id: null } as RunEvent
     expect(applyRunEvent(newPending('r', 0), old).activity).toBe('正在检索知识库：退货')
+  })
+})
+
+describe('lifecycle events after a takeover', () => {
+  it('are not filtered by attempt (the dispatcher publishes them without one)', () => {
+    let p = applyRunEvent(newPending('r', 0), { type: 'run.resumed', data: { attempt: 2 }, id: null })
+    p = applyRunEvent(p, { type: 'run.failed', data: { error_code: 'timeout' }, id: null })
+    expect([p.status, p.errorCode]).toEqual(['failed', 'timeout'])
+  })
+})
+
+describe('research approval and progress (decisions/0022)', () => {
+  const plan = {
+    kind: 'research_plan' as const, request: '调研', estimate: { subtasks: 2, model_calls: '6~12' },
+    plan: [{ title: '甲', question: 'q1' }, { title: '乙', question: 'q2' }],
+  }
+  const awaiting = { type: 'run.awaiting_approval', data: { request: plan }, id: '5-0' } as RunEvent
+
+  it('waits for approval, stays active, and remembers where to resume', () => {
+    const p = applyRunEvent(newPending('r', 0), awaiting)
+    expect([p.status, p.approval?.plan.length, p.resumeFrom]).toEqual(['awaiting', 2, '5-0'])
+    expect(isActive(p)).toBe(true) // 等待审批时不能发新消息，“停止”= 取消
+  })
+
+  it('resets the attempt so events of the approved execution are not dropped', () => {
+    let p = applyRunEvent(newPending('r', 0), { type: 'run.resumed', data: { attempt: 2 }, id: null })
+    p = applyRunEvent(p, awaiting)
+    p = applyRunEvent(p, { type: 'run.started', data: {}, id: null } as RunEvent)
+    expect([p.status, p.approval]).toEqual(['waiting', null])
+    p = applyRunEvent(p, tok('报告'))
+    expect(p.text).toBe('报告') // 审批后的执行从 attempt 1 重新计；不重置就会被当成旧尝试的残余丢掉
+  })
+
+  it('tracks subtask progress', () => {
+    const sub = (index: number, title: string, status: string) =>
+      ({ type: 'research.subtask', data: { index, title, status, total: 2 }, id: null }) as RunEvent
+    let p = applyRunEvent(newPending('r', 0), sub(1, '乙', 'started'))
+    p = applyRunEvent(p, sub(0, '甲', 'started'))
+    p = applyRunEvent(p, sub(1, '乙', 'finished'))
+    expect(p.subtasks.map((s) => s.status)).toEqual(['started', 'finished'])
+    expect(p.activity).toBe('子任务 1/2，完成：乙')
+    p = applyRunEvent(p, sub(0, '甲', 'failed'))
+    expect(p.activity).toBe('子任务 2/2，失败：甲')
   })
 })
 

@@ -6,6 +6,9 @@
 
 怎么记账：用 agent_runs.checkpoint_purged_at 记录“已清理”，不去查询 LangGraph 自己管理的表；
 删除用 LangGraph 提供的 adelete_thread（幂等）。先删、后记账：记账失败只会导致下一轮重复删除，而重复删除无害。
+
+顺带（decisions/0022）：等待审批超过 approval_ttl 的 run 取消掉（error_code=approval_expired），
+之后它的 checkpoint 按 finished_at 照常进入保留期、再被清理。
 """
 
 import asyncio
@@ -29,17 +32,25 @@ class CheckpointJanitor:
         retention: timedelta,
         interval_seconds: float = 600.0,
         batch_size: int = 200,
+        approval_ttl: timedelta | None = None,
     ):
         self._sessionmaker = sessionmaker
         self._checkpointer = checkpointer
         self._retention = retention
         self._interval = interval_seconds
         self._batch_size = batch_size
+        self._approval_ttl = approval_ttl
         self._task: asyncio.Task | None = None
 
     async def run_once(self, now: datetime | None = None) -> int:
         """清理一批，返回成功清理的 run 数。单个线程删除失败不影响其他线程，下一轮会重试。"""
-        cutoff = (now or datetime.now(UTC)) - self._retention
+        now = now or datetime.now(UTC)
+        if self._approval_ttl is not None:
+            async with self._sessionmaker() as session, session.begin():
+                expired = await AgentRunRepository(session).expire_approvals(now - self._approval_ttl)
+            if expired:
+                log.info("cancelled %d run(s) whose approval expired", len(expired))
+        cutoff = now - self._retention
         async with self._sessionmaker() as session:
             candidates = await AgentRunRepository(session).list_checkpoint_purge_candidates(cutoff, self._batch_size)
         purged = []

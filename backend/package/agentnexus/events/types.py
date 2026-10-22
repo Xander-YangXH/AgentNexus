@@ -12,7 +12,13 @@ RUN_RESUMED = "run.resumed"  # data: {"attempt": 2}——worker 被打断后由�
 # data: {"name": "knowledge_search", "query": "...", "detail": "..."}（decisions/0018；detail 是参数摘要，0021 起所有工具都有）
 TOOL_STARTED = "tool.started"
 TOOL_FINISHED = "tool.finished"  # data: {"name": "python_exec", "ok": true, "hits": 0}（hits 只对 knowledge_search 有意义）
+# data: {"request": {...}}（decisions/0022）。等待用户审批：这次执行结束、不占 worker；SSE 流在这里暂停（结束响应），
+# 用户批准后客户端带 Last-Event-ID 重新订阅，后续事件接着发。不是终态
+RUN_AWAITING_APPROVAL = "run.awaiting_approval"
+# data: {"index": 0, "title": "...", "status": "started" | "finished" | "failed", "total": 3}（decisions/0022）
+RESEARCH_SUBTASK = "research.subtask"
 TERMINAL_EVENTS = frozenset({RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED})
+PAUSE_EVENTS = frozenset({RUN_AWAITING_APPROVAL})
 
 
 @dataclass(frozen=True)

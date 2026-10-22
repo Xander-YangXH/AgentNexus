@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentnexus.storage.postgres import AgentRun, RunStatus
+from agentnexus.storage.postgres import ACTIVE_STATUSES, AgentRun, RunStatus
 
 
 def purge_candidates_stmt(finished_before: datetime, limit: int):
@@ -43,7 +43,7 @@ class AgentRunRepository:
         """该对话正在排队或执行的 run（部分唯一索引保证至多一个）。"""
         stmt = select(AgentRun).where(
             AgentRun.conversation_id == conversation_id,
-            AgentRun.status.in_([RunStatus.QUEUED, RunStatus.RUNNING]),
+            AgentRun.status.in_(ACTIVE_STATUSES),
         )
         return (await self.session.scalars(stmt)).one_or_none()
 
@@ -99,13 +99,47 @@ class AgentRunRepository:
         return result.rowcount == 1
 
     async def cancel_queued(self, run_id: uuid.UUID) -> bool:
-        """queued -> cancelled 的原子转换。与 claim 用同一个条件（status='queued'），两者并发时只有一个能成功。"""
+        """queued / awaiting_approval -> cancelled 的原子转换（这两种状态下都没有人在执行它）。
+
+        与 claim 用同一个条件（status='queued'），两者并发时只有一个能成功。
+        """
         stmt = (
             update(AgentRun)
-            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.QUEUED)
+            .where(AgentRun.id == run_id, AgentRun.status.in_([RunStatus.QUEUED, RunStatus.AWAITING_APPROVAL]))
             .values(status=RunStatus.CANCELLED, finished_at=func.now())
         )
         return (await self.session.execute(stmt)).rowcount == 1
+
+    async def await_approval(self, run_id: uuid.UUID, request: dict, *, version: int) -> bool:
+        """running -> awaiting_approval（decisions/0022）：结束这次执行、放弃租约（不占 worker），记下要审批的内容。
+        带租约版本校验：被接管的旧执行者不能把 run 改成等待审批。"""
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.RUNNING, AgentRun.lease_version == version)
+            .values(status=RunStatus.AWAITING_APPROVAL, approval_request=request, approval_response=None,
+                    approval_requested_at=func.now(), lease_owner=None, lease_expires_at=None)
+        )
+        return (await self.session.execute(stmt)).rowcount == 1
+
+    async def respond(self, run_id: uuid.UUID, response: dict) -> bool:
+        """awaiting_approval -> queued，记下用户的答复。attempts 清零：审批是人的动作，不算“被打断的重试”，
+        否则多轮修改计划会耗尽接管次数上限（decisions/0020 的 max_attempts）。"""
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.AWAITING_APPROVAL)
+            .values(status=RunStatus.QUEUED, approval_response=response, approval_request=None, attempts=0)
+        )
+        return (await self.session.execute(stmt)).rowcount == 1
+
+    async def expire_approvals(self, requested_before: datetime) -> list[uuid.UUID]:
+        """等待审批太久的 run 取消掉（之后 checkpoint 由清理任务按 finished_at 回收）。"""
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.status == RunStatus.AWAITING_APPROVAL, AgentRun.approval_requested_at < requested_before)
+            .values(status=RunStatus.CANCELLED, error_code="approval_expired", finished_at=func.now())
+            .returning(AgentRun.id)
+        )
+        return list((await self.session.scalars(stmt)).all())
 
     async def list_by_conversation(self, conversation_id: uuid.UUID) -> list[AgentRun]:
         stmt = (

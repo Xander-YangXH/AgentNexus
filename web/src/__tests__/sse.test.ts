@@ -90,6 +90,20 @@ describe('streamRunEvents', () => {
     expect(headerOf(fetchImpl.mock.calls[0], 'Last-Event-ID')).toBeUndefined()
   })
 
+  it('stops at an approval pause and can resume after it (decisions/0022)', async () => {
+    const plan = { kind: 'research_plan', request: 'x', plan: [], estimate: { subtasks: 0, model_calls: '2~2' } }
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse(ev('run.started', {}, '1') + ev('run.awaiting_approval', { request: plan }, '2')))
+      .mockResolvedValueOnce(sseResponse(ev('run.started', {}, '3') + ev('run.completed', { message_id: 'm' }, '4')))
+    const paused = await streamRunEvents('r', { headers: {}, onEvent: () => {}, fetchImpl })
+    expect(paused.type).toBe('run.awaiting_approval')
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // 暂停不是断线，不重连
+    const done = await streamRunEvents('r', { headers: {}, onEvent: () => {}, fetchImpl, lastEventId: paused.id })
+    expect(done.type).toBe('run.completed')
+    expect(headerOf(fetchImpl.mock.calls[1], 'Last-Event-ID')).toBe('2') // 从审批事件之后继续
+  })
+
   it('reconnects with Last-Event-ID when the stream ends before a terminal event', async () => {
     const fetchImpl = vi
       .fn()

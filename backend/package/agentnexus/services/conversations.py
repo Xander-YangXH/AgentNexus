@@ -15,9 +15,9 @@ class ConversationService:
     def __init__(self, sessionmaker: async_sessionmaker):
         self.sessionmaker = sessionmaker
 
-    async def create(self, user_id: uuid.UUID, title: str | None) -> Conversation:
+    async def create(self, user_id: uuid.UUID, title: str | None, agent: str = "chat") -> Conversation:
         async with self.sessionmaker() as session, session.begin():
-            return await ConversationRepository(session).create(user_id, title)
+            return await ConversationRepository(session).create(user_id, title, agent)
 
     async def list_for_user(self, user_id: uuid.UUID, *, archived: bool = False) -> list[Conversation]:
         async with self.sessionmaker() as session:

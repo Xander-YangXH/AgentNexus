@@ -38,9 +38,19 @@ class RunStatus(enum.StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # 等待用户审批（decisions/0022）：这次执行已结束、租约已放弃，不占 worker；批准后回到 queued，从 checkpoint 继续
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
-ACTIVE_STATUSES = (RunStatus.QUEUED, RunStatus.RUNNING)
+# 活跃 = 还会继续写这个 run 的 checkpoint。等待审批也算：同一对话不能在等待期间再开一个 run
+ACTIVE_STATUSES = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.AWAITING_APPROVAL)
+
+
+class AgentKind(enum.StrEnum):
+    """对话使用哪种 Agent（decisions/0022）：建对话时选定。"""
+
+    CHAT = "chat"
+    RESEARCH = "research"  # 深度调研：制定计划 → 审批 → 并行子 Agent → 汇总成报告
 
 def _uuid_pk():
     return mapped_column(
@@ -78,6 +88,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        CheckConstraint(_in_list("agent", AgentKind), name="ck_conversations_agent"),
         Index(
             "ix_conversations_user_recent_active",
             "user_id",
@@ -89,6 +100,7 @@ class Conversation(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str | None] = mapped_column(String(200))
+    agent: Mapped[str] = mapped_column(String(16), default=AgentKind.CHAT, server_default=AgentKind.CHAT.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # 归档而不是删除（decisions/0012）：隐藏、可恢复；真正删除要连带清理消息、run、checkpoint、事件流
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -112,6 +124,8 @@ class Message(Base):
     # 助手回答引用的知识库片段（decisions/0018）。存快照而不是只存分块 id：文档以后重新处理、分块被替换，
     # 历史回答的引用仍然能展示当时的原文。没有检索的回答为 NULL
     citations: Mapped[list | None] = mapped_column(JSONB)
+    # 附件（decisions/0022）：产物的快照 [{id, filename, content_type, size}]，下载走 /api/artifacts/{id}
+    attachments: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -140,7 +154,7 @@ class AgentRun(LeaseMixin, Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"))
     input_message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id"))
     output_message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("messages.id"))
-    status: Mapped[str] = mapped_column(String(16), default=RunStatus.QUEUED)
+    status: Mapped[str] = mapped_column(String(24), default=RunStatus.QUEUED)
     error: Mapped[str | None] = mapped_column(Text)  # 原始报错，只供排查，不对外
     error_code: Mapped[str | None] = mapped_column(String(32))  # 对外的错误码（runtime/failures.py）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -150,6 +164,30 @@ class AgentRun(LeaseMixin, Base):
     checkpoint_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 取消请求（跨进程）：取消接口写这里（事实来源）并发一条 Redis 消息；执行它的 worker 收到消息或在心跳时发现后停止
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 审批（decisions/0022）：等待时展示给用户的内容（例如调研计划）与用户的答复（恢复执行时交给图）
+    approval_request: Mapped[dict | None] = mapped_column(JSONB)
+    approval_response: Mapped[dict | None] = mapped_column(JSONB)
+    approval_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Artifact(Base):
+    """Agent 产出的文件（decisions/0022），例如调研报告。内容放在原件存储（blob_key），这里只存元数据。
+
+    与助手消息在同一事务里写入（带租约版本校验）：被接管的旧执行者写不进来。
+    """
+
+    __tablename__ = "artifacts"
+    __table_args__ = (Index("ix_artifacts_conversation", "conversation_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)  # 由 Agent 生成：先写原件，再落库
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"))
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(100))
+    size: Mapped[int] = mapped_column(BigInteger)
+    blob_key: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ---------------- 知识库（阶段 2，decisions/0014、0015） ----------------

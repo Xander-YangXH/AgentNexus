@@ -22,6 +22,14 @@ class RunNotRetryable(Exception):
     """只有失败或已取消、且输入是对话最后一条消息的 run 才能重试。"""
 
 
+class RunNotAwaitingApproval(Exception):
+    """run 不在等待审批（已被批准、取消或过期）。"""
+
+
+class ArtifactNotFound(Exception):
+    """产物不存在或不属于当前用户（对外不区分）。"""
+
+
 class ConversationArchived(Exception):
     """对话已归档，恢复后才能继续发消息或重试。"""
 

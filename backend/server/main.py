@@ -9,7 +9,7 @@ from agentnexus.observability.logging import configure_logging
 from agentnexus.services.run_events import RunEventStreamer
 from server.errors import install_error_handlers
 from server.middleware import RequestContextMiddleware
-from server.routers import conversations, events, graph, health, knowledge, users
+from server.routers import artifacts, conversations, events, graph, health, knowledge, users
 
 
 @asynccontextmanager
@@ -20,6 +20,7 @@ async def lifespan(app: FastAPI):
     c = await assembly.build(settings, worker=False)
     app.state.sessionmaker = c.sessionmaker
     app.state.knowledge_service = c.knowledge_service
+    app.state.artifact_service = c.artifact_service
     app.state.search_service = c.search_service
     app.state.graph_service = c.graph_service
     # 这三个在 api 里不 start：enqueue 只是空操作（通知已在提交任务的事务里发出），cancel 写数据库并广播给 worker
@@ -49,6 +50,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.include_router(events.router)
     app.include_router(knowledge.router)
     app.include_router(graph.router)
+    app.include_router(artifacts.router)
     # 服务层只抛领域异常，HTTP 状态码与统一错误格式在这里映射（server/errors.py）
     install_error_handlers(app)
     # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式

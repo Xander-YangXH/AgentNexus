@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 4「多智能体、工具与扩展生态」——4.1、4.2 已完成，下一步 4.3
+## 当前阶段：ROADMAP 阶段 4「多智能体、工具与扩展生态」已完成，下一步阶段 5「多租户权限与 Dashboard」
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -28,7 +28,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **阶段 2「RAG 知识库」已完成**：0014 选型；0015 文档入口；0016 入库流水线、Qdrant、锁文件；0017 检索 + 重排、知识库页面；0018 预检索 + 检索工具、引用快照、Markdown 按标题切分。学习导读 `docs/guides/rag-pipeline.md`。阶段 2 待办（可选）：改了分块策略后“全部重新处理”的管理命令；交给模型前按相似度去重；多轮追问评测集；删除文档接口。
 3. **阶段 3「知识图谱」已完成**（0019）：用户确认引入 Neo4j（派生存储，PostgreSQL 为事实来源）、按知识库手动构建（预估 + 缓存 + 上限）、先只做浏览与溯源。学习导读 `docs/guides/knowledge-graph.md`。待办（可选）：近义实体合并、图谱参与问答（需要多跳评测集）、文档变更后提示重新构建。
-4. **阶段 4** 拆为 4.1 / 4.2 / 4.3。**4.1 已完成**（0020）：独立 worker（`python -m agentnexus.worker`，compose 的 worker 服务，可 `--scale worker=2`）+ PostgreSQL 租约队列（SKIP LOCKED、心跳、fencing、事务内 NOTIFY）；run 从 checkpoint 续做；跨进程取消。学习导读 `docs/guides/worker-leases.md`。**4.2 选型草稿 0021 已写**（实验：加固容器 11 个恶意用例全部挡住、新建容器 126ms；持有 socket = 宿主机 root；SSRF 经 host.docker.internal 仍可达，Squid 按 IP 过滤后全部拦下）。**4.2 已完成**（0021）：sandbox 服务（独占 Docker socket，加固一次性容器，工作空间按对话）、MCP 网关（fetch，internal 网络 + Squid 出口代理）、Skills（`backend/skills/*.md` + `load_skill`，工具由技能启用）。compose 新增 sandbox-runtime（只构建镜像）、sandbox、mcp-gateway、egress-proxy 和三个网络；`.env` 需要 `SANDBOX_TOKEN`。学习导读 `docs/guides/tools-sandbox.md`。4.2 待办（可选）：工作区文件下载接口、删除对话时清理工作空间、沙盒镜像加中文字体。**下一步 4.3**：多 Agent 编排（supervisor + 并行子任务）与审批中断（interrupt + resume），先写选型草稿。
+4. **阶段 4** 拆为 4.1 / 4.2 / 4.3。**4.1 已完成**（0020）：独立 worker（`python -m agentnexus.worker`，compose 的 worker 服务，可 `--scale worker=2`）+ PostgreSQL 租约队列（SKIP LOCKED、心跳、fencing、事务内 NOTIFY）；run 从 checkpoint 续做；跨进程取消。学习导读 `docs/guides/worker-leases.md`。**4.2 选型草稿 0021 已写**（实验：加固容器 11 个恶意用例全部挡住、新建容器 126ms；持有 socket = 宿主机 root；SSRF 经 host.docker.internal 仍可达，Squid 按 IP 过滤后全部拦下）。**4.2 已完成**（0021）：sandbox 服务（独占 Docker socket，加固一次性容器，工作空间按对话）、MCP 网关（fetch，internal 网络 + Squid 出口代理）、Skills（`backend/skills/*.md` + `load_skill`，工具由技能启用）。compose 新增 sandbox-runtime（只构建镜像）、sandbox、mcp-gateway、egress-proxy 和三个网络；`.env` 需要 `SANDBOX_TOKEN`。学习导读 `docs/guides/tools-sandbox.md`。4.2 待办（可选）：工作区文件下载接口、删除对话时清理工作空间、沙盒镜像加中文字体。**4.3 已完成**（0022）：深度调研对话（`conversations.agent = research`）：计划（结构化输出）→ 审批（run 状态 `awaiting_approval`，放弃租约，`POST /api/runs/{id}/approval`）→ Send 并行子 Agent → 汇总报告（`artifacts` 表 + `GET /api/artifacts/{id}/download`）；迁移 0010。里程碑：并行中 kill -9 worker，只重做未完成的子任务。学习导读 `docs/guides/multi-agent-research.md`。4.3 待办（可选）：按工具审批、孤儿原件清理、审批过期时发事件。**下一步阶段 5**：RBAC、真实认证、用量统计与 Dashboard，先写选型草稿。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
@@ -57,8 +57,8 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 - ARCHITECTURE.md 增加"agent harness ↔ `agents/` 包"的对应说明。
 
 ## 已定决策
-见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面；0018 知识库问答（预检索 + 工具、引用快照）；0019 知识图谱（Neo4j 派生存储、手动构建与费用控制）；0020 独立 worker 与 PostgreSQL 租约队列；0021 工具、沙盒与 MCP（独立 sandbox 服务、MCP 网关 + 出口代理、Skills）。
+见 `docs/decisions/`：0001 技术栈基线；0002 不引入 LlamaIndex，RAG 链路手写；0003 本地环境 Compose + healthcheck；0004 数据层 SQLAlchemy 异步 + Alembic；0005 阶段 1 先用进程内派发器，阶段 4 换 ARQ + lease；0006 对话历史以 messages 表为准、checkpoint 按 run；0007 流式输出：Redis Streams + SSE，数据库为准；0008 前端同源接入与 fetch 读取 SSE；0009 取消、重试与错误码；0010 checkpoint 保留 24 小时后清理；0011 统一错误格式、request-id 与结构化日志；0012 对话管理（归档、按活动排序、游标分页）；0013 模型供应商 DeepSeek（Anthropic 兼容格式、默认关闭思考）；0014 RAG 选型（本地 bge-small-zh、重排、Qdrant 派生索引）；0015 知识库数据模型、原件存储、解析与分块；0016 入库流水线、向量索引与依赖锁文件；0017 检索、重排与检索测试页面；0018 知识库问答（预检索 + 工具、引用快照）；0019 知识图谱（Neo4j 派生存储、手动构建与费用控制）；0020 独立 worker 与 PostgreSQL 租约队列；0021 工具、沙盒与 MCP（独立 sandbox 服务、MCP 网关 + 出口代理、Skills）；0022 深度调研（Send 并行、计划审批、报告产物）。
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q47。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q49。

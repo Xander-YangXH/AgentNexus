@@ -1,4 +1,6 @@
 import type {
+  AgentKind,
+  Attachment,
   Chunk,
   Conversation,
   EntityDetail,
@@ -86,6 +88,24 @@ async function upload<T>(path: string, file: File): Promise<T> {
   return JSON.parse(text) as T
 }
 
+/**
+ * 下载产物（decisions/0022）。接口要带 X-User-Id 头，普通 <a href> 带不上，所以先 fetch 成 Blob，
+ * 再用临时的对象 URL 触发下载。文件名用接口记录里的（服务端也在 Content-Disposition 里给了）。
+ */
+async function downloadArtifact(a: Attachment): Promise<void> {
+  const res = await fetch(`/api/artifacts/${a.id}/download`, { headers: authHeaders() })
+  if (!res.ok) throw new HttpError(res.status, parseErrorBody(await res.text()))
+  const url = URL.createObjectURL(await res.blob())
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = a.filename
+    link.click()
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+}
+
 export interface MessagePage {
   items: Message[]
   hasMore: boolean // 来自响应头 X-Has-More
@@ -105,13 +125,17 @@ export const api = {
     request<Conversation[]>('GET', `/api/conversations${archived ? '?archived=true' : ''}`),
   updateConversation: (cid: string, patch: { title?: string | null; archived?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${cid}`, patch),
-  createConversation: (title: string | null) => request<Conversation>('POST', '/api/conversations', { title }),
+  createConversation: (title: string | null, agent: AgentKind = 'chat') =>
+    request<Conversation>('POST', '/api/conversations', { title, agent }),
   listMessagesPage,
   sendMessage: (cid: string, content: string) => request<Run>('POST', `/api/conversations/${cid}/messages`, { content }),
   activeRun: (cid: string) => request<Run | null>('GET', `/api/conversations/${cid}/active-run`),
   listRuns: (cid: string) => request<Run[]>('GET', `/api/conversations/${cid}/runs`),
   cancelRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/cancel`),
   retryRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/retry`),
+  answerApproval: (runId: string, approved: boolean, feedback?: string) =>
+    request<Run>('POST', `/api/runs/${runId}/approval`, { approved, feedback: feedback ?? null }),
+  downloadArtifact,
 
   getConversationKnowledgeBases: (cid: string) =>
     request<{ knowledge_base_ids: string[] }>('GET', `/api/conversations/${cid}/knowledge-bases`),

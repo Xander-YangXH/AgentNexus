@@ -57,6 +57,11 @@ class Settings:
     mcp_gateway_url: str | None = None  # 例如 http://mcp-gateway:8080/mcp
     skills_dir: str | None = None  # 默认用代码里自带的 backend/skills
     agent_max_tool_rounds: int = 8  # 加载技能后一次回答最多几轮工具调用（未加载技能时仍是检索的 3 轮）
+    # 深度调研（decisions/0022）
+    research_timeout_seconds: float = 900.0  # 调研 run 单次执行的超时（不含等待审批的时间）
+    research_max_subtasks: int = 5
+    research_concurrency: int = 3  # 同时调用模型的子 Agent 数
+    approval_ttl_hours: float = 24.0  # 等待审批多久后自动取消
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
     # 流式事件（decisions/0007）。用代码默认值、不开放环境变量，需要时再接入 compose
@@ -113,6 +118,10 @@ def get_settings() -> Settings:
         mcp_gateway_url=os.environ.get("MCP_GATEWAY_URL") or None,
         skills_dir=os.environ.get("SKILLS_DIR") or None,
         agent_max_tool_rounds=int(os.environ.get("AGENT_MAX_TOOL_ROUNDS", 8)),
+        research_timeout_seconds=float(os.environ.get("RESEARCH_TIMEOUT_SECONDS", 900)),
+        research_max_subtasks=int(os.environ.get("RESEARCH_MAX_SUBTASKS", 5)),
+        research_concurrency=int(os.environ.get("RESEARCH_CONCURRENCY", 3)),
+        approval_ttl_hours=float(os.environ.get("APPROVAL_TTL_HOURS", 24)),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

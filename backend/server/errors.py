@@ -32,6 +32,8 @@ from agentnexus.services.errors import (
     RunConflict,
     RunNotFound,
     RunNotRetryable,
+    RunNotAwaitingApproval,
+    ArtifactNotFound,
     UserExists,
 )
 
@@ -46,6 +48,8 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     UserExists: (409, "user_exists", "user name already exists"),
     RunAlreadyFinished: (409, "run_already_finished", "run already finished"),
     RunNotRetryable: (409, "run_not_retryable", "run cannot be retried"),
+    RunNotAwaitingApproval: (409, "run_not_awaiting_approval", "run is not awaiting approval"),
+    ArtifactNotFound: (404, "artifact_not_found", "artifact not found"),
     KnowledgeBaseNotFound: (404, "knowledge_base_not_found", "knowledge base not found"),
     KnowledgeBaseExists: (409, "knowledge_base_exists", "knowledge base name already exists"),
     DocumentNotFound: (404, "document_not_found", "document not found"),

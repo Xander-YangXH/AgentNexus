@@ -17,6 +17,7 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
 from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
+from agentnexus.agents.buildin.research import FakePlanner, LLMPlanner, ResearchAgent, ResearchContext
 from agentnexus.agents.skills import DEFAULT_DIR as DEFAULT_SKILLS_DIR, load_skills
 from agentnexus.agents.tools import StaticTools
 from agentnexus.agents.tools.mcp import McpToolbox
@@ -33,6 +34,7 @@ from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.sandbox.client import SandboxClient
+from agentnexus.services.artifacts import ArtifactService
 from agentnexus.services.graph import GraphService, Prices
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
@@ -47,6 +49,7 @@ class Components:
     settings: Settings
     sessionmaker: object
     knowledge_service: KnowledgeService
+    artifact_service: ArtifactService
     search_service: SearchService
     graph_service: GraphService
     run_dispatcher: RunDispatcher
@@ -72,8 +75,10 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     stack.push_async_callback(qdrant.close)
     index = ChunkIndex(qdrant, settings.qdrant_collection, embedder.dim)
     await index.ensure()  # 维度对不上（换了模型）直接启动失败，比悄悄写坏索引好
+    blobs = LocalBlobStore(settings.blob_root)
+    artifacts = ArtifactService(sessionmaker, blobs)  # 调研报告等产物与知识库原件共用原件存储（api、worker 都挂了这个卷）
     knowledge = KnowledgeService(
-        sessionmaker, LocalBlobStore(settings.blob_root), embedder, index,
+        sessionmaker, blobs, embedder, index,
         max_upload_bytes=settings.max_upload_mb * 1024 * 1024, token_counter=embedder.token_counter(),
         lease_seconds=settings.job_lease_seconds,
     )
@@ -104,21 +109,38 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         async def knowledge_search(user_id, kb_ids, query):
             return (await search.search(user_id, kb_ids, query, top_k=settings.knowledge_top_k)).hits
 
+        chat_model = build_chat_model(settings)
+        tools = await _tools(settings, stack)
         agent = ChatbotAgent(
-            ChatbotContext(model=build_chat_model(settings), knowledge_search=knowledge_search,
-                           prefetch=settings.knowledge_prefetch, **await _tools(settings, stack)),
+            ChatbotContext(model=chat_model, knowledge_search=knowledge_search,
+                           prefetch=settings.knowledge_prefetch, **tools),
             checkpointer=checkpointer,
         )
-        handler = agent.run
+        # 深度调研（decisions/0022）：计划用结构化输出（关闭思考的模型），子 Agent 与汇总用聊天模型
+        planner = (FakePlanner(max_subtasks=settings.research_max_subtasks) if settings.llm_provider == "fake"
+                   else LLMPlanner(build_chat_model(dataclasses.replace(settings, llm_thinking="disabled")),
+                                   max_subtasks=settings.research_max_subtasks))
+        research = ResearchAgent(
+            ResearchContext(model=chat_model, planner=planner, knowledge_search=knowledge_search,
+                            tool_sources=tools["tool_sources"], save_artifact=artifacts.save,
+                            concurrency=settings.research_concurrency),
+            checkpointer=checkpointer,
+        )
+        agents = {"chat": agent.run, "research": research.run}
+
+        async def handler(ctx):
+            return await agents[ctx.agent](ctx)
         janitor = CheckpointJanitor(
             sessionmaker, checkpointer, retention=timedelta(hours=settings.checkpoint_retention_hours),
             interval_seconds=settings.checkpoint_janitor_interval_seconds,
+            approval_ttl=timedelta(hours=settings.approval_ttl_hours),
         )
 
     lease = {"lease_seconds": settings.job_lease_seconds, "heartbeat_seconds": settings.job_heartbeat_seconds}
     runs = RunDispatcher(
         sessionmaker, handler, concurrency=settings.worker_concurrency, run_timeout=settings.run_timeout_seconds,
         sweep_interval=settings.sweep_interval_seconds, max_attempts=settings.run_max_attempts, cancel_bus=cancel_bus,
+        run_timeouts={"research": settings.research_timeout_seconds},
         events=RunEventPublisher(publish_redis, maxlen=settings.event_stream_maxlen,
                                  ttl_seconds=settings.event_stream_ttl_seconds),
         **lease,
@@ -128,7 +150,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     # 一次只跑一个构建：每个构建内部已经并发调用模型
     graph_jobs = JobDispatcher(graph, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
                                heartbeat_seconds=settings.job_heartbeat_seconds)
-    return Components(settings, sessionmaker, knowledge, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
+    return Components(settings, sessionmaker, knowledge, artifacts, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
 
 
 async def _tools(settings: Settings, stack: contextlib.AsyncExitStack) -> dict:

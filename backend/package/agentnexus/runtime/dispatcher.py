@@ -8,6 +8,8 @@
 - 被打断的 run（worker 崩溃、被暂停、优雅关停）由别的 worker 接管，并从 LangGraph checkpoint 续做（0020），最多 max_attempts 次。
 
 事件（decisions/0007）：认领后发 run.started（第一次）或 run.resumed（接管后）；终态事件一律“先提交数据库、再发布”。
+审批（decisions/0022）：Agent 返回 ApprovalRequired 时，run 置为 awaiting_approval 并放弃租约（等待期间不占执行槽），
+发 run.awaiting_approval；用户答复后 run 回到 queued，被任意 worker 认领，Agent 凭 checkpoint 和答复继续。
 取消（decisions/0009、0020）：取消请求写进数据库（事实来源）；在本进程执行的直接取消任务，其他进程通过 Redis 广播（cancel_bus）
 收到，心跳时也会检查数据库标记兜底。“用户取消”和“服务关停”都是 CancelledError，用 Task.cancelling() 区分。
 """
@@ -26,8 +28,16 @@ from typing import Any, Protocol
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from agentnexus.agents.types import AgentReply, RunHandler
-from agentnexus.events import NULL_SINK, RUN_CANCELLED, RUN_COMPLETED, RUN_FAILED, RUN_RESUMED, RUN_STARTED
+from agentnexus.agents.types import AgentReply, ApprovalRequired, RunHandler
+from agentnexus.events import (
+    NULL_SINK,
+    RUN_AWAITING_APPROVAL,
+    RUN_CANCELLED,
+    RUN_COMPLETED,
+    RUN_FAILED,
+    RUN_RESUMED,
+    RUN_STARTED,
+)
 from agentnexus.events.redis_stream import RunEventPublisher
 from agentnexus.observability.context import run_id_var
 from agentnexus.runtime.failures import ErrorCode, classify
@@ -81,6 +91,7 @@ class RunDispatcher:
         max_attempts: int = 3,
         owner: str | None = None,
         cancel_bus: CancelBus | None = None,
+        run_timeouts: dict[str, float] | None = None,
     ):
         self._svc = RunService(sessionmaker)
         self._queue = LeaseQueue(
@@ -91,6 +102,7 @@ class RunDispatcher:
         self._handler = handler
         self._concurrency = concurrency
         self._run_timeout = run_timeout
+        self._run_timeouts = run_timeouts or {}  # 按 Agent 类型覆盖（调研要调用多个子 Agent，单次执行更长）
         self._sweep_interval = sweep_interval
         self._heartbeat_seconds = heartbeat_seconds
         self._max_attempts = max_attempts
@@ -208,7 +220,8 @@ class RunDispatcher:
             heartbeat = asyncio.create_task(self._heartbeat(job, task))
             if run_id in self._cancel_requested:  # 取消请求在任务创建之前就到了
                 task.cancel()
-            result = await asyncio.wait_for(task, timeout=self._run_timeout)
+            timeout = self._run_timeouts.get(ctx.agent, self._run_timeout)
+            result = await asyncio.wait_for(task, timeout=timeout)
         except asyncio.CancelledError:
             current = asyncio.current_task()
             if current is not None and current.cancelling() == 0:
@@ -230,15 +243,25 @@ class RunDispatcher:
             raise
         except TimeoutError:
             outcome = ErrorCode.TIMEOUT
-            await self._fail(job, f"timeout after {self._run_timeout}s", ErrorCode.TIMEOUT)
+            await self._fail(job, f"timeout after {self._run_timeouts.get(ctx.agent, self._run_timeout)}s",
+                             ErrorCode.TIMEOUT)
         except Exception as exc:
             outcome = classify(exc)
             log.warning("run failed", exc_info=True)  # 原始异常写日志，便于排查（run_id 由上下文带上）
             await self._fail(job, f"{type(exc).__name__}: {exc}"[:2000], outcome)
         else:
+            if isinstance(result, ApprovalRequired):
+                # 等待审批：先提交（放弃租约、记下要审批的内容），再发布事件
+                if await self._svc.await_approval(run_id, result.request, version=job.version):
+                    outcome = "awaiting_approval"
+                    await self._emit(run_id, RUN_AWAITING_APPROVAL, {"request": result.request})
+                else:
+                    outcome = "discarded"
+                return
             reply = result if isinstance(result, AgentReply) else AgentReply(content=result)
             message_id = await self._svc.complete(
-                run_id, ctx.conversation_id, reply.content, reply.citations, version=job.version
+                run_id, ctx.conversation_id, reply.content, reply.citations, version=job.version,
+                attachments=reply.attachments,
             )
             if message_id is None:
                 outcome = "discarded"
