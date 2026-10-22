@@ -1,6 +1,7 @@
 # 直接依赖（人工维护，写版本范围）。实际安装用 requirements.lock：
 #   uv pip compile requirements.txt --universal --python-version 3.12 --exclude-newer <今天减 14 天> -o requirements.lock
 # --exclude-newer 只取发布满两周的版本（含间接依赖），避免装到刚发布、可能有问题或被投毒的包
+# 升级：只改日期不会升级任何包（uv 优先沿用锁文件里已有的版本），要加 --upgrade-package <包名>（或 --upgrade 全部升级）
 fastapi>=0.115
 uvicorn[standard]>=0.30
 psycopg[binary,pool]>=3.3.3

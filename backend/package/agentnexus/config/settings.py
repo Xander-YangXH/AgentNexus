@@ -30,6 +30,10 @@ class Settings:
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "chunks"  # 别名；实际集合名带时间戳，重建索引时切换（storage/vectors.py）
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_threads: int | None = None  # None：用满所有核。设小可给同时进行的检索留 CPU，但入库变慢（见 knowledge/embedding.py）
+    rerank_enabled: bool = True  # 关闭则不加载重排模型（省约 0.8GB 内存），检索只用向量召回
+    rerank_model: str = "BAAI/bge-reranker-v2-m3-int8"
+    rerank_candidates: int = 10  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
     ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
@@ -63,7 +67,11 @@ def get_settings() -> Settings:
         qdrant_url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
         qdrant_collection=os.environ.get("QDRANT_COLLECTION", "chunks"),
         embedding_model=os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"),
+        embedding_threads=int(os.environ["EMBEDDING_THREADS"]) if os.environ.get("EMBEDDING_THREADS") else None,
         ingest_concurrency=int(os.environ.get("INGEST_CONCURRENCY", 1)),
+        rerank_enabled=os.environ.get("RERANK_ENABLED", "true").lower() not in ("0", "false", "no", "off"),
+        rerank_model=os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3-int8"),
+        rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", 10)),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

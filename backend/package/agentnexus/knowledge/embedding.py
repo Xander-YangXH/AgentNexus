@@ -26,10 +26,14 @@ class FastEmbedder:
     查询不加 bge 官方推荐的前缀：在自建评测集上加了反而变差（decisions/0014）。
     """
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, *, batch_size: int = 32):
+    def __init__(self, model_name: str = DEFAULT_MODEL, *, batch_size: int = 32, threads: int | None = None):
         from fastembed import TextEmbedding  # 延迟导入：只用到分块、不用向量的地方（如单元测试）不必加载 onnxruntime
 
-        self._model = TextEmbedding(model_name)
+        # threads=None：onnxruntime 默认用满所有核。限制线程数是“入库速度换检索延迟”，默认不限（decisions/0017 的实测）：
+        # 容器里（10 核）单独入库 10 线程 28ms/块、4 线程 38ms/块；入库同时连续重排时，4 线程让重排从 3.7s 降到 2.7s，
+        # 但入库慢了约一倍。本机 macOS 上的同一实验结论相反（线程数几乎不影响入库），所以以容器实测为准
+        self.threads = threads
+        self._model = TextEmbedding(model_name, threads=threads)
         self._batch_size = batch_size
         self.model_name = model_name
         self.dim: int = self._model.embedding_size

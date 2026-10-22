@@ -44,3 +44,52 @@ export type RunEvent =
   | { type: 'run.cancelled'; data: { synthesized?: boolean }; id: string | null }
 
 export const TERMINAL_EVENTS = new Set(['run.completed', 'run.failed', 'run.cancelled'])
+
+// ---------- 知识库（decisions/0015、0016、0017） ----------
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+}
+
+export type DocumentStatus = 'pending' | 'processing' | 'ready' | 'failed'
+
+export interface KnowledgeDocument {
+  id: string
+  knowledge_base_id: string
+  filename: string
+  size_bytes: number
+  status: DocumentStatus
+  error_code: string | null // 原始报错不对外
+  chunk_count: number
+  created_at: string
+  processed_at: string | null
+}
+
+export interface Chunk {
+  id: string
+  seq: number
+  text: string
+  token_count: number
+  page: number | null
+}
+
+export interface SearchHit {
+  chunk_id: string
+  document_id: string
+  knowledge_base_id: string
+  filename: string
+  seq: number
+  page: number | null
+  text: string
+  vector_score: number // 余弦相似度
+  rerank_score: number | null // 重排模型原始分数，只在同一个问题内部可比
+}
+
+export interface SearchResult {
+  hits: SearchHit[]
+  reranked: boolean
+  timings_ms: Record<string, number>
+}

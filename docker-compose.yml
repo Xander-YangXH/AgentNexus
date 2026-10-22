@@ -29,7 +29,10 @@ x-backend: &backend
     QDRANT_URL: http://qdrant:6333
     QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
     INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
-    # 不在这里覆盖 EMBEDDING_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
+    EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
+    RERANK_ENABLED: ${RERANK_ENABLED:-true}
+    RERANK_CANDIDATES: ${RERANK_CANDIDATES:-10}
+    # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
 
 services:
   postgres:

@@ -96,6 +96,26 @@ class ChunkIndex:
                 wait=True,
             )
 
+    async def search(
+        self, vector: list[float], knowledge_base_ids: Sequence[uuid.UUID], *, limit: int
+    ) -> list[tuple[uuid.UUID, float]]:
+        """在指定知识库范围内找最相近的分块，返回 [(分块 id, 相似度)]，按相似度从高到低。
+
+        知识库过滤在 Qdrant 内部和近邻搜索一起做（不是先取近邻再过滤），所以过滤后的条数不会变少（0014 的基准）。
+        """
+        result = await self.client.query_points(
+            self.alias,
+            query=vector,
+            query_filter=models.Filter(
+                must=[models.FieldCondition(
+                    key="knowledge_base_id", match=models.MatchAny(any=[str(k) for k in knowledge_base_ids])
+                )]
+            ),
+            limit=limit,
+            with_payload=False,
+        )
+        return [(uuid.UUID(str(p.id)), p.score) for p in result.points]
+
     async def delete_document(self, document_id: uuid.UUID) -> None:
         await self.client.delete(
             self.alias,

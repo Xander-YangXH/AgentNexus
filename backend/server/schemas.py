@@ -87,6 +87,31 @@ class DocumentOut(_Out):
     processed_at: datetime | None
 
 
+class SearchRequest(BaseModel):
+    knowledge_base_ids: list[uuid.UUID] = Field(min_length=1, max_length=20)
+    query: str = Field(min_length=1, max_length=1000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    rerank: bool = True
+
+
+class SearchHitOut(_Out):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    filename: str
+    seq: int
+    page: int | None
+    text: str
+    vector_score: float
+    rerank_score: float | None
+
+
+class SearchOut(_Out):
+    hits: list[SearchHitOut]
+    reranked: bool  # 部署关闭了重排时，即使请求 rerank=true 也是 false
+    timings_ms: dict[str, float]
+
+
 class ChunkOut(_Out):
     id: uuid.UUID
     seq: int

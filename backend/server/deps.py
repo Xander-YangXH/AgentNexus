@@ -8,6 +8,7 @@ from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.ingest import IngestDispatcher
 from agentnexus.repositories.users import UserRepository
 from agentnexus.services.knowledge import KnowledgeService
+from agentnexus.services.search import SearchService
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.storage.postgres import AgentRun
 from agentnexus.services.conversations import ConversationService
@@ -33,6 +34,10 @@ def get_knowledge_service(request: Request) -> KnowledgeService:
 
 def get_ingest_dispatcher(request: Request) -> IngestDispatcher:
     return request.app.state.ingest_dispatcher
+
+
+def get_search_service(request: Request) -> SearchService:
+    return request.app.state.search_service
 
 
 SessionMaker = Annotated[async_sessionmaker, Depends(get_sessionmaker)]

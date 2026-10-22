@@ -45,8 +45,26 @@ class Chunk:
     page: int | None
 
 
+def _raw_sentences(text: str) -> list[str]:
+    """切句但保留原文里的空白：句子之间的空格、换行（段落结构）都留在句子里，拼回去与原文一致。
+
+    第一版对每句 strip() 后直接拼接，Markdown 的标题和正文粘成一行，英文 "Really? Yes" 变成 "Really?Yes"
+    （2.3 在检索测试页面上看到的）。纯空白的片段（例如单独的换行）并到前一句的末尾。
+    """
+    out: list[str] = []
+    for piece in _SENTENCE.findall(text):
+        if not piece:
+            continue
+        if piece.isspace():
+            if out:
+                out[-1] += piece
+            continue
+        out.append(piece)
+    return out
+
+
 def split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENTENCE.findall(text) if s.strip()]
+    return [s.strip() for s in _raw_sentences(text) if s.strip()]
 
 
 def _hard_split(sentence: str, counter: TokenCounter, limit: int) -> list[str]:
@@ -86,9 +104,13 @@ def chunk_sections(
     # 1) 切成带页码的句子；超长句子先强制切开
     units: list[tuple[str, int, int | None]] = []  # (文本, token 数, 页码)
     for section in sections:
-        for sentence in split_sentences(section.text):
+        start = len(units)
+        for sentence in _raw_sentences(section.text):
             for piece in _hard_split(sentence, counter, hard_limit):
                 units.append((piece, counter.count(piece), section.page))
+        if len(units) > start and not units[-1][0][-1].isspace():  # 跨页（跨 section）处断开，不让两页的字粘在一起
+            text, n, page = units[-1]
+            units[-1] = (text + "\n", n, page)
 
     chunks: list[Chunk] = []
     current: list[tuple[str, int, int | None]] = []
@@ -97,7 +119,7 @@ def chunk_sections(
         return sum(u[1] for u in units)
 
     def emit(units):
-        text = "".join(u[0] for u in units)
+        text = "".join(u[0] for u in units).strip()
         chunks.append(Chunk(len(chunks), text, model_counter.count(text), units[0][2]))
 
     def overlap_tail(units):

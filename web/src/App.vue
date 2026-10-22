@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { HttpError } from './api/http'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
+import KnowledgePanel from './components/KnowledgePanel.vue'
 import UserPicker from './components/UserPicker.vue'
 import { useChat } from './composables/useChat'
 
 const chat = useChat()
+const view = ref<'chat' | 'knowledge'>('chat')
 
 const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
 
@@ -28,8 +30,18 @@ function run(action: Promise<unknown>) {
         @select="(id: string) => run(chat.selectUser(id))"
         @create="(name: string) => run(chat.createUser(name))"
       />
-      <ConversationList
+      <a-segmented
         v-if="chat.userId.value"
+        v-model:value="view"
+        block
+        class="views"
+        :options="[
+          { value: 'chat', label: '对话' },
+          { value: 'knowledge', label: '知识库' },
+        ]"
+      />
+      <ConversationList
+        v-if="chat.userId.value && view === 'chat'"
         :conversations="chat.conversations.value"
         :active-id="chat.conversationId.value"
         :show-archived="chat.showArchived.value"
@@ -41,8 +53,9 @@ function run(action: Promise<unknown>) {
       />
     </a-layout-sider>
     <a-layout-content class="content">
+      <KnowledgePanel v-if="chat.userId.value && view === 'knowledge'" :user-id="chat.userId.value" />
       <ChatPanel
-        v-if="chat.conversationId.value"
+        v-else-if="chat.conversationId.value"
         :messages="chat.messages.value"
         :notices="chat.notices.value"
         :pending="chat.pending.value"
@@ -78,6 +91,9 @@ body,
   border-right: 1px solid #f0f0f0;
   padding: 16px;
   overflow-y: auto;
+}
+.views {
+  margin-bottom: 16px;
 }
 .brand {
   font-size: 18px;

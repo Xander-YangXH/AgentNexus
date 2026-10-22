@@ -13,8 +13,10 @@ from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.events.redis_stream import RunEventPublisher, RunEventReader, make_reader_client
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.knowledge.embedding import FastEmbedder
+from agentnexus.knowledge.rerank import FastReranker
 from agentnexus.runtime.ingest import IngestDispatcher
 from agentnexus.services.knowledge import KnowledgeService
+from agentnexus.services.search import SearchService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.checkpoint import open_pool
 from agentnexus.storage.vectors import ChunkIndex
@@ -66,7 +68,7 @@ async def lifespan(app: FastAPI):
         app.state.sessionmaker, RunEventReader(sse_redis), poll_interval=settings.sse_poll_interval_seconds
     )
     # 加载 embedding 模型要读文件、建 ONNX 会话，放到线程里；模型在构建镜像时已下载，这里不联网
-    embedder = await asyncio.to_thread(FastEmbedder, settings.embedding_model)
+    embedder = await asyncio.to_thread(FastEmbedder, settings.embedding_model, threads=settings.embedding_threads)
     qdrant = AsyncQdrantClient(url=settings.qdrant_url, timeout=10)
     index = ChunkIndex(qdrant, settings.qdrant_collection, embedder.dim)
     await index.ensure()  # 维度对不上（换了模型）直接启动失败，比悄悄写坏索引好
@@ -77,6 +79,10 @@ async def lifespan(app: FastAPI):
         index,
         max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
         token_counter=embedder.token_counter(),
+    )
+    reranker = await asyncio.to_thread(FastReranker, settings.rerank_model) if settings.rerank_enabled else None
+    app.state.search_service = SearchService(
+        app.state.sessionmaker, embedder, index, reranker, candidates=settings.rerank_candidates
     )
     app.state.ingest_dispatcher = IngestDispatcher(
         app.state.knowledge_service,

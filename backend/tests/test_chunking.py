@@ -124,3 +124,16 @@ def test_giant_word_is_split_by_characters_even_if_the_model_counts_it_as_one_to
 def test_stored_token_count_is_the_models_own_count():
     chunks = chunk_sections([Section("b" * 1000)], WordPieceLikeCounter(), target_tokens=300, hard_limit=480, overlap_tokens=0)
     assert [c.token_count for c in chunks] == [1]  # 1000 个字符 < 2880：一块；记录的是模型真实看到的 token 数
+
+
+def test_whitespace_between_sentences_and_paragraphs_is_kept():
+    """第一版每句 strip 后直接拼接：标题和正文粘成一行，英文句子之间的空格丢失（2.3 在页面上看到）。"""
+    text = "## 退货政策\n签收后七天内可以退货。\n\n## 发票\n可以开电子发票。Really? Yes, really."
+    chunks = chunk_sections([Section(text)], LenCounter(), target_tokens=1000, hard_limit=1000, overlap_tokens=0)
+    assert [c.text for c in chunks] == [text]
+
+
+def test_pages_are_separated_by_a_newline():
+    chunks = chunk_sections([Section("第一页结尾", page=1), Section("第二页开头", page=2)], LenCounter(),
+                            target_tokens=1000, hard_limit=1000, overlap_tokens=0)
+    assert chunks[0].text == "第一页结尾\n第二页开头"

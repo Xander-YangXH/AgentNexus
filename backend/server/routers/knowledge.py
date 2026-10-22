@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, UploadFile
 
 from agentnexus.services.errors import FileTooLarge
 from agentnexus.services.knowledge import KnowledgeService
+from agentnexus.services.search import SearchService
 from agentnexus.runtime.ingest import IngestDispatcher
-from server.deps import CurrentUser, get_ingest_dispatcher, get_knowledge_service
-from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut
+from server.deps import CurrentUser, get_ingest_dispatcher, get_knowledge_service, get_search_service
+from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut, SearchOut, SearchRequest
 
 router = APIRouter(prefix="/api", tags=["knowledge"])
 
@@ -74,3 +75,9 @@ async def reprocess_document(
 async def list_chunks(document_id: uuid.UUID, user_id: CurrentUser, svc: KnowledgeService = Depends(get_knowledge_service)):
     """分块原文：用于检查分块效果，以及以后展示引用出处。"""
     return await svc.list_chunks(user_id, document_id)
+
+
+@router.post("/knowledge/search", response_model=SearchOut)
+async def search(body: SearchRequest, user_id: CurrentUser, svc: SearchService = Depends(get_search_service)):
+    """在一个或多个自己的知识库里检索（检索测试页面用；2.4 的 knowledge_search 工具走同一个服务）。"""
+    return await svc.search(user_id, body.knowledge_base_ids, body.query, top_k=body.top_k, rerank=body.rerank)

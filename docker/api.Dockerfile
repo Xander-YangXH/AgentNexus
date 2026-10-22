@@ -11,12 +11,15 @@ WORKDIR /app
 COPY backend/requirements.lock backend/requirements.lock
 RUN pip install --no-cache-dir -r backend/requirements.lock
 
-# 构建镜像时就把 embedding 模型下载进镜像（约 100MB）：
+# 构建镜像时就把模型下载进镜像（embedding 约 100MB、重排 int8 约 570MB）：
 # fastembed 默认下到系统临时目录，容器重建就丢、每次启动都要联网重下；放在业务代码之前，改代码不会重下。
-# 运行时设 HF_HUB_OFFLINE=1，保证启动不联网；换模型要改 EMBEDDING_MODEL 并重新构建（否则启动报找不到模型）。
+# 两个模型分两层：只换其中一个时，另一个的缓存层不失效。
+# 运行时设 HF_HUB_OFFLINE=1，保证启动不联网；换模型要改对应的 ARG 并重新构建（否则启动报找不到模型）。
 ENV FASTEMBED_CACHE_PATH=/opt/models
 ARG EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
 RUN python -c "import os; from fastembed import TextEmbedding; TextEmbedding(os.environ['EMBEDDING_MODEL'])"
+ARG RERANK_MODEL=BAAI/bge-reranker-v2-m3-int8
+RUN python -c "import os; from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(os.environ['RERANK_MODEL'])"
 ENV HF_HUB_OFFLINE=1
 
 COPY backend backend

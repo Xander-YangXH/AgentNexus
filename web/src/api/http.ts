@@ -1,4 +1,4 @@
-import type { Conversation, Message, Run, User } from './types'
+import type { Chunk, Conversation, KnowledgeBase, KnowledgeDocument, Message, Run, SearchResult, User } from './types'
 
 // 后端统一错误格式（decisions/0011）：{"error": {"code", "message", "request_id", "details"?}}
 export interface ApiErrorBody {
@@ -62,6 +62,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await send(method, path, body)).data as T
 }
 
+/** 上传文件：multipart/form-data。不手动设置 Content-Type，让浏览器带上 boundary */
+async function upload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(path, { method: 'POST', headers: authHeaders(), body: form })
+  const text = await res.text()
+  if (!res.ok) throw new HttpError(res.status, parseErrorBody(text))
+  return JSON.parse(text) as T
+}
+
 export interface MessagePage {
   items: Message[]
   hasMore: boolean // 来自响应头 X-Has-More
@@ -88,4 +98,13 @@ export const api = {
   listRuns: (cid: string) => request<Run[]>('GET', `/api/conversations/${cid}/runs`),
   cancelRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/cancel`),
   retryRun: (runId: string) => request<Run>('POST', `/api/runs/${runId}/retry`),
+
+  listKnowledgeBases: () => request<KnowledgeBase[]>('GET', '/api/knowledge-bases'),
+  createKnowledgeBase: (name: string) => request<KnowledgeBase>('POST', '/api/knowledge-bases', { name }),
+  listDocuments: (kbId: string) => request<KnowledgeDocument[]>('GET', `/api/knowledge-bases/${kbId}/documents`),
+  uploadDocument: (kbId: string, file: File) => upload<KnowledgeDocument>(`/api/knowledge-bases/${kbId}/documents`, file),
+  reprocessDocument: (docId: string) => request<KnowledgeDocument>('POST', `/api/documents/${docId}/reprocess`),
+  listChunks: (docId: string) => request<Chunk[]>('GET', `/api/documents/${docId}/chunks`),
+  search: (kbIds: string[], query: string, topK: number, rerank: boolean) =>
+    request<SearchResult>('POST', '/api/knowledge/search', { knowledge_base_ids: kbIds, query, top_k: topK, rerank }),
 }
