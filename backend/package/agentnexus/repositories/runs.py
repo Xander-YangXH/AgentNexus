@@ -75,11 +75,18 @@ class AgentRunRepository:
         output_message_id: uuid.UUID | None = None,
         error: str | None = None,
         error_code: str | None = None,
+        version: int | None = None,
     ) -> bool:
-        """running -> 终态。只允许从 running 转出，防止已结束的 run 被覆盖。"""
+        """running -> 终态。只允许从 running 转出，防止已结束的 run 被覆盖。
+
+        version：执行者持有的租约版本（fencing token，decisions/0020）。给了就必须匹配——被接管之后，旧 worker 的写回一定失败。
+        """
+        conds = [AgentRun.id == run_id, AgentRun.status == RunStatus.RUNNING]
+        if version is not None:
+            conds.append(AgentRun.lease_version == version)
         stmt = (
             update(AgentRun)
-            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.RUNNING)
+            .where(*conds)
             .values(
                 status=status,
                 output_message_id=output_message_id,
@@ -120,12 +127,11 @@ class AgentRunRepository:
         )
         return (await self.session.execute(stmt)).rowcount
 
-    async def fail_all_running(self, error: str, error_code: str) -> list[uuid.UUID]:
-        """把所有 running 的 run 置为 failed，返回它们的 id。仅用于单进程部署的启动恢复。"""
+    async def request_cancel(self, run_id: uuid.UUID) -> bool:
+        """执行中的 run 记下取消请求（跨进程取消的事实来源，decisions/0020）。重复请求不改时间。"""
         stmt = (
             update(AgentRun)
-            .where(AgentRun.status == RunStatus.RUNNING)
-            .values(status=RunStatus.FAILED, error=error, error_code=error_code, finished_at=func.now())
-            .returning(AgentRun.id)
+            .where(AgentRun.id == run_id, AgentRun.status == RunStatus.RUNNING)
+            .values(cancel_requested_at=func.coalesce(AgentRun.cancel_requested_at, func.now()))
         )
-        return list((await self.session.execute(stmt)).scalars().all())
+        return (await self.session.execute(stmt)).rowcount == 1

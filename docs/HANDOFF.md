@@ -7,7 +7,7 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
-## 当前阶段：ROADMAP 阶段 4「多智能体、工具与扩展生态」——4.1 选型草稿 0020 待用户确认
+## 当前阶段：ROADMAP 阶段 4「多智能体、工具与扩展生态」——4.1 已完成，下一步 4.2
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）
 - [x] Docker Compose 学习：`learning/docker-compose/`（README + 两个 demo yml，demo 待用户本机跑）
@@ -28,7 +28,7 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 1. 阶段 1 收尾：~~第一批：取消、重试、错误码、刷新后可见~~（已完成，decisions/0009）；第二批：~~checkpoint 清理与存储测量~~（已完成，decisions/0010）、~~统一错误响应与请求日志/request-id~~（已完成，decisions/0011）；~~第三批：对话改标题/归档、消息分页~~（已完成，decisions/0012）。**阶段 1 已全部完成**（仅剩可选的 openai / anthropic 真实 key 验证）。
 2. **阶段 2「RAG 知识库」已完成**：0014 选型；0015 文档入口；0016 入库流水线、Qdrant、锁文件；0017 检索 + 重排、知识库页面；0018 预检索 + 检索工具、引用快照、Markdown 按标题切分。学习导读 `docs/guides/rag-pipeline.md`。阶段 2 待办（可选）：改了分块策略后“全部重新处理”的管理命令；交给模型前按相似度去重；多轮追问评测集；删除文档接口。
 3. **阶段 3「知识图谱」已完成**（0019）：用户确认引入 Neo4j（派生存储，PostgreSQL 为事实来源）、按知识库手动构建（预估 + 缓存 + 上限）、先只做浏览与溯源。学习导读 `docs/guides/knowledge-graph.md`。待办（可选）：近义实体合并、图谱参与问答（需要多跳评测集）、文档变更后提示重新构建。
-4. **阶段 4** 拆为 4.1（独立 worker + 任务队列 + 租约）、4.2（工具 / 沙盒 / MCP）、4.3（多 Agent / 深度调研 / 审批）。**4.1 选型草稿 0020 已写**（实验：ARQ kill 后 34s 接手、重复 3 步；PostgreSQL 租约原型 6s、0 重复、fencing 挡住旧 worker）。待确认：队列（建议 PostgreSQL 租约队列）、run 接管后从 checkpoint 续做（建议）、worker 拓扑（建议一个 worker 服务）。
+4. **阶段 4** 拆为 4.1 / 4.2 / 4.3。**4.1 已完成**（0020）：独立 worker（`python -m agentnexus.worker`，compose 的 worker 服务，可 `--scale worker=2`）+ PostgreSQL 租约队列（SKIP LOCKED、心跳、fencing、事务内 NOTIFY）；run 从 checkpoint 续做；跨进程取消。学习导读 `docs/guides/worker-leases.md`。**下一步 4.2**：工具、沙盒（Docker SDK）、MCP，先写选型草稿；然后 4.3 多 Agent / 深度调研 / 审批中断。
 3. 模型已切换为 DeepSeek（Anthropic 兼容格式、`LLM_THINKING=disabled`，见 decisions/0013）；用户 `.env` 已配置。省钱约定：自动化测试一律用假模型，真实调用只在验证时做并控制次数。
 
 ### 本地运行
@@ -44,6 +44,8 @@ AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、
 - **iCloud 提醒**：项目在 iCloud 同步的桌面上，会产生 `xxx 2.py` 之类的冲突副本（已在 `.gitignore` 拦截）；建议移到不同步的目录。
 
 ### 跑测试
+> **同一时间只能跑一个 pytest 会话**：测试会删除并重建 `agentnexus_test` 库、清空 Redis 测试库，两个会话并发会互相干扰（阶段 4.1 踩过）。
+
 集成测试用真实 Postgres、Redis 和 Neo4j（先 `docker compose up -d postgres redis neo4j`，并导出 `NEO4J_URL=bolt://localhost:7687`、`NEO4J_PASSWORD`；没有 Neo4j 时图谱测试会跳过；测试只写随机 id 的知识库，结束时删除）；Qdrant 用进程内模式，不需要起服务；两个真实模型测试在本机有模型缓存时才跑（离线加载，没有就跳过）。只导出连接串，不要把整个 `.env`（含 LLM 密钥）导出到测试进程。测试会自己创建/重建 `agentnexus_test` 库，不碰开发库：
 ```bash
 cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
@@ -59,4 +61,4 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<db> REDIS_URL=redis:
 
 ## 环境提示
 - 用户在 Mac 上开发；之前的云端沙盒没有 Docker，涉及容器的内容需用户本机验证。
-- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q44。
+- `docs/learning-notes/qa-log.md` 是本地私有笔记（已 gitignore），问答记录到 Q45。

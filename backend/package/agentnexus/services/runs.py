@@ -7,6 +7,7 @@ from agentnexus.agents.types import ChatMessage, RunContext
 from agentnexus.repositories.conversations import ConversationRepository, MessageRepository
 from agentnexus.repositories.runs import AgentRunRepository
 from agentnexus.runtime.failures import ErrorCode
+from agentnexus.runtime.lease import notify_jobs
 from sqlalchemy import func
 
 from agentnexus.services.errors import (
@@ -54,7 +55,9 @@ class RunService:
                     conv.title = auto_title(content)
                 conv.last_activity_at = func.now()  # 与消息同一事务：列表排序与消息内容不会不一致
                 msg = await MessageRepository(session).add(conversation_id, MessageRole.USER, content)
-                return await AgentRunRepository(session).create(conversation_id, msg.id)
+                run = await AgentRunRepository(session).create(conversation_id, msg.id)
+                await notify_jobs(session, "run")  # 提交时才送达：worker 立刻被唤醒（decisions/0020）
+                return run
         except IntegrityError as exc:
             if "uq_agent_runs_one_active_per_conversation" in str(exc.orig):
                 raise RunConflict(str(conversation_id)) from exc
@@ -89,7 +92,8 @@ class RunService:
             return await AgentRunRepository(session).claim(run_id)
 
     async def complete(
-        self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str, citations: list | None = None
+        self, run_id: uuid.UUID, conversation_id: uuid.UUID, content: str, citations: list | None = None,
+        *, version: int | None = None,
     ) -> uuid.UUID | None:
         """助手回复落库 + run 置为 succeeded，同一事务，返回助手消息 id。
 
@@ -100,27 +104,33 @@ class RunService:
                 conversation_id, MessageRole.ASSISTANT, content, citations=citations
             )
             ok = await AgentRunRepository(session).finish(
-                run_id, RunStatus.SUCCEEDED, output_message_id=msg.id
+                run_id, RunStatus.SUCCEEDED, output_message_id=msg.id, version=version
             )
             if not ok:
                 await session.rollback()
                 return None
             return msg.id
 
-    async def fail(self, run_id: uuid.UUID, error: str, error_code: str = ErrorCode.INTERNAL) -> bool:
+    async def fail(
+        self, run_id: uuid.UUID, error: str, error_code: str = ErrorCode.INTERNAL, *, version: int | None = None
+    ) -> bool:
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).finish(
-                run_id, RunStatus.FAILED, error=error, error_code=error_code
+                run_id, RunStatus.FAILED, error=error, error_code=error_code, version=version
             )
 
     async def cancel_queued(self, run_id: uuid.UUID) -> bool:
         async with self.sessionmaker() as session, session.begin():
             return await AgentRunRepository(session).cancel_queued(run_id)
 
-    async def cancel_running(self, run_id: uuid.UUID) -> bool:
+    async def cancel_running(self, run_id: uuid.UUID, *, version: int | None = None) -> bool:
         """running -> cancelled。与 complete/fail 一样只允许从 running 转出，先到者赢。"""
         async with self.sessionmaker() as session, session.begin():
-            return await AgentRunRepository(session).finish(run_id, RunStatus.CANCELLED)
+            return await AgentRunRepository(session).finish(run_id, RunStatus.CANCELLED, version=version)
+
+    async def request_cancel(self, run_id: uuid.UUID) -> bool:
+        async with self.sessionmaker() as session, session.begin():
+            return await AgentRunRepository(session).request_cancel(run_id)
 
     async def list_for_conversation(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> list[AgentRun]:
         async with self.sessionmaker() as session:
@@ -149,7 +159,9 @@ class RunService:
                 messages = await MessageRepository(session).list_by_conversation(run.conversation_id)
                 if not messages or messages[-1].id != run.input_message_id:
                     raise RunNotRetryable("only the latest message can be retried")
-                return await runs.create(run.conversation_id, run.input_message_id)
+                new = await runs.create(run.conversation_id, run.input_message_id)
+                await notify_jobs(session, "run")
+                return new
         except IntegrityError as exc:
             if "uq_agent_runs_one_active_per_conversation" in str(exc.orig):
                 raise RunConflict(str(run_id)) from exc
@@ -179,6 +191,3 @@ class RunService:
                 knowledge_base_ids=tuple(await conversations.knowledge_base_ids(run.conversation_id)),
             )
 
-    async def fail_orphaned_running(self, error: str, error_code: str) -> list[uuid.UUID]:
-        async with self.sessionmaker() as session, session.begin():
-            return await AgentRunRepository(session).fail_all_running(error, error_code)

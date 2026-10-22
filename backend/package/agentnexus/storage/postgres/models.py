@@ -52,6 +52,19 @@ def _in_list(column: str, values) -> str:
     return f"{column} IN ({', '.join(repr(str(v)) for v in values)})"
 
 
+class LeaseMixin:
+    """任务租约（decisions/0020）：执行中的 worker 定期续约；租约过期即可被别的 worker 接管。
+
+    - lease_version 是 fencing token：每次认领加一，执行中的写入都带上它校验，被接管后旧 worker 的写入一定失败；
+    - attempts：被认领执行的次数（含接管），超过上限就不再执行，标为失败。
+    """
+
+    lease_owner: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_version: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -102,7 +115,7 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class AgentRun(Base):
+class AgentRun(LeaseMixin, Base):
     """一次 Agent 执行。提交时与用户消息同事务写入（status=queued），队列只是触发器，库才是事实来源。"""
 
     __tablename__ = "agent_runs"
@@ -135,6 +148,8 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 该 run 的 LangGraph checkpoint 何时被清理（decisions/0010）；用我们自己的列记账，不去查 LangGraph 的内部表
     checkpoint_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 取消请求（跨进程）：取消接口写这里（事实来源）并发一条 Redis 消息；执行它的 worker 收到消息或在心跳时发现后停止
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # ---------------- 知识库（阶段 2，decisions/0014、0015） ----------------
@@ -159,7 +174,7 @@ class KnowledgeBase(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Document(Base):
+class Document(LeaseMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
         CheckConstraint(_in_list("status", DocumentStatus), name="ck_documents_status"),
@@ -224,7 +239,7 @@ class GraphBuildStatus(enum.StrEnum):
     FAILED = "failed"
 
 
-class GraphBuild(Base):
+class GraphBuild(LeaseMixin, Base):
     """一次“构建图谱”：抽取（有缓存）→ 合并写入 PostgreSQL → 同步到 Neo4j。沿用“先落库再投递 + 原子抢占”。"""
 
     __tablename__ = "kg_builds"

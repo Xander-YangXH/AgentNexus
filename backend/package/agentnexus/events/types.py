@@ -8,6 +8,7 @@ TOKEN = "token"  # data: {"text": "..."}
 RUN_COMPLETED = "run.completed"  # data: {"message_id": "..."}
 RUN_FAILED = "run.failed"  # data: {"error_code": "..."}（错误码见 runtime/failures.py；原始报错不对外）
 RUN_CANCELLED = "run.cancelled"  # data: {}
+RUN_RESUMED = "run.resumed"  # data: {"attempt": 2}——worker 被打断后由别的 worker 接管续做（decisions/0020）；之后的 token 带 attempt
 TOOL_STARTED = "tool.started"  # data: {"name": "knowledge_search", "query": "..."}（decisions/0018）
 TOOL_FINISHED = "tool.finished"  # data: {"name": "knowledge_search", "hits": 4}
 TERMINAL_EVENTS = frozenset({RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED})

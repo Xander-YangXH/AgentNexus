@@ -12,6 +12,10 @@
  *
  * 知识库检索（decisions/0018）：tool.started 时清空已显示的文字——模型在调用工具前说的话不会成为最终回复
  * （最终回复取自图的最终状态），并显示“正在检索”；tool.finished 后回到“等待输出”，直到回答的第一个字。
+ *
+ * 接管（decisions/0020）：执行它的 worker 中断后，别的 worker 从 checkpoint 接着做，先发 run.resumed {attempt}。
+ * 这时清空已显示的半截文字（新的执行会重新流出被打断的那一步）；之后只接受这一次尝试的事件——
+ * 旧 worker 在心跳发现自己被接管之前，可能还会流出几个 token，它们带着更小的 attempt，直接忽略。
  */
 import type { RunEvent } from '../api/types'
 
@@ -24,10 +28,11 @@ export interface PendingReply {
   errorCode: string | null
   startedAt: number // 用于显示“等待首字 N 秒”，取服务端的 run 创建时间
   activity: string | null // 正在做什么（如“正在检索：退货政策”），等待阶段显示
+  attempt: number // 当前接受的是第几次执行的事件（被接管后递增）
 }
 
 export function newPending(runId: string, now: number = Date.now()): PendingReply {
-  return { runId, status: 'waiting', text: '', errorCode: null, startedAt: now, activity: null }
+  return { runId, status: 'waiting', text: '', errorCode: null, startedAt: now, activity: null, attempt: 1 }
 }
 
 export function isActive(p: PendingReply | null): boolean {
@@ -36,7 +41,14 @@ export function isActive(p: PendingReply | null): boolean {
 
 export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
   if (!isActive(p)) return p // 终态之后的事件忽略
+  // 第一次执行的事件不带 attempt（后端只在接管后才加），当作 1。第一版写成“有 attempt 才比较”，
+  // 第一次执行的残余 token 就漏过去了（补测试时发现）
+  const attempt = (e.data as { attempt?: number }).attempt ?? 1
+  if (e.type !== 'run.resumed' && attempt < p.attempt) return p // 被接管前那次执行的残余事件
   switch (e.type) {
+    case 'run.resumed':
+      if (e.data.attempt <= p.attempt) return p
+      return { ...p, status: 'waiting', text: '', attempt: e.data.attempt, activity: '执行中断，已由其他进程接着生成' }
     case 'run.started':
       return p
     case 'token':

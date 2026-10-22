@@ -54,12 +54,13 @@ export interface Run {
 // 事件契约见后端 agentnexus/events/types.py 与 decisions/0007
 export type RunEvent =
   | { type: 'run.started'; data: Record<string, never>; id: string | null }
-  | { type: 'token'; data: { text: string }; id: string | null }
+  | { type: 'token'; data: { text: string; attempt?: number }; id: string | null }
   | { type: 'run.completed'; data: { message_id: string; synthesized?: boolean }; id: string | null }
   | { type: 'run.failed'; data: { error_code: string | null; synthesized?: boolean }; id: string | null }
   | { type: 'run.cancelled'; data: { synthesized?: boolean }; id: string | null }
-  | { type: 'tool.started'; data: { name: string; query: string }; id: string | null }
-  | { type: 'tool.finished'; data: { name: string; hits: number; ok: boolean }; id: string | null }
+  | { type: 'run.resumed'; data: { attempt: number }; id: string | null }
+  | { type: 'tool.started'; data: { name: string; query: string; attempt?: number }; id: string | null }
+  | { type: 'tool.finished'; data: { name: string; hits: number; ok: boolean; attempt?: number }; id: string | null }
 
 export const TERMINAL_EVENTS = new Set(['run.completed', 'run.failed', 'run.cancelled'])
 

@@ -295,3 +295,47 @@ async def test_fake_model_with_prefetch_answers_without_a_second_search():
     search = RecordingSearch()
     reply = await ChatbotAgent(ChatbotContext(model=FakeEchoChatModel(), knowledge_search=search, prefetch=True)).run(_ctx())
     assert reply.content == "echo: 退货要几天 [1]" and len(search.calls) == 1
+
+
+# ---------- 接管后从 checkpoint 续做（decisions/0020） ----------
+
+
+async def test_takeover_resumes_from_checkpoint_without_redoing_finished_steps(checkpointer):
+    """第一次执行：预检索完成后，模型调用时 worker“崩溃”。接管后从 checkpoint 继续：不重新检索，只重做被打断的模型调用。"""
+    search = RecordingSearch()
+
+    class CrashOnce(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            if not self._calls:
+                self._calls.append((list(messages), self._tools_bound))
+                # 模拟进程在模型调用中途被杀。用普通异常即可：checkpoint 里的进度与真被杀时相同（预检索那一步已提交）；
+                # 第一版用 KeyboardInterrupt，把 pytest 自己也打断了
+                raise RuntimeError("worker died")
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    model = CrashOnce(script=[AIMessage(content="7 天内可以退 [1]")])
+    agent = ChatbotAgent(ChatbotContext(model=model, knowledge_search=search, prefetch=True), checkpointer)
+    run_id = uuid.uuid4()
+    first = RunContext(run_id=run_id, conversation_id=uuid.uuid4(), history=[ChatMessage("user", "退货要几天")],
+                       user_id=USER, knowledge_base_ids=(KB,))
+    with pytest.raises(RuntimeError):
+        await agent.run(first)
+    assert len(search.calls) == 1
+
+    import dataclasses
+
+    reply = await agent.run(dataclasses.replace(first, attempt=2))
+    assert len(search.calls) == 1  # 预检索已经在 checkpoint 里：没有重做
+    assert reply.content == "7 天内可以退 [1]" and [c["cited"] for c in reply.citations] == [True, False]
+
+
+async def test_takeover_after_the_graph_finished_does_not_call_the_model_again(checkpointer):
+    """图已经跑完、只是没来得及落库就崩了：接管后直接用 checkpoint 里的最终结果。"""
+    model = ScriptedModel(script=[AIMessage(content="答案")])
+    agent = ChatbotAgent(ChatbotContext(model=model), checkpointer)
+    ctx = RunContext(run_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[ChatMessage("user", "q")])
+    assert (await agent.run(ctx)).content == "答案"
+    import dataclasses
+
+    again = await agent.run(dataclasses.replace(ctx, attempt=2))
+    assert again.content == "答案" and len(model._calls) == 1

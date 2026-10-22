@@ -128,7 +128,8 @@ async def test_timeout_and_shutdown_have_their_own_codes(sessionmaker, user):
     finally:
         await d.stop()
     got = await _run(sessionmaker, stopped.id)
-    assert (got.status, got.error_code) == (RunStatus.FAILED, "interrupted")  # 关停不是“用户取消”
+    # 关停不是“用户取消”，也不再标失败（decisions/0020）：放弃租约，留给别的 worker 接管续做
+    assert (got.status, got.error_code, got.cancel_requested_at) == (RunStatus.RUNNING, None, None)
 
 
 # ---------- 取消 ----------
@@ -231,7 +232,17 @@ async def test_user_cancel_during_shutdown_does_not_hang_stop(sessionmaker, user
     await d.cancel(run.id)  # 用户取消
     await asyncio.wait_for(d.stop(), 3)  # 紧接着关停：不能挂住
     got = await _run(sessionmaker, run.id)
-    assert got.status in (RunStatus.CANCELLED, RunStatus.FAILED)  # 无论哪个先生效，都必须收尾到终态
+    assert got.status in (RunStatus.CANCELLED, RunStatus.RUNNING)  # 取消先生效，或者关停先生效（放弃了租约）
+    assert got.cancel_requested_at is not None  # 取消请求已记在数据库里
+    # 关停先生效的情况：接手的 worker 看到取消请求，直接收尾为已取消，不再执行
+    executed = []
+    d2 = RunDispatcher(sessionmaker, lambda ctx: executed.append(1), sweep_interval=0.1)
+    await d2.start()
+    try:
+        got = await _wait_status(sessionmaker, run.id, RunStatus.CANCELLED)
+    finally:
+        await d2.stop()
+    assert executed == []
 
 
 async def test_cancel_finished_run_reports_finished(sessionmaker, user):
@@ -327,3 +338,68 @@ async def test_runs_listing_and_retry_endpoint(api):
     assert [x["status"] for x in runs] == ["cancelled", "queued"]
     assert "error" not in runs[0]  # 原始报错不出现在接口里
     assert (await api.post(f"/api/runs/{runs[1]['id']}/retry", headers=h)).status_code == 409  # 排队中的不能重试
+
+
+# ---------- 跨进程取消（decisions/0020） ----------
+
+
+class _MemoryBus:
+    """测试用的取消广播：直接转给“另一个进程”的 dispatcher。"""
+
+    def __init__(self):
+        self.subscribers = []
+        self.published = []
+
+    async def publish(self, run_id):
+        self.published.append(run_id)
+        for d in self.subscribers:
+            d.on_cancel_message(run_id)
+
+
+async def _long_running(sessionmaker, user):
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def long_task(ctx):
+        started.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    conv = await _conv(sessionmaker, user)
+    run = await RunService(sessionmaker).submit(user.id, conv.id, "q")
+    return run, long_task, started, cancelled
+
+
+async def test_cancel_from_the_api_process_reaches_the_worker_via_the_bus(sessionmaker, user, redis):
+    run, long_task, started, cancelled = await _long_running(sessionmaker, user)
+    bus = _MemoryBus()
+    worker = RunDispatcher(sessionmaker, long_task, sweep_interval=0.1, events=RunEventPublisher(redis),
+                           heartbeat_seconds=30)  # 心跳很慢：证明是广播让它立刻停下的
+    bus.subscribers.append(worker)
+    api = RunDispatcher(sessionmaker, echo_agent, cancel_bus=bus)  # api 进程：不执行，只发取消
+    await worker.start()
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        assert await api.cancel(run.id) == CancelOutcome.REQUESTED
+        got = await _wait_status(sessionmaker, run.id, RunStatus.CANCELLED, timeout=3)
+    finally:
+        await worker.stop()
+    assert bus.published == [run.id] and cancelled.is_set() and got.cancel_requested_at is not None
+    assert await _events(redis, run.id) == [RUN_STARTED, RUN_CANCELLED]
+
+
+async def test_cancel_still_arrives_when_the_broadcast_is_lost(sessionmaker, user):
+    """广播丢了（Redis 抖动、worker 正在重连）：心跳时检查数据库里的取消请求，最多晚一个心跳间隔。"""
+    run, long_task, started, cancelled = await _long_running(sessionmaker, user)
+    worker = RunDispatcher(sessionmaker, long_task, sweep_interval=0.1, heartbeat_seconds=0.2)
+    api = RunDispatcher(sessionmaker, echo_agent, cancel_bus=_MemoryBus())  # 广播发出去了，但没有任何订阅者收到
+    await worker.start()
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        assert await api.cancel(run.id) == CancelOutcome.REQUESTED
+        await _wait_status(sessionmaker, run.id, RunStatus.CANCELLED, timeout=3)
+    finally:
+        await worker.stop()
+    assert cancelled.is_set()

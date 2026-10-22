@@ -1,6 +1,7 @@
 """入库流水线（阶段 2.2）：向量化、写入索引、后台派发、启动恢复、失败重试、重建索引。"""
 
 import asyncio
+import gc
 import os
 import uuid
 
@@ -18,7 +19,7 @@ from agentnexus.storage.postgres import DocumentStatus
 from agentnexus.storage.vectors import ChunkIndex, ChunkPoint, IndexMismatch
 from server.deps import get_sessionmaker
 from server.main import create_app
-from tests.fakes import FakeEmbedder
+from tests.fakes import NATIVE_MODELS, FakeEmbedder
 
 TEXT = "退货政策：签收后 7 天内可以无理由退货。定制商品不支持退货。\n\n退款到账：入库检验后 1 到 3 个工作日原路退回。"
 
@@ -92,19 +93,49 @@ async def test_points_are_removed_if_the_document_cannot_be_marked_ready(svc, us
     assert await svc.index.count(document_id=doc.id) == 0
 
 
-async def test_interrupted_document_is_requeued_and_stale_points_are_replaced(svc, user):
-    """进程在“写完索引、还没提交 ready”时被杀：启动恢复改回 pending，重做时先清掉上次留下的点。"""
+async def _expire_lease(sessionmaker, model, job_id):
+    from sqlalchemy import text, update
+
+    async with sessionmaker() as session, session.begin():
+        await session.execute(update(model).where(model.id == job_id)
+                              .values(lease_expires_at=text("now() - interval '1 second'")))
+
+
+async def test_interrupted_document_is_taken_over_and_stale_points_are_replaced(svc, user, sessionmaker):
+    """进程在“写完索引、还没提交 ready”时被杀：租约过期后被接管；成功提交的执行者清掉上次留下的点。"""
+    from agentnexus.storage.postgres import Document
+
     doc = await _doc(svc, user)
-    async with svc.sessionmaker() as session, session.begin():
-        assert await DocumentRepository(session).claim(doc.id)
+    first = await svc.queue.claim(doc.id, "crashed")
     stale = uuid.uuid4()
     await svc.index.upsert([ChunkPoint(stale, doc.knowledge_base_id, doc.id, FakeEmbedder().embed_query("旧"))])
+    assert await svc.queue.claim_next("other") is None  # 租约还有效：别人抢不到
 
-    assert await svc.requeue_interrupted() == [doc.id]
-    assert await svc.process(doc.id)
+    await _expire_lease(sessionmaker, Document, doc.id)
+    taken = await svc.queue.claim_next("new")
+    assert (taken.id, taken.version, taken.attempts) == (doc.id, first.version + 1, 2)
+    assert await svc.execute(taken)
     points = await _point_ids(svc.index, doc.id)
     assert str(stale) not in points
     assert len(points) == (await svc.get_document(user.id, doc.id)).chunk_count
+
+
+async def test_stale_worker_result_is_discarded_without_deleting_the_winners_points(svc, user, sessionmaker):
+    """危险的时间线：旧 worker 卡住 → 新 worker 接管并完成 → 旧 worker 恢复后也做完。
+    它的写回必须失败，而且不能删掉赢家写的向量点（按文档删除会把它们删光，文档显示 ready 却检索不到）。"""
+    from agentnexus.storage.postgres import Document
+
+    doc = await _doc(svc, user)
+    old = await svc.queue.claim(doc.id, "old")
+    await _expire_lease(sessionmaker, Document, doc.id)
+    new = await svc.queue.claim_next("new")
+    assert await svc.execute(new) is True
+    winner_points = set(await _point_ids(svc.index, doc.id))
+
+    assert await svc.execute(old) is False  # 旧 worker 的结果被丢弃（fencing）
+    assert set(await _point_ids(svc.index, doc.id)) == winner_points  # 赢家的点一个没少，旧 worker 的点也没留下
+    got = await svc.get_document(user.id, doc.id)
+    assert (got.status, got.chunk_count) == (DocumentStatus.READY, len(winner_points))
 
 
 async def test_only_failed_documents_can_be_reprocessed(svc, user):
@@ -128,13 +159,15 @@ async def _wait_status(svc, document_id, status, timeout=5.0):
     await asyncio.wait_for(poll(), timeout)
 
 
-async def test_dispatcher_recovers_processing_and_sweeps_pending_on_start(svc, user):
+async def test_dispatcher_takes_over_expired_leases_and_picks_up_pending(svc, user, sessionmaker):
+    from agentnexus.storage.postgres import Document
+
     interrupted = await _doc(svc, user, name="a.txt")
     never_enqueued = await _doc(svc, user, text=TEXT + "补充说明。", name="b.txt")
-    async with svc.sessionmaker() as session, session.begin():
-        await DocumentRepository(session).claim(interrupted.id)
+    await svc.queue.claim(interrupted.id, "crashed")  # 上一个 worker 执行到一半崩溃
+    await _expire_lease(sessionmaker, Document, interrupted.id)
 
-    dispatcher = JobDispatcher(svc, name="ingest", sweep_interval=60)
+    dispatcher = JobDispatcher(svc, name="ingest", sweep_interval=0.1)
     await dispatcher.start()
     try:
         await _wait_status(svc, interrupted.id, DocumentStatus.READY)
@@ -242,9 +275,14 @@ def real_embedder():
     try:
         from agentnexus.knowledge.embedding import FastEmbedder
 
-        return FastEmbedder()
+        model = FastEmbedder()
+        NATIVE_MODELS["loaded"] = True
     except Exception as exc:  # 没有模型缓存（例如 CI）
         pytest.skip(f"bge-small-zh model not available offline: {type(exc).__name__}")
+    yield model
+    # 主动释放 ONNX 会话：留到解释器退出时再析构，偶发 “recursive_mutex lock failed” 导致进程以 134 退出（实测 4 次中 1 次）
+    del model
+    gc.collect()
 
 
 def test_tokenizer_counter_is_not_truncated_and_matches_the_model(real_embedder):

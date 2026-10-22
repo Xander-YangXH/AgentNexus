@@ -167,13 +167,14 @@ async def test_client_disconnect_releases_blocked_redis_reader(make_live):
         # 先证明测量手段有效：断开前确实能观察到 1 个为该客户端阻塞的 Redis 连接。
         # 读取方每 0.3s 超时一次、查库后再阻塞，阻塞状态会短暂消失，所以要断言“循环里观察到的值”，
         # 不能循环结束后再查一次（那次查询可能恰好落在空隙里——这里曾因此不稳定，见 dev-log 问题索引）
-        observed = 0
+        observed, seen = 0, []
         for _ in range(30):
             observed = await _blocked_sse_readers(redis)
+            seen.append(observed)
             if observed == 1:
                 break
             await asyncio.sleep(0.05)
-        assert observed == 1
+        assert observed == 1, seen
     # 退出 with = 客户端断开。之后连续采样 1 秒都必须是 0：服务端已取消读取并释放连接
     await asyncio.sleep(0.3)
     samples = []

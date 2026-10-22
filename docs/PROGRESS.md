@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 3「知识图谱」已完成（0019，里程碑 2026-10-22 验证）。下一步：阶段 4「多智能体、工具与扩展生态」（含 ARQ + 独立 worker、lease/heartbeat），按惯例先写选型草稿。**
+**阶段 4 进行中：4.1 独立 worker 与 PostgreSQL 租约队列已完成（0020）。下一步 4.2：工具、沙盒、MCP（先写选型草稿）。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -22,11 +22,11 @@
 | M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
 | M2 RAG 知识库 | 12 | 0 | 12 | 100% |
 | M3 知识图谱 | 7 | 0 | 8 | 87% |
-| M4 多智能体/工具/沙盒/worker | 0 | 0 | 11 | 0% |
+| M4 多智能体/工具/沙盒/worker | 3 | 0 | 11 | 27% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 4 | 0 | 8 | 50% |
-| **合计** | **88** | 2 | **118** | **74%** |
+| **合计** | **91** | 2 | **118** | **77%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -223,9 +223,9 @@
 
 ### M4 多智能体、工具与扩展生态（阶段 4，最重）
 
-- [ ] **ARQ + 独立 worker 容器**：把 1.3 的内存队列升级，worker 拆出 compose
-- [ ] **lease / heartbeat**：`agent_runs` 追加租约字段（新迁移）；worker 续租；过期可被接管；防重复执行
-- [ ] 崩溃恢复测试：杀掉 worker 再重启，未完成任务被接管，既不卡死也不重复
+- [x] **独立 worker 容器 + PostgreSQL 租约队列**（实验后替代 ARQ，decisions/0020）：`worker.py`、`runtime/lease.py`；api 只提交（事务内 NOTIFY），worker 执行 run / 入库 / 图谱构建 / checkpoint 清理；可多副本
+- [x] **租约 / 心跳 / fencing**：迁移 0009（三张表加租约字段 + 取消标记）；SKIP LOCKED 认领、10 秒心跳、版本号校验写回；run 从 checkpoint 续做（最多 3 次）；跨进程取消（数据库标记 + Redis 广播）
+- [x] 崩溃恢复测试：compose 2 副本，kill -9 后 24.8 秒接管、docker stop 后 0.9 秒接管，均只有 1 条回复；测试覆盖过期接管、fencing、多 worker 恰好一次
 - [ ] `agents/middlewares/`：subagent 派发、摘要压缩、审批中断（interrupt + resume）
 - [ ] 多 Agent 编排：supervisor 派发 + 子 Agent 并行执行 + 汇总
 - [ ] “深度调研”Agent：拆解任务 → 并行子任务 → 汇总成可下载文件（产物进 MinIO）

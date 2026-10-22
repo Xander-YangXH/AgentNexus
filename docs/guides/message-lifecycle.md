@@ -1,5 +1,7 @@
 # 一条消息的完整旅程
 
+> 阶段 4.1 起，第 2~4 节说的“派发与执行”已搬到独立的 worker 进程（PostgreSQL 租约），本文其余内容仍然成立；变化见 [worker-leases.md](worker-leases.md)。
+
 > 学习导读：跟着一条用户消息，从发出请求到浏览器里逐字显示，走一遍 AgentNexus 目前的核心链路。
 > 每一步都写了**发生了什么、代码在哪、为什么这样设计、出了故障会怎样**。读完应该能对着代码讲清楚整条链路。
 > 对应阶段：ROADMAP 阶段 1（核心骨架）。相关决策：[0009](../decisions/0009-cancel-retry-error-codes.md)（取消/重试/错误码）、[0008](../decisions/0008-frontend-integration.md)（前端）、[0004](../decisions/0004-data-layer-sqlalchemy-alembic.md)、[0005](../decisions/0005-in-process-dispatcher-first.md)、[0006](../decisions/0006-history-source-of-truth.md)、[0007](../decisions/0007-streaming-events.md)。
@@ -331,10 +333,10 @@ curl -N localhost:8000/api/runs/<run_id>/events -H "X-User-Id: <uid>" -H "Last-E
 
 ## 9. 已知局限（诚实地讲出来）
 
-- **单进程假设**：api 只能起 1 个实例、uvicorn 不能开多 workers（阶段 4 用 lease 解决）。
-- **被打断的 run 标失败而不是续跑**：checkpoint 已经具备续跑能力，但还没接上。
+- ~~**单进程假设**~~：阶段 4.1 已解决——执行搬到独立 worker，靠 PostgreSQL 租约接管（见 `docs/guides/worker-leases.md`、decisions/0020）。
+- ~~**被打断的 run 标失败而不是续跑**~~：阶段 4.1 已接上——接管后从 LangGraph checkpoint 续做，最多 3 次。
 - **并发 SSE 流上限约等于阻塞读连接池大小**（默认 200）；更大规模要改成“每个 run 一个读取协程 + 进程内扇出”。
-- **取消信号不跨进程**：阶段 4 拆出独立 worker 后要改成 Redis 或数据库信号。
+- ~~**取消信号不跨进程**~~：阶段 4.1 已改为“数据库标记（事实来源）+ Redis 广播（立即送达）”。
 - **取消和失败时的半截内容都不保存**：这是产品取舍（决策 0009），可调整。
 - **Gemini 免费档延迟波动很大**：实测首块从 7 秒到 173 秒不等，`RUN_TIMEOUT_SECONDS=300` 离上限不远；这是外部服务的问题，但需要在产品上考虑（超时提示、可重试）。
-- **测试套件出现过一次原因不明的失败**：发生在一次变异检查还原之后，之后连续 23 次全量通过，未能复现（见 dev-log 问题索引）。
+- **测试套件出现过一次原因不明的失败**：发生在一次变异检查还原之后，之后连续 23 次全量通过，未能复现（见 dev-log 问题索引）。阶段 4.1 又观察到一次：`test_sse_http.py` 的断开连接测试，35 次全量中 1 次，已让断言打印采样值以便定位（dev-log #117）。

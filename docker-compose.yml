@@ -1,4 +1,4 @@
-# postgres + redis + qdrant + neo4j + migrate（一次性）+ api + web。后续阶段在此基础上叠加 worker 等。
+# postgres + redis + qdrant + neo4j + migrate（一次性）+ api + worker + web。
 name: agentnexus
 
 # api 与 migrate 共用同一个镜像和环境变量
@@ -15,6 +15,9 @@ x-backend: &backend
     WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
     RUN_TIMEOUT_SECONDS: ${RUN_TIMEOUT_SECONDS:-300}
     SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-5}
+    JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-30}
+    JOB_HEARTBEAT_SECONDS: ${JOB_HEARTBEAT_SECONDS:-10}
+    RUN_MAX_ATTEMPTS: ${RUN_MAX_ATTEMPTS:-3}
     LLM_PROVIDER: ${LLM_PROVIDER:-fake}
     LLM_MODEL: ${LLM_MODEL:-}
     LLM_API_KEY: ${LLM_API_KEY:-}
@@ -146,6 +149,33 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+    restart: unless-stopped
+
+  # 后台任务（decisions/0020）：对话 run、文档入库、图谱构建、checkpoint 清理。可以起多个副本
+  # （docker compose up -d --scale worker=2）：认领靠 PostgreSQL 租约，不会重复执行；某个副本崩溃，任务在租约过期后被接管续做
+  worker:
+    <<: *backend
+    command: ["python", "-m", "agentnexus.worker"]
+    volumes:
+      - blob_data:/data/blobs  # 文档入库要读原件
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      # worker 每 10 秒更新一次这个文件；30 秒没更新说明事件循环卡住了
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/agentnexus-worker-alive') < 30 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 60s  # 启动时要加载 embedding 和重排模型
+    # 关停时要放弃执行中任务的租约（让别的副本立即接手），给足时间；超时会被 SIGKILL，那就只能等租约自然过期
+    stop_grace_period: 30s
     restart: unless-stopped
 
   # 前端：Nginx 提供打包后的静态文件，并把 /api 转发给 api（同源，不需要 CORS）

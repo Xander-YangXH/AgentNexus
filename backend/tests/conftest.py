@@ -117,3 +117,30 @@ async def chunk_index():
     await index.ensure()
     yield index
     await client.close()
+
+
+# ---------- 退出时的原生库崩溃（decisions/0020 实现阶段发现） ----------
+# 全量测试偶发以 134（SIGABRT）退出：所有测试都已通过、汇总也已打印，之后在 C++ 层报
+# “recursive_mutex lock failed”。这发生在 Python 解释器清理完之后（faulthandler 抓不到 Python 栈），
+# 是 onnxruntime 与其他原生库（grpc、数据库驱动等）的全局对象析构顺序问题：
+# 全量 6~8 次中出现 1 次；排除真实模型的测试后 12 次 0 次；单独跑任意一组 30 次 0 次。
+# 绕过：加载过真实模型时，在 pytest 收尾的最后一刻带着测试结果直接退出，跳过 C++ 全局析构。
+# 代价：跳过 atexit 回调（本项目测试没有依赖它们）。
+
+_exit_status = {"code": 0}
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _exit_status["code"] = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    from tests.fakes import NATIVE_MODELS
+
+    if NATIVE_MODELS["loaded"]:
+        import sys
+
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_exit_status["code"])

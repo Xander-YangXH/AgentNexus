@@ -1,6 +1,6 @@
-# 0020 - 阶段 4.1：独立 worker、任务队列与租约（草稿）
+# 0020 - 阶段 4.1：独立 worker、任务队列与租约
 
-**状态**：草稿，待用户确认（2026-10-22）。末尾有待确认的问题。
+**状态**：已决定（2026-10-22）。用户确认三项均按建议：PostgreSQL 租约队列、run 被接管后从 checkpoint 续做、一个 worker 服务执行所有任务。
 
 **背景**：阶段 1~3 的后台任务（对话 run、文档入库、图谱构建）都在 api 进程里执行，靠“单进程假设”做启动恢复（0005）：
 - run 被中断时，下次启动标为失败；
@@ -91,7 +91,60 @@
    - 跨进程取消；
    - 在 compose 里真实 `kill -9` worker（里程碑）。
 
-## 待确认
-1. 任务队列：**B. PostgreSQL 租约队列（推荐）**，还是 **A. 按路线图用 ARQ**？
-2. run 被接管后：**从 LangGraph checkpoint 续做（推荐）**，还是保持现在的“中断即失败、由用户重试”？
-3. worker 拓扑：**一个 worker 服务执行所有任务（推荐，先简单）**，还是按任务类型拆分（入库 / 图谱是 CPU 密集，对话是 IO 密集）？
+## 四、实现要点（4.1 完成后补充）
+- **代码位置**：
+  - `runtime/lease.py`：通用租约队列，按表参数化；
+  - `runtime/dispatcher.py`：run；
+  - `runtime/jobs.py`：入库与图谱构建；
+  - `runtime/cancel_bus.py`：Redis 取消广播；
+  - `worker.py`：worker 进程；
+  - `assembly.py`：api 与 worker 共用的装配；
+  - 迁移 0009：三张表加租约字段，`agent_runs` 加 `cancel_requested_at`。
+- **认领**：`UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)`，条件是“待执行，或执行中但租约为空 / 已过期”。认领时版本号加一、尝试次数加一。租约为空也按过期处理：升级前就在执行中的旧记录会被接管。时间一律用数据库的 `now()`。
+- **写回**：run 的完成、失败、取消，文档的 ready / failed，图谱构建的进度与结束，全部带 `lease_version` 条件。
+- **外部系统不受 fencing 保护**（实现时发现的关键问题）：Qdrant 不认版本号。原来“按文档删除向量点”的做法，会让恢复后的旧 worker 删掉接管者写好的点（文档 ready 却检索不到）。改为：
+  - 每次尝试只写自己的点，失败时按 id 删除自己的点；
+  - 带版本号成功提交的执行者，才清理“不属于本次结果”的点（`delete_document_except`）。
+  - 同一事务里也要先做版本校验、再写分块（反过来会撞上接管者分块的唯一约束，直接抛异常）。
+  - 图谱：重写 PostgreSQL 里的图之前，先在同一事务里锁住构建记录并校验版本；提交之后、写 Neo4j 之前仍有一个极小的窗口，用 sync 命令修复。
+- **run 的接管**：
+  - 认领后先检查 `cancel_requested_at`：取消后恰好被关停的 run，接手者直接收尾为已取消，不再执行；
+  - 第 2 次及以后发 `run.resumed {attempt}`，token 带 attempt；
+  - Agent 读 checkpoint：图没跑完就继续，跑完了直接用最终状态，没有就从头开始；
+  - 超过 3 次标为 `interrupted`。
+- **优雅关停**：放弃租约（立即过期），并**在同一事务里发 NOTIFY**。第一版没发，`docker stop` 后要 5.2 秒才被接管，修复后 0.9 秒。
+- **跨进程取消**：取消接口写 `cancel_requested_at`；本进程在执行就直接取消，否则发 Redis 广播；worker 心跳时也检查数据库标记。
+- **api 与 worker**：
+  - api 不再执行任务。它的 `RunDispatcher` 和 `JobDispatcher` 不启动：`enqueue` 是空操作（通知已在提交任务的事务里发出），`cancel` 写数据库并广播；
+  - worker 订阅 `LISTEN agentnexus_jobs` 唤醒对应的执行器，断线会重连，期间靠轮询兜底；
+  - 存活检查：每 10 秒更新一个文件；
+  - checkpoint 清理也移到 worker。
+- **前端**：`run.resumed` 时清空半截文字；只接受当前尝试的事件，不带 attempt 的事件按第 1 次处理。
+
+## 五、验证
+- 后端测试：全量 219 个（其中 1 个 SSE 测试在 35 次全量运行中偶发失败 1 次，大概率是 4.1 之前就存在的问题，已加诊断，见 dev-log #117）。新增或改写的覆盖：
+  - 接管无租约的 run；
+  - 关停放弃租约后被续做；
+  - 过期租约被接管，且旧 worker 被 fencing（新 worker 仍在执行时检查）；
+  - 尝试上限；
+  - 多个 worker 每个 run 恰好执行一次；
+  - 跨进程取消（广播 / 广播丢失时靠心跳）；
+  - 取消后关停不会再执行；
+  - resumed 事件与 attempt；
+  - 从 checkpoint 续做（预检索不重做）、跑完未落库直接用最终状态；
+  - 文档与图谱构建的接管，以及旧 worker 不删接管者的向量点。
+- 前端测试 39 个（新增接管相关）。
+- 变异检查 15 项全部被发现。第一轮有 2 项存活（续约不校验版本、写回不校验版本）：测试里新 worker 执行太快、状态已不是 running，版本校验没有机会起作用；改为让新 worker 保持执行中再检查。
+- 里程碑（compose，2 个 worker 副本，假模型慢速输出约 30 秒的回复）：
+
+  | 操作 | 结果 |
+  |---|---|
+  | `kill -9` 执行中的 worker | 24.8 秒后被接管；1 条回复、内容正确；事件 started → resumed → completed |
+  | `docker stop` | 0.9 秒后被接管；被关停的容器退出码为 0 |
+  | 从 api 取消执行中的 run | 0.02 秒生效（Redis 广播），没有留下回复 |
+- 真实 DeepSeek，单个 worker：入库 0.3 秒、带引用的对话 1.9 秒、图谱构建（1 块）$0.0004，三类任务都在 worker 里正常执行。
+
+## 确认结果
+1. 任务队列：PostgreSQL 租约队列（方案 B）。
+2. run 被接管后：从 LangGraph checkpoint 续做，最多尝试 3 次。
+3. worker 拓扑：一个 worker 服务执行所有任务，需要时起多个副本。

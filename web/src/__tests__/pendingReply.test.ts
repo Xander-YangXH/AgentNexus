@@ -59,3 +59,22 @@ describe('knowledge search events', () => {
     expect(applyRunEvent(p, unknown)).toBe(p)
   })
 })
+
+describe('takeover (run.resumed)', () => {
+  it('clears the partial text and ignores late events from the previous attempt', () => {
+    let p = applyRunEvent(newPending('r', 0), tok('第一次执行的半截'))
+    p = applyRunEvent(p, { type: 'run.resumed', data: { attempt: 2 }, id: null })
+    expect([p.status, p.text, p.attempt]).toEqual(['waiting', '', 2])
+    expect(p.activity).toContain('接着生成')
+    // 旧 worker 还没发现自己被接管，又流出一个 token（attempt 1 或不带 attempt 的第一次执行）
+    const late = { type: 'token', data: { text: '旧', attempt: 1 }, id: null } as RunEvent
+    expect(applyRunEvent(p, late)).toBe(p)
+    expect(applyRunEvent(p, tok('旧，第一次执行不带 attempt'))).toBe(p)
+    p = applyRunEvent(p, { type: 'token', data: { text: '新的', attempt: 2 }, id: null })
+    expect([p.status, p.text, p.activity]).toEqual(['streaming', '新的', null])
+    // 重复或乱序的 resumed（更小的 attempt）不会把状态倒回去
+    expect(applyRunEvent(p, { type: 'run.resumed', data: { attempt: 2 }, id: null })).toBe(p)
+    // 第一次执行的普通流程不受影响（tok 不带 attempt）
+    expect(applyRunEvent(newPending('x', 0), tok('正常')).text).toBe('正常')
+  })
+})

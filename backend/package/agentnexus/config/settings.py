@@ -11,7 +11,11 @@ class Settings:
     redis_url: str
     worker_concurrency: int = 4  # 同时执行的 run 数上限
     run_timeout_seconds: float = 300.0  # 单个 run 的执行超时
-    sweep_interval_seconds: float = 5.0  # 扫描 queued 补投递的间隔
+    sweep_interval_seconds: float = 5.0  # 空闲时多久查一次待执行 / 租约过期的任务（有 NOTIFY 时立即唤醒）
+    # 任务租约（decisions/0020）：心跳间隔取租约的 1/3，丢一两次心跳不会被误判为死亡；接管最多等一个租约时长
+    job_lease_seconds: float = 30.0
+    job_heartbeat_seconds: float = 10.0
+    run_max_attempts: int = 3  # 一个 run 最多被执行几次（含接管），超过标为 interrupted
     # LLM：默认 fake（确定性回声模型），不需要密钥即可跑通整条链路
     llm_provider: str = "fake"  # fake | openai（OpenAI 兼容接口） | anthropic | google
     llm_model: str = ""
@@ -65,6 +69,9 @@ def get_settings() -> Settings:
         worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", 4)),
         run_timeout_seconds=float(os.environ.get("RUN_TIMEOUT_SECONDS", 300)),
         sweep_interval_seconds=float(os.environ.get("SWEEP_INTERVAL_SECONDS", 5)),
+        job_lease_seconds=float(os.environ.get("JOB_LEASE_SECONDS", 30)),
+        job_heartbeat_seconds=float(os.environ.get("JOB_HEARTBEAT_SECONDS", 10)),
+        run_max_attempts=int(os.environ.get("RUN_MAX_ATTEMPTS", 3)),
         llm_provider=os.environ.get("LLM_PROVIDER", "fake"),
         llm_model=os.environ.get("LLM_MODEL", ""),
         llm_api_key=os.environ.get("LLM_API_KEY") or None,

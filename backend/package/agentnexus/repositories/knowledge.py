@@ -63,11 +63,15 @@ class DocumentRepository:
 
     async def finish(
         self, document_id: uuid.UUID, status: DocumentStatus, *, chunk_count: int = 0,
-        error: str | None = None, error_code: str | None = None,
+        error: str | None = None, error_code: str | None = None, version: int | None = None,
     ) -> bool:
+        """processing -> 终态。version 是租约版本（fencing token，decisions/0020）：给了就必须匹配。"""
+        conds = [Document.id == document_id, Document.status == DocumentStatus.PROCESSING]
+        if version is not None:
+            conds.append(Document.lease_version == version)
         stmt = (
             update(Document)
-            .where(Document.id == document_id, Document.status == DocumentStatus.PROCESSING)
+            .where(*conds)
             .values(status=status, chunk_count=chunk_count, error=error, error_code=error_code, processed_at=func.now())
         )
         return (await self.session.execute(stmt)).rowcount == 1

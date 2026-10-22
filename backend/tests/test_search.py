@@ -1,5 +1,6 @@
 """检索（阶段 2.3）：向量召回 + 回库取原文 + 重排；权限与孤儿点过滤。"""
 
+import gc
 import os
 import uuid
 
@@ -14,7 +15,7 @@ from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.vectors import ChunkIndex, ChunkPoint
 from server.deps import get_sessionmaker
 from server.main import create_app
-from tests.fakes import FakeEmbedder
+from tests.fakes import NATIVE_MODELS, FakeEmbedder
 
 DOCS = {
     "退货.txt": "退货政策：签收后七天内可以无理由退货，定制商品不支持退货。",
@@ -162,9 +163,14 @@ def real_reranker():
     try:
         from agentnexus.knowledge.rerank import FastReranker
 
-        return FastReranker()
+        model = FastReranker()
+        NATIVE_MODELS["loaded"] = True
     except Exception as exc:
         pytest.skip(f"reranker model not available offline: {type(exc).__name__}")
+    yield model
+    # 主动释放 ONNX 会话：留到解释器退出时再析构，偶发 “recursive_mutex lock failed” 导致进程以 134 退出（实测 4 次中 1 次）
+    del model
+    gc.collect()
 
 
 def test_real_reranker_puts_the_answer_first(real_reranker):

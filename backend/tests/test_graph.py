@@ -6,7 +6,7 @@ import uuid
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 
 from agentnexus.knowledge.graph.extraction import (
     MAX_ENTITIES,
@@ -241,7 +241,7 @@ async def test_neo4j_failure_marks_build_failed_and_resync_needs_no_llm(env, ses
         assert await store.count(kb.id) == (await _count(s, GraphEntity, kb.id), await _count(s, GraphRelation, kb.id))
 
 
-async def test_limits_single_active_build_and_startup_recovery(env, sessionmaker, user):
+async def test_limits_single_active_build_and_lease_takeover(env, sessionmaker, user):
     knowledge, kb, store = env
     with pytest.raises(KnowledgeBaseEmpty):
         await _svc(sessionmaker, store, RecordingExtractor()).create_build(user.id, kb.id)
@@ -254,11 +254,14 @@ async def test_limits_single_active_build_and_startup_recovery(env, sessionmaker
     build = await svc.create_build(user.id, kb.id)
     with pytest.raises(GraphBuildInProgress):
         await svc.create_build(user.id, kb.id)
-    async with sessionmaker() as s, s.begin():  # 模拟：执行到一半进程被杀
-        await s.execute(update(GraphBuild).where(GraphBuild.id == build.id).values(status=GraphBuildStatus.RUNNING))
-    assert await svc.requeue_interrupted() == [build.id]
-    assert await svc.list_pending_ids() == [build.id]
-    assert await svc.process(build.id)
+    old = await svc.queue.claim(build.id, "crashed")  # 执行到一半进程被杀
+    assert await svc.queue.claim_next("other") is None  # 租约还有效
+    async with sessionmaker() as s, s.begin():
+        await s.execute(update(GraphBuild).where(GraphBuild.id == build.id)
+                        .values(lease_expires_at=func.now() - text("interval '1 second'")))
+    taken = await svc.queue.claim_next("new")
+    assert taken.version == old.version + 1 and await svc.execute(taken)
+    assert await svc.execute(old) is False  # 旧 worker 恢复后：租约已丢，不覆盖接管者写好的图
 
 
 # ---------- 浏览接口与权限 ----------

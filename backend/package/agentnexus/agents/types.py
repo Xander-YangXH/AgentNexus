@@ -24,6 +24,8 @@ class RunContext:
     # 对话的归属用户与关联的知识库（decisions/0018）。工具只能检索这些知识库，由服务端决定，不由模型指定
     user_id: uuid.UUID | None = None
     knowledge_base_ids: tuple[uuid.UUID, ...] = ()
+    # 第几次执行（decisions/0020）：大于 1 表示前一个 worker 被打断、由本次接管，Agent 应从 checkpoint 续做
+    attempt: int = 1
 
 
 @dataclass(frozen=True)

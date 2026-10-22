@@ -41,8 +41,20 @@ class ChatbotAgent(BaseAgent):
         #   "values"  ：每一步之后的完整状态，最后一个就是最终状态。
         # 最终回复取自最终状态，而不是把 token 拼起来：状态才是图认定的结果，token 只是过程中的视图。
         final_state = None
+        graph_input = {"messages": to_langchain(ctx.history), "citations": []}
+        if ctx.attempt > 1 and self._graph.checkpointer is not None:
+            # 接管（decisions/0020）：thread_id 就是 run_id，上一个 worker 的进度都在 checkpoint 里
+            snapshot = await self._graph.aget_state(config)
+            if snapshot.values.get("messages"):
+                if not snapshot.next:
+                    # 图已经跑完，只是上一个 worker 没来得及把结果写进数据库：直接用最终状态，不再调用模型
+                    log.info("resuming run from a finished checkpoint")
+                    return self._reply(snapshot.values)
+                # 从最后一个 checkpoint 继续：已完成的节点（检索、模型调用）不重做，只重做被打断的那一步
+                log.info("resuming run from checkpoint before %s", list(snapshot.next))
+                graph_input = None
         async for mode, payload in self._graph.astream(
-            {"messages": to_langchain(ctx.history), "citations": []},
+            graph_input,
             config,
             stream_mode=["messages", "updates", "values"],
         ):
@@ -56,9 +68,13 @@ class ChatbotAgent(BaseAgent):
                 await self._emit_tool_events(ctx, payload)
             else:
                 final_state = payload
-        content = message_text(final_state["messages"][-1])
         self._log_usage(final_state["messages"][len(ctx.history):])
-        citations = final_state.get("citations") or []
+        return self._reply(final_state)
+
+    @staticmethod
+    def _reply(state: dict) -> AgentReply:
+        content = message_text(state["messages"][-1])
+        citations = state.get("citations") or []
         return AgentReply(content=content, citations=mark_cited(citations, content) if citations else None)
 
     @staticmethod

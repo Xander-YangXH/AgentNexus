@@ -139,16 +139,33 @@ async def test_failure_emits_failed_with_same_error_as_db(sessionmaker, user, re
     assert (got.error, got.error_code) == ("RuntimeError: llm down", "internal")  # 原始报错只在数据库
 
 
-async def test_startup_recovery_emits_failed_for_orphaned_runs(sessionmaker, user, redis):
+async def test_taken_over_run_emits_resumed_and_tags_tokens_with_the_attempt(sessionmaker, user, redis):
+    """被接管的 run（decisions/0020）：发 run.resumed，之后的 token 带 attempt，前端据此清掉上一次的半截文字。"""
+    from sqlalchemy import update
+
+    from agentnexus.events import RUN_RESUMED
+    from agentnexus.storage.postgres import AgentRun
+
     conv = await _conv(sessionmaker, user)
     svc = RunService(sessionmaker)
     run = await svc.submit(user.id, conv.id, "q")
-    assert await svc.claim(run.id)  # 模拟上一个进程执行到一半被杀
-    d = _dispatcher(sessionmaker, redis, FakeEchoChatModel())
+    async with sessionmaker() as session, session.begin():  # 模拟：第一次执行的 worker 崩溃，留下过期的租约
+        await session.execute(update(AgentRun).where(AgentRun.id == run.id)
+                              .values(status=RunStatus.RUNNING, attempts=1, lease_version=1))
+    d = _dispatcher(sessionmaker, redis, FakeEchoChatModel(chunk_size=2))
     await d.start()
-    await d.stop()
+    try:
+        for _ in range(100):
+            if (await _run(sessionmaker, run.id)).status == RunStatus.SUCCEEDED:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        await d.stop()
     events = await RunEventReader(redis).read(run.id, "0-0", block_ms=None)
-    assert _types(events) == [RUN_FAILED] and events[0].data == {"error_code": "interrupted"}
+    assert events[0].type == RUN_RESUMED and events[0].data == {"attempt": 2}
+    tokens = [e for e in events if e.type == TOKEN]
+    assert tokens and all(e.data["attempt"] == 2 for e in tokens)
+    assert events[-1].type == RUN_COMPLETED
 
 
 async def test_run_still_succeeds_when_redis_is_down(sessionmaker, user):

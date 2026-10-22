@@ -22,3 +22,7 @@ class FakeEmbedder:
             v[int(hashlib.md5(g.encode()).hexdigest(), 16) % self.dim] += 1.0
         norm = math.sqrt(sum(x * x for x in v)) or 1.0
         return [x / norm for x in v]
+
+
+# 是否加载过真实的 ONNX 模型（fastembed）。见 conftest.py 的 pytest_unconfigure
+NATIVE_MODELS = {"loaded": False}

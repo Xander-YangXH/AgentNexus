@@ -13,6 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -20,6 +21,7 @@ from agentnexus.knowledge.graph.extraction import PROMPT_VERSION, GraphExtractor
 from agentnexus.knowledge.graph.merge import merge
 from agentnexus.knowledge.graph.store import Neo4jGraphStore
 from agentnexus.runtime.failures import classify
+from agentnexus.runtime.lease import Claimed, LeaseQueue, notify_jobs
 from agentnexus.services.errors import (
     EntityNotFound,
     GraphBuildInProgress,
@@ -75,8 +77,13 @@ class GraphService:
         max_chunks_per_build: int = 2000,
         concurrency: int = 4,
         prices: Prices = Prices(),
+        lease_seconds: float = 30.0,
     ):
         self.sessionmaker = sessionmaker
+        self.queue = LeaseQueue(
+            sessionmaker, GraphBuild, pending=GraphBuildStatus.PENDING, running=GraphBuildStatus.RUNNING,
+            lease_seconds=lease_seconds, on_claim={"started_at": func.now()}, notify_kind="graph",
+        )
         self.extractor = extractor
         self.store = store
         self.max_chunks = max_chunks_per_build
@@ -116,6 +123,7 @@ class GraphService:
                 )
                 session.add(build)
                 await session.flush()
+                await notify_jobs(session, "graph")  # 提交时才送达（decisions/0020）
                 return build
         except IntegrityError as exc:
             if "uq_kg_builds_one_active_per_kb" in str(exc.orig):
@@ -129,44 +137,33 @@ class GraphService:
                     .order_by(GraphBuild.created_at.desc()).limit(limit))
             return list((await session.scalars(stmt)).all())
 
-    # ---------- 后台执行（JobDispatcher 调用） ----------
-
-    async def list_pending_ids(self) -> list[uuid.UUID]:
-        async with self.sessionmaker() as session:
-            stmt = select(GraphBuild.id).where(GraphBuild.status == GraphBuildStatus.PENDING).order_by(GraphBuild.created_at)
-            return list((await session.scalars(stmt)).all())
-
-    async def requeue_interrupted(self) -> list[uuid.UUID]:
-        """启动恢复：执行到一半的构建改回 pending。可以安全重做：已抽取的结果在缓存里，重做不再花钱。"""
-        async with self.sessionmaker() as session, session.begin():
-            stmt = (update(GraphBuild).where(GraphBuild.status == GraphBuildStatus.RUNNING)
-                    .values(status=GraphBuildStatus.PENDING).returning(GraphBuild.id))
-            return list((await session.scalars(stmt)).all())
+    # ---------- 后台执行（租约见 decisions/0020） ----------
 
     async def process(self, build_id: uuid.UUID) -> bool:
-        async with self.sessionmaker() as session, session.begin():
-            claimed = await session.execute(
-                update(GraphBuild)
-                .where(GraphBuild.id == build_id, GraphBuild.status == GraphBuildStatus.PENDING)
-                .values(status=GraphBuildStatus.RUNNING, started_at=func.now())
-            )
-            if claimed.rowcount != 1:
-                return False  # 已被别人抢走、或已经结束
-            build = await session.get(GraphBuild, build_id)
+        """认领并立即执行指定构建（同步调用：测试、命令行）。后台 worker 走 queue.claim_next + execute。"""
+        job = await self.queue.claim(build_id, "inline")
+        return await self.execute(job) if job else False
+
+    async def execute(self, job: Claimed) -> bool:
+        async with self.sessionmaker() as session:
+            build = await session.get(GraphBuild, job.id)
         started = time.perf_counter()
         try:
-            entity_count, relation_count = await self._run(build)
+            entity_count, relation_count = await self._run(build, job)
+        except _LeaseLost:
+            log.warning("graph build %s: lease lost (taken over by another worker); stopping", job.id)
+            return False
         except Exception as exc:
             code = _error_code(exc)
-            log.warning("graph build %s failed: %s", build_id, code, exc_info=True)
-            await self._finish(build_id, GraphBuildStatus.FAILED, error=f"{type(exc).__name__}: {exc}"[:2000], error_code=code)
+            log.warning("graph build %s failed: %s", job.id, code, exc_info=True)
+            await self._finish(job, GraphBuildStatus.FAILED, error=f"{type(exc).__name__}: {exc}"[:2000], error_code=code)
             return True
-        await self._finish(build_id, GraphBuildStatus.SUCCEEDED, entity_count=entity_count, relation_count=relation_count)
-        log.info("graph build %s succeeded: %d entities, %d relations, %.1fs", build_id, entity_count, relation_count,
+        await self._finish(job, GraphBuildStatus.SUCCEEDED, entity_count=entity_count, relation_count=relation_count)
+        log.info("graph build %s succeeded: %d entities, %d relations, %.1fs", job.id, entity_count, relation_count,
                  time.perf_counter() - started)
         return True
 
-    async def _run(self, build: GraphBuild) -> tuple[int, int]:
+    async def _run(self, build: GraphBuild, job: Claimed) -> tuple[int, int]:
         kb_id = build.knowledge_base_id
         groups = _group(await self._chunks(kb_id))
         cached = await self._cached(kb_id, list(groups))
@@ -182,27 +179,39 @@ class GraphService:
             async with sem:
                 result = await self.extractor.extract(first.title, first.text)
             async with self.sessionmaker() as session, session.begin():
-                session.add(GraphExtraction(
+                # 被接管的旧 worker 可能抽了同一块：主键冲突时保留先写入的那份（内容等价）
+                await session.execute(pg_insert(GraphExtraction).values(
                     knowledge_base_id=kb_id, text_sha256=text_hash, prompt_version=PROMPT_VERSION, payload=result.payload,
                     input_tokens=result.input_tokens, cached_tokens=result.cached_tokens, output_tokens=result.output_tokens,
-                ))
-                await session.execute(
-                    update(GraphBuild).where(GraphBuild.id == build.id).values(
+                ).on_conflict_do_nothing())
+                progress = await session.execute(
+                    update(GraphBuild).where(self.queue.fenced(job)).values(
                         done_count=GraphBuild.done_count + 1,
                         input_tokens=GraphBuild.input_tokens + result.input_tokens,
                         cached_tokens=GraphBuild.cached_tokens + result.cached_tokens,
                         output_tokens=GraphBuild.output_tokens + result.output_tokens,
                     )
                 )
+                if progress.rowcount == 0:
+                    raise _LeaseLost  # 已被接管：停止继续调用模型（抽取结果已写进缓存，接管者可以直接用）
             cached[text_hash] = result.payload
 
-        # TaskGroup：任何一个失败就取消其余的，不再继续花钱
-        async with asyncio.TaskGroup() as tg:
-            for text_hash in missing:
-                tg.create_task(extract(text_hash))
+        # TaskGroup：任何一个失败就取消其余的，不再继续花钱。子任务的异常会被包成异常组：
+        # 其中有“租约丢失”就按租约丢失处理（外层只认 _LeaseLost，接不住异常组）
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for text_hash in missing:
+                    tg.create_task(extract(text_hash))
+        except BaseExceptionGroup as group:
+            if group.subgroup(_LeaseLost) is not None:
+                raise _LeaseLost from group
+            raise
 
         entities, relations = merge([(c.id, cached[h]) for h, cs in groups.items() for c in cs])
         async with self.sessionmaker() as session, session.begin():
+            # 先在同一事务里确认租约还是自己的（锁住构建记录），否则旧 worker 会用过时的结果覆盖接管者写好的图
+            if (await session.execute(select(GraphBuild.id).where(self.queue.fenced(job)).with_for_update())).first() is None:
+                raise _LeaseLost
             # 整体重写这个知识库的图（删实体会级联删掉关系和出处）
             await session.execute(delete(GraphEntity).where(GraphEntity.knowledge_base_id == kb_id))
             if entities:
@@ -220,12 +229,16 @@ class GraphService:
                          for r in relations for c in r.chunk_ids]
             for i in range(0, len(mentions), 5000):
                 await session.execute(insert(GraphMention), mentions[i:i + 5000])
+        # 剩余的窗口：提交上面的事务之后、写 Neo4j 之前恰好被暂停并被接管，旧 worker 恢复后可能用过时的图覆盖 Neo4j。
+        # 概率极小；Neo4j 是派生存储，用 graph.sync 或再构建一次即可修复（decisions/0020）
         await self.store.replace_kb(kb_id, entities, relations)
         return len(entities), len(relations)
 
-    async def _finish(self, build_id: uuid.UUID, status: GraphBuildStatus, **values) -> None:
+    async def _finish(self, job: Claimed, status: GraphBuildStatus, **values) -> None:
         async with self.sessionmaker() as session, session.begin():
-            build = await session.get(GraphBuild, build_id)
+            build = (await session.scalars(select(GraphBuild).where(self.queue.fenced(job)).with_for_update())).first()
+            if build is None:
+                return  # 租约已不是自己的：结果以接管者为准
             build.status = status
             build.finished_at = func.now()
             build.cost_usd = round(self.prices.cost(build.input_tokens, build.cached_tokens, build.output_tokens), 6)
@@ -328,3 +341,7 @@ def _error_code(exc: BaseException) -> str:
     if isinstance(exc, (ServiceUnavailable, Neo4jError)):
         return "graph_store_unavailable"
     return str(classify(exc))
+
+
+class _LeaseLost(Exception):
+    """租约已被别的 worker 接管：立即停止，不再写任何东西。"""

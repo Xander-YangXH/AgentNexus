@@ -123,6 +123,25 @@ class ChunkIndex:
             wait=True,
         )
 
+    async def delete_points(self, ids: Sequence[uuid.UUID]) -> None:
+        if ids:
+            await self.client.delete(self.alias, points_selector=models.PointIdsList(points=[str(i) for i in ids]), wait=True)
+
+    async def delete_document_except(self, document_id: uuid.UUID, keep: Sequence[uuid.UUID]) -> None:
+        """删掉这个文档里“不属于本次结果”的点（之前中断的尝试、被接管的旧 worker 留下的）。
+
+        只能由成功提交结果的执行者调用（decisions/0020）：按文档整体删除会误删接管者刚写好的点——
+        fencing token 只能保护数据库里的写入，外部系统的删除要靠“只删别人的、只由赢家来删”。
+        """
+        await self.client.delete(
+            self.alias,
+            points_selector=models.FilterSelector(filter=models.Filter(
+                must=[models.FieldCondition(key="document_id", match=models.MatchValue(value=str(document_id)))],
+                must_not=[models.HasIdCondition(has_id=[str(i) for i in keep])],
+            )),
+            wait=True,
+        )
+
     async def count(self, *, document_id: uuid.UUID | None = None) -> int:
         flt = _match("document_id", document_id) if document_id else None
         return (await self.client.count(self.alias, count_filter=flt, exact=True)).count

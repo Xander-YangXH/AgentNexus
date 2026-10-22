@@ -69,20 +69,21 @@ async def test_sweep_picks_up_queued_run_that_was_never_enqueued(sessionmaker, u
         await d.stop()
 
 
-async def test_startup_recovery_fails_orphaned_running_and_frees_conversation(
-    sessionmaker, user, make_dispatcher
-):
+async def test_running_run_without_lease_is_taken_over(sessionmaker, user, make_dispatcher):
+    """升级前就在执行中、没有租约的 run（或者执行者已经死了）：租约视为过期，被接管并执行完（decisions/0020）。
+
+    阶段 1 的做法是启动时把所有 running 标为失败——只在单进程时成立，多个 worker 时会误伤别人正在执行的 run。
+    """
     conv = await _conv(sessionmaker, user)
     svc = RunService(sessionmaker)
     run = await svc.submit(user.id, conv.id, "q")
-    assert await svc.claim(run.id)  # 模拟上一个进程执行到一半被杀：库里留下 running
+    assert await svc.claim(run.id)  # 模拟：库里留下 running，但没有租约
 
     d = make_dispatcher()
     await d.start()
     try:
-        got = await _run(sessionmaker, run.id)
-        assert got.status == RunStatus.FAILED
-        assert "restarted" in got.error
+        got = await _wait_status(sessionmaker, run.id, RunStatus.SUCCEEDED)
+        assert got.attempts == 1 and got.lease_version == 1
         await svc.submit(user.id, conv.id, "again")  # 对话没有被卡死
     finally:
         await d.stop()
@@ -168,7 +169,8 @@ async def test_concurrency_limit_is_respected_and_runs_overlap(sessionmaker, use
         await d.stop()
 
 
-async def test_shutdown_marks_in_flight_run_failed(sessionmaker, user, make_dispatcher):
+async def test_shutdown_releases_the_lease_and_another_worker_resumes(sessionmaker, user, make_dispatcher):
+    """优雅关停：不再把在途 run 标为失败，而是放弃租约，别的 worker 立刻接手（attempt 2）。"""
     started = asyncio.Event()
 
     async def hang(ctx):
@@ -184,5 +186,116 @@ async def test_shutdown_marks_in_flight_run_failed(sessionmaker, user, make_disp
     await d.stop()  # 关停时 run 正在执行
 
     got = await _run(sessionmaker, run.id)
-    assert (got.status, got.error) == (RunStatus.FAILED, "interrupted: shutdown")
-    await svc.submit(user.id, conv.id, "after")  # 对话仍可继续使用
+    assert got.status == RunStatus.RUNNING and got.attempts == 1  # 没有被标失败
+
+    seen = []
+
+    async def record(ctx):
+        seen.append(ctx.attempt)
+        return "resumed"
+
+    d2 = make_dispatcher(record)
+    await d2.start()
+    try:
+        done = await _wait_status(sessionmaker, run.id, RunStatus.SUCCEEDED)
+    finally:
+        await d2.stop()
+    assert seen == [2] and done.attempts == 2 and done.lease_version == 2
+
+
+async def test_expired_lease_is_taken_over_and_the_old_worker_is_fenced(sessionmaker, user, make_dispatcher):
+    """旧 worker 卡住（不续约）→ 租约过期 → 新 worker 接管；旧 worker 恢复后既不能写回结果，也会被心跳发现并停止。"""
+    release = asyncio.Event()
+    old_cancelled = asyncio.Event()
+
+    async def stuck(ctx):
+        try:
+            await release.wait()  # 卡住，直到测试放行
+        except asyncio.CancelledError:
+            old_cancelled.set()
+            raise
+        return "from the old worker"
+
+    conv = await _conv(sessionmaker, user)
+    svc = RunService(sessionmaker)
+    run = await svc.submit(user.id, conv.id, "q")
+    # 旧 worker：心跳间隔远大于租约，模拟“进程被暂停、没能续约”。并发设为 1：整个进程被暂停时所有执行槽都停了；
+    # 如果有空闲的执行槽，它会自己把这个过期的 run 接管过去（第一版测试就是这样，版本号变成了 3）——这也是正确行为
+    old = make_dispatcher(stuck, lease_seconds=0.5, heartbeat_seconds=1.5, owner="old", concurrency=1)
+    await old.start()
+    await _wait_status(sessionmaker, run.id, RunStatus.RUNNING)
+    await asyncio.sleep(0.8)  # 租约过期
+    new_running, finish_new = asyncio.Event(), asyncio.Event()
+
+    async def new_handler(ctx):
+        new_running.set()
+        await finish_new.wait()  # 新 worker 保持执行中：只有这时，版本号才是挡住旧 worker 的唯一条件
+        return "from the new worker"
+
+    new = make_dispatcher(new_handler, owner="new")
+    await new.start()
+    try:
+        await asyncio.wait_for(new_running.wait(), 3)
+        # 旧 worker 心跳时发现租约丢了（状态仍是 running，只能靠版本号判断）：停止执行，什么都不写。
+        # 第一版测试里新 worker 很快就执行完了，状态已不是 running，去掉版本校验也测不出来（变异检查发现）
+        await asyncio.wait_for(old_cancelled.wait(), 3)
+        # 旧 worker 绕过心跳直接写回：fencing 拒绝
+        assert await svc.complete(run.id, conv.id, "stale", version=1) is None
+        assert await svc.fail(run.id, "stale", version=1) is False
+        finish_new.set()
+        done = await _wait_status(sessionmaker, run.id, RunStatus.SUCCEEDED)
+        assert (done.lease_owner, done.lease_version, done.attempts) == ("new", 2, 2)
+    finally:
+        release.set()
+        finish_new.set()
+        await old.stop()
+        await new.stop()
+    async with sessionmaker() as session:
+        msgs = await MessageRepository(session).list_by_conversation(conv.id)
+    assert [m.content for m in msgs] == ["q", "from the new worker"]
+
+
+async def test_gives_up_after_max_attempts(sessionmaker, user, make_dispatcher):
+    from sqlalchemy import update
+
+    from agentnexus.storage.postgres import AgentRun
+
+    conv = await _conv(sessionmaker, user)
+    run = await RunService(sessionmaker).submit(user.id, conv.id, "q")
+    async with sessionmaker() as session, session.begin():  # 模拟：已经被打断过 3 次
+        await session.execute(update(AgentRun).where(AgentRun.id == run.id).values(status=RunStatus.RUNNING, attempts=3))
+    called = []
+    d = make_dispatcher(lambda ctx: called.append(1), max_attempts=3)
+    await d.start()
+    try:
+        got = await _wait_status(sessionmaker, run.id, RunStatus.FAILED)
+    finally:
+        await d.stop()
+    assert (got.error_code, called) == ("interrupted", []) and "gave up" in got.error
+
+
+async def test_many_workers_execute_each_run_exactly_once(sessionmaker, user, make_dispatcher):
+    calls = []
+
+    async def counting(ctx):
+        calls.append(ctx.run_id)
+        await asyncio.sleep(0.05)
+        return "ok"
+
+    svc = RunService(sessionmaker)
+    runs = []
+    for _ in range(12):
+        conv = await _conv(sessionmaker, user)
+        runs.append(await svc.submit(user.id, conv.id, "q"))
+    workers = [make_dispatcher(counting, concurrency=3, owner=f"w{i}") for i in range(3)]
+    for w in workers:
+        await w.start()
+    try:
+        for r in runs:
+            await _wait_status(sessionmaker, r.id, RunStatus.SUCCEEDED)
+    finally:
+        for w in workers:
+            await w.stop()
+    assert sorted(calls) == sorted(r.id for r in runs)  # 每个 run 恰好执行一次
+    owners = {(await _run(sessionmaker, r.id)).lease_owner for r in runs}
+    assert len(owners) > 1  # 确实被多个 worker 分担了
