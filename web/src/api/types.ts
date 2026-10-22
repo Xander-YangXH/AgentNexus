@@ -59,7 +59,8 @@ export type RunEvent =
   | { type: 'run.failed'; data: { error_code: string | null; synthesized?: boolean }; id: string | null }
   | { type: 'run.cancelled'; data: { synthesized?: boolean }; id: string | null }
   | { type: 'run.resumed'; data: { attempt: number }; id: string | null }
-  | { type: 'tool.started'; data: { name: string; query: string; attempt?: number }; id: string | null }
+  // detail：参数摘要（检索词、网址、文件路径、技能名或代码第一行），decisions/0021 起所有工具都有
+  | { type: 'tool.started'; data: { name: string; query: string; detail?: string; attempt?: number }; id: string | null }
   | { type: 'tool.finished'; data: { name: string; hits: number; ok: boolean; attempt?: number }; id: string | null }
 
 export const TERMINAL_EVENTS = new Set(['run.completed', 'run.failed', 'run.cancelled'])

@@ -1,47 +1,50 @@
-# postgres + redis + qdrant + neo4j + migrate（一次性）+ api + worker + web。
+# postgres + redis + qdrant + neo4j + migrate（一次性）+ api + worker + web，
+# 以及工具执行（decisions/0021）：sandbox（独占 Docker socket）+ mcp-gateway + egress-proxy。
 name: agentnexus
 
-# api 与 migrate 共用同一个镜像和环境变量
+# api、worker 与 migrate 共用同一个镜像和环境变量
+x-backend-env: &backend-env
+  # 容器间用服务名互通（postgres / redis），不是 localhost
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  # compose 只会把这里列出的变量传进容器；.env 里写了但这里没列的，容器里读不到
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  RUN_TIMEOUT_SECONDS: ${RUN_TIMEOUT_SECONDS:-300}
+  SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-5}
+  JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-30}
+  JOB_HEARTBEAT_SECONDS: ${JOB_HEARTBEAT_SECONDS:-10}
+  RUN_MAX_ATTEMPTS: ${RUN_MAX_ATTEMPTS:-3}
+  LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+  LLM_MODEL: ${LLM_MODEL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_THINKING: ${LLM_THINKING:-}
+  LLM_FAKE_STREAM_DELAY: ${LLM_FAKE_STREAM_DELAY:-0}
+  CHECKPOINT_RETENTION_HOURS: ${CHECKPOINT_RETENTION_HOURS:-24}
+  CHECKPOINT_JANITOR_INTERVAL_SECONDS: ${CHECKPOINT_JANITOR_INTERVAL_SECONDS:-600}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-text}
+  MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+  QDRANT_URL: http://qdrant:6333
+  NEO4J_URL: bolt://neo4j:7687
+  NEO4J_USER: neo4j
+  NEO4J_PASSWORD: ${NEO4J_PASSWORD:?在 .env 里设置 NEO4J_PASSWORD}
+  KG_MAX_CHUNKS_PER_BUILD: ${KG_MAX_CHUNKS_PER_BUILD:-2000}
+  QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
+  INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
+  EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
+  RERANK_ENABLED: ${RERANK_ENABLED:-true}
+  RERANK_CANDIDATES: ${RERANK_CANDIDATES:-10}
+  KNOWLEDGE_PREFETCH: ${KNOWLEDGE_PREFETCH:-true}
+  KNOWLEDGE_TOP_K: ${KNOWLEDGE_TOP_K:-4}
+  # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
+
 x-backend: &backend
   image: agentnexus-backend
   build:
     context: .
     dockerfile: docker/api.Dockerfile
-  environment:
-    # 容器间用服务名互通（postgres / redis），不是 localhost
-    DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    REDIS_URL: redis://redis:6379/0
-    # compose 只会把这里列出的变量传进容器；.env 里写了但这里没列的，容器里读不到
-    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
-    RUN_TIMEOUT_SECONDS: ${RUN_TIMEOUT_SECONDS:-300}
-    SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-5}
-    JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-30}
-    JOB_HEARTBEAT_SECONDS: ${JOB_HEARTBEAT_SECONDS:-10}
-    RUN_MAX_ATTEMPTS: ${RUN_MAX_ATTEMPTS:-3}
-    LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-    LLM_MODEL: ${LLM_MODEL:-}
-    LLM_API_KEY: ${LLM_API_KEY:-}
-    LLM_BASE_URL: ${LLM_BASE_URL:-}
-    LLM_THINKING: ${LLM_THINKING:-}
-    LLM_FAKE_STREAM_DELAY: ${LLM_FAKE_STREAM_DELAY:-0}
-    CHECKPOINT_RETENTION_HOURS: ${CHECKPOINT_RETENTION_HOURS:-24}
-    CHECKPOINT_JANITOR_INTERVAL_SECONDS: ${CHECKPOINT_JANITOR_INTERVAL_SECONDS:-600}
-    LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    LOG_FORMAT: ${LOG_FORMAT:-text}
-    MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
-    QDRANT_URL: http://qdrant:6333
-    NEO4J_URL: bolt://neo4j:7687
-    NEO4J_USER: neo4j
-    NEO4J_PASSWORD: ${NEO4J_PASSWORD:?在 .env 里设置 NEO4J_PASSWORD}
-    KG_MAX_CHUNKS_PER_BUILD: ${KG_MAX_CHUNKS_PER_BUILD:-2000}
-    QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
-    INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
-    EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
-    RERANK_ENABLED: ${RERANK_ENABLED:-true}
-    RERANK_CANDIDATES: ${RERANK_CANDIDATES:-10}
-    KNOWLEDGE_PREFETCH: ${KNOWLEDGE_PREFETCH:-true}
-    KNOWLEDGE_TOP_K: ${KNOWLEDGE_TOP_K:-4}
-    # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
+  environment: *backend-env
 
 services:
   postgres:
@@ -156,6 +159,16 @@ services:
   worker:
     <<: *backend
     command: ["python", "-m", "agentnexus.worker"]
+    environment:
+      <<: *backend-env
+      # 工具（decisions/0021）：worker 只是 HTTP 客户端，不持有 Docker socket、不运行第三方 MCP 服务。
+      # sandbox / mcp-gateway 没起来时 worker 照常运行，只是没有对应的工具（依赖它们的技能也不出现）
+      SANDBOX_URL: http://sandbox:8000
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?在 .env 里设置 SANDBOX_TOKEN（至少 16 位随机字符）}
+      SANDBOX_EXEC_TIMEOUT: ${SANDBOX_EXEC_TIMEOUT:-30}
+      MCP_GATEWAY_URL: http://mcp-gateway:8080/mcp
+      AGENT_MAX_TOOL_ROUNDS: ${AGENT_MAX_TOOL_ROUNDS:-8}
+    networks: [default, sandbox, tools]
     volumes:
       - blob_data:/data/blobs  # 文档入库要读原件
     depends_on:
@@ -178,6 +191,78 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
+  # ---------- 工具执行（decisions/0021） ----------
+  # 沙盒运行镜像：只负责构建镜像（sandbox 服务用它创建一次性容器），构建完打印一行就退出
+  sandbox-runtime:
+    image: agentnexus-sandbox-runtime
+    build:
+      context: .
+      dockerfile: docker/sandbox.Dockerfile
+    network_mode: none
+    restart: "no"
+
+  # 唯一持有 Docker socket 的服务（持有 socket = 宿主机 root）。对 worker 只开放窄接口：
+  # 在某个工作空间里、用写死的加固参数执行代码，以及读写该工作空间的文件。不拿数据库、模型等任何密钥
+  sandbox:
+    image: agentnexus-backend
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    command: ["uvicorn", "agentnexus.sandbox.app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    environment:
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?在 .env 里设置 SANDBOX_TOKEN（至少 16 位随机字符）}
+      SANDBOX_IMAGE: agentnexus-sandbox-runtime
+      SANDBOX_ROOT: /workspaces
+      # 创建容器时按“卷 + 子目录”挂载（volume subpath）：这里的路径是 sandbox 容器里的，Docker 不认识；
+      # 卷名是 Docker 认识的，每个容器只挂自己那个工作空间的子目录
+      SANDBOX_VOLUME: agentnexus_sandbox_workspaces
+      SANDBOX_MEMORY: ${SANDBOX_MEMORY:-256m}
+      SANDBOX_CPUS: ${SANDBOX_CPUS:-0.5}
+      SANDBOX_CONCURRENCY: ${SANDBOX_CONCURRENCY:-4}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sandbox_workspaces:/workspaces
+    networks: [sandbox]  # 只和 worker 相通；MCP 网关里的第三方代码连不到它
+    depends_on:
+      sandbox-runtime:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # 第三方 MCP 服务在这里以子进程运行（每次调用一个新进程）。只接入 internal 网络，只能经 egress-proxy 出网
+  mcp-gateway:
+    build:
+      context: .
+      dockerfile: docker/mcp-gateway.Dockerfile
+    environment:
+      MCP_SERVERS: '{"fetch": {"command": "python", "args": ["-m", "mcp_server_fetch", "--proxy-url", "http://egress-proxy:3128"]}}'
+      MCP_CALL_TIMEOUT: ${MCP_CALL_TIMEOUT:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [tools]
+    depends_on: [egress-proxy]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # 出口代理：按“解析后的 IP”拒绝私有、回环、链路本地等地址（内部服务、宿主机、云元数据），只放行外网的 80/443
+  egress-proxy:
+    image: ubuntu/squid:6.6-24.04_edge
+    volumes:
+      - ./docker/squid.conf:/etc/squid/squid.conf:ro
+    networks: [tools, egress]
+    restart: unless-stopped
+
   # 前端：Nginx 提供打包后的静态文件，并把 /api 转发给 api（同源，不需要 CORS）
   web:
     build:
@@ -195,7 +280,17 @@ services:
       retries: 5
     restart: unless-stopped
 
+networks:
+  default:
+  sandbox:
+    internal: true
+  tools:
+    internal: true  # 不通外网：网关只能经 egress-proxy 出去
+  egress:  # 只有 egress-proxy 接入，用来出外网
+
 volumes:
+  sandbox_workspaces:
+    name: agentnexus_sandbox_workspaces  # 固定卷名：sandbox 服务创建容器时按这个名字挂载子目录
   blob_data:
   pg_data:
   qdrant_data:

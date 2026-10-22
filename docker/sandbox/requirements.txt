@@ -1,0 +1,4 @@
+# 沙盒运行镜像里预装的库（decisions/0021）：模型写的数据分析代码常用。构建时装好、版本锁定，运行时断网装不了任何东西
+# 生成锁文件：uv pip compile requirements.txt --universal --python-version 3.12 --exclude-newer <今天减 14 天> -o requirements.lock
+pandas>=2.2,<3
+matplotlib>=3.9,<4

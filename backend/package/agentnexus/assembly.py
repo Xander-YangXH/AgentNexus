@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import dataclasses
 from datetime import timedelta
+from pathlib import Path
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from neo4j import AsyncGraphDatabase
@@ -16,6 +17,10 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
 from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
+from agentnexus.agents.skills import DEFAULT_DIR as DEFAULT_SKILLS_DIR, load_skills
+from agentnexus.agents.tools import StaticTools
+from agentnexus.agents.tools.mcp import McpToolbox
+from agentnexus.agents.tools.sandbox import sandbox_tools
 from agentnexus.config import Settings
 from agentnexus.events.redis_stream import RunEventPublisher
 from agentnexus.knowledge.embedding import FastEmbedder
@@ -27,6 +32,7 @@ from agentnexus.runtime.cancel_bus import RedisCancelBus
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
+from agentnexus.sandbox.client import SandboxClient
 from agentnexus.services.graph import GraphService, Prices
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
@@ -100,7 +106,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
 
         agent = ChatbotAgent(
             ChatbotContext(model=build_chat_model(settings), knowledge_search=knowledge_search,
-                           prefetch=settings.knowledge_prefetch),
+                           prefetch=settings.knowledge_prefetch, **await _tools(settings, stack)),
             checkpointer=checkpointer,
         )
         handler = agent.run
@@ -123,6 +129,23 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     graph_jobs = JobDispatcher(graph, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
                                heartbeat_seconds=settings.job_heartbeat_seconds)
     return Components(settings, sessionmaker, knowledge, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
+
+
+async def _tools(settings: Settings, stack: contextlib.AsyncExitStack) -> dict:
+    """通用工具与技能（decisions/0021）。worker 自己不持有 Docker socket，也不运行第三方 MCP 服务：
+    代码执行经 sandbox 服务，联网工具经 MCP 网关，这里只是两个 HTTP 客户端。"""
+    sources = []
+    if settings.sandbox_url and settings.sandbox_token:
+        client = SandboxClient(settings.sandbox_url, settings.sandbox_token, timeout=settings.sandbox_exec_timeout + 30)
+        stack.push_async_callback(client.close)
+        sources.append(StaticTools(sandbox_tools(client, exec_timeout=settings.sandbox_exec_timeout)))
+    if settings.mcp_gateway_url:
+        toolbox = McpToolbox(settings.mcp_gateway_url)
+        stack.push_async_callback(toolbox.close)
+        await toolbox.tools()  # 预先取一次工具列表；网关没起来也不影响启动，之后会重试
+        sources.append(toolbox)
+    skills = load_skills(Path(settings.skills_dir) if settings.skills_dir else DEFAULT_SKILLS_DIR)
+    return {"tool_sources": sources, "skills": skills, "max_skill_tool_rounds": settings.agent_max_tool_rounds}
 
 
 async def close(c: Components) -> None:

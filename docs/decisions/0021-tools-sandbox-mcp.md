@@ -1,6 +1,6 @@
-# 0021 - 阶段 4.2：工具、沙盒执行与 MCP 接入（草稿）
+# 0021 - 阶段 4.2：工具、沙盒执行与 MCP 接入
 
-**状态**：草稿，待用户确认（2026-10-22）。末尾有待确认的问题。
+**状态**：已决定（2026-10-22）。用户确认三项均按建议：独立 sandbox 服务独占 Docker socket、MCP 网关 + 出口代理、Skills 用 Markdown + `load_skill` 按需加载。
 
 **背景**：阶段 4 要让 Agent“干活”：执行代码、读写文件、联网获取资料，并通过 MCP 接入现成的工具服务。这些能力的共同点是：**执行的内容由模型决定，而模型会被输入影响**——用户的问题、知识库里的文档、网页内容里，都可能藏着提示注入。所以这一步的核心是安全边界，不是功能。
 
@@ -86,7 +86,57 @@
 - `knowledge_search`：已有（0018）。
 - 工具输出要截断（例如 8k 字符），避免把超大输出塞进上下文。每次工具调用都记录日志和事件，前端显示“正在执行代码”。
 
-## 待确认
-1. 沙盒：**独立的 sandbox 服务独占 Docker socket（推荐）**，还是 **worker 直接持有 socket（路线图原计划）**？
-2. 联网工具：**MCP 网关 + 出口代理（推荐）**，还是 **worker 子进程 + `--proxy-url`（更简单，隔离更弱）**？
-3. Skills：**Markdown 文件 + `load_skill` 按需加载（推荐）**，还是先不做 Skills、所有工具都直接提供给 Agent？
+## 确认结果
+1. 沙盒：独立的 sandbox 服务独占 Docker socket，对 worker 只开放窄接口。
+2. 联网工具：MCP 网关（只接入 internal 网络）+ Squid 出口代理。
+3. Skills：Markdown 文件 + `load_skill` 按需加载。
+
+## 四、实现（2026-10-22）
+| 部件 | 代码 | 要点 |
+|---|---|---|
+| sandbox 服务 | `sandbox/app.py`、`runner.py`、`files.py` | 唯一持有 Docker socket；令牌鉴权（`/health` 除外）；每次执行新建加固容器；按“卷 + 子目录”挂载工作空间；路径校验拒绝绝对路径、`..`、NUL 和指向外部的符号链接 |
+| worker 侧客户端 | `sandbox/client.py`、`agents/tools/sandbox.py` | 工作空间 id 拼进 URL 前先校验为 UUID；模型给的文件路径只放在查询参数 / 请求体里 |
+| MCP 网关 | `mcp_gateway/app.py`、`docker/mcp-gateway.Dockerfile` | mcp SDK 的 lowlevel Server + 无状态 streamable HTTP；每次工具调用新起一个上游子进程；参数按上游的 inputSchema 校验；单次 60 秒超时；镜像无 Node、只读、nobody |
+| worker 侧 MCP | `agents/tools/mcp.py` | 直接用 mcp SDK 客户端；网关不可用时没有联网工具，60 秒后重试 |
+| 出口代理 | `docker/squid.conf` | 与实验相同的规则 |
+| Skills | `agents/skills.py`、`backend/skills/*.md` | `data-analysis`、`web-research`；技能列出的工具不可用时不出现 |
+| 图 | `agents/buildin/chatbot/graph.py` | 工具只在加载了列出它的技能后才绑定给模型，执行前再检查一次；工具失败以错误结果告诉模型；结果截断到 8000 字符 |
+| 前端 | `web/src/composables/pendingReply.ts` | 按工具名显示“正在执行代码：…”“正在抓取网页：…” |
+
+**网络与密钥**（compose）：
+- `sandbox` 网络（internal）：只有 worker 和 sandbox 服务，所以 MCP 网关里的第三方代码连不到持有 socket 的服务。
+- `tools` 网络（internal）：worker、mcp-gateway、egress-proxy。
+- `egress` 网络：只有 egress-proxy 接入，用来出外网。
+- sandbox 服务只拿 `SANDBOX_TOKEN`；网关和代理不拿任何密钥。
+
+**实现时相对草稿的调整**（都是更具体的决定，不改变上面三个选择）：
+1. **工作空间按对话划分，而不是按 run**：同一对话的后续提问（“再画个图”“换成柱状图”）要用到上一轮的文件。安全边界不变：一个对话只属于一个用户，id 由服务端放进图的配置，模型的参数里没有它。
+2. **网关每次调用新起子进程**：调用之间不共享任何状态，一个用户的调用影响不到下一个用户；上游崩溃也不需要“重连”。代价是每次多一次进程启动——compose 里抓 example.com 全程 0.7 秒，可以接受。
+3. **不用 langchain-mcp-adapters**：实验时用它接入；实现时我们的工具层是自己的 `AgentTool`，不需要它转换成 LangChain 的 BaseTool，它多出来的内容块转换和错误包装反而要再拆。直接用 mcp SDK 的客户端约 60 行。
+4. **工具由技能启用**：没加载技能时模型只看到 `load_skill`（和关联知识库时的 `knowledge_search`）。工具定义本身也算输入 token；更重要的是，执行前还会再检查“这个工具是否被已加载的技能启用”——被注入的内容诱导调用没启用的工具，会直接被拒绝。
+5. **工具轮数上限**：加载技能后提高到 8 轮（数据分析要“写文件 → 执行 → 看报错 → 修改 → 再执行”）；没有技能时仍是检索的 3 轮，兜底的步数上限也跟着收紧。
+
+## 五、验证
+- **自动化测试**：后端 243 个（新增沙盒 6 个，用本机真实 Docker；MCP 网关 6 个，上游是真实的 stdio 子进程；工具与技能 12 个），前端 42 个。
+- **变异检查 7 项全部被发现**：去掉“执行前检查工具是否启用”、去掉“技能的工具都可用才显示”、去掉“加载技能后提高上限”、去掉客户端的工作空间 id 校验、网关把配置里的 env 传给子进程、去掉网关的调用超时、去掉“没有工作空间就拒绝”。
+- **compose 里的隔离检查**（不调用模型）：
+
+  | 检查 | 结果 |
+  |---|---|
+  | 写 CSV → pandas 计算 + matplotlib 画图 | 成功，1.5 秒（含导入和画图） |
+  | 另一个对话的工作空间 | 看不到文件；`../<另一个对话>/…` 被拒（400） |
+  | 沙盒里连 postgres、找 Docker socket、写根文件系统 | 解析不到 / 不存在 / 只读 |
+  | 沙盒里的环境变量 | 没有任何数据库、模型密钥或令牌 |
+  | fetch 外网（example.com） | 0.7 秒 |
+  | fetch qdrant、host.docker.internal、云元数据地址、127.0.0.1、sandbox | 全部被代理拒绝（Squid 访问日志 `TCP_DENIED/403`） |
+  | 网关容器直连 qdrant、postgres、sandbox、外网 | 全部解析不到 / 网络不可达；容器只读、以 nobody 运行、没有 Node |
+
+- **真实 DeepSeek 端到端**：
+  - 数据分析：模型 `load_skill` → `list_files` + `write_file` → 三次 `python_exec` → 给出总额 525、最高 2 月，并保存了折线图。6 次模型调用，输入 8.2k token（缓存命中 6.3k），输出 1.0k。
+  - 网页：`load_skill` → `fetch`，4.1 秒，回答附出处。3 次模型调用。
+  - 两个问题我误把脚本多跑了一遍，4 次合计约 $0.005。
+- **已知局限**：
+  - 沙盒镜像没有中文字体，图上的中文会显示成方框（模型自己改用了英文标签）；
+  - 生成的文件还不能在网页上下载（api 不直接访问 sandbox 服务，需要一个经过鉴权的下载接口）；
+  - 删除对话时还不会清理它的工作空间；
+  - MCP 服务暂时只接了 fetch，网关不接受需要密钥的服务（配置里的 env 被忽略）。

@@ -13,6 +13,8 @@
  * 知识库检索（decisions/0018）：tool.started 时清空已显示的文字——模型在调用工具前说的话不会成为最终回复
  * （最终回复取自图的最终状态），并显示“正在检索”；tool.finished 后回到“等待输出”，直到回答的第一个字。
  *
+ * 通用工具（decisions/0021）：按工具名显示“正在执行代码”“正在抓取网页”等；不认识的工具显示“正在调用 xxx”。
+ *
  * 接管（decisions/0020）：执行它的 worker 中断后，别的 worker 从 checkpoint 接着做，先发 run.resumed {attempt}。
  * 这时清空已显示的半截文字（新的执行会重新流出被打断的那一步）；之后只接受这一次尝试的事件——
  * 旧 worker 在心跳发现自己被接管之前，可能还会流出几个 token，它们带着更小的 attempt，直接忽略。
@@ -39,6 +41,30 @@ export function isActive(p: PendingReply | null): boolean {
   return p?.status === 'waiting' || p?.status === 'streaming'
 }
 
+const TOOL_LABELS: Record<string, [string, string]> = {
+  // 工具名 -> [进行中, 完成后]
+  knowledge_search: ['正在检索知识库', ''],
+  load_skill: ['正在加载技能', '技能已加载'],
+  python_exec: ['正在执行代码', '代码执行完成'],
+  list_files: ['正在查看文件', '文件列表已获取'],
+  read_file: ['正在读取文件', '文件已读取'],
+  write_file: ['正在写入文件', '文件已写入'],
+  fetch: ['正在抓取网页', '网页已获取'],
+}
+
+export function toolActivity(name: string, detail: string): string {
+  const label = TOOL_LABELS[name]?.[0] ?? `正在调用 ${name}`
+  return detail ? `${label}：${detail}` : label
+}
+
+function toolDone(name: string, hits: number, ok: boolean): string {
+  if (name === 'knowledge_search') {
+    return ok ? `检索到 ${hits} 条资料，正在生成回答` : '知识库检索失败，正在生成回答'
+  }
+  const label = TOOL_LABELS[name]?.[1] || `${name} 已完成`
+  return ok ? `${label}，继续处理` : `${name} 执行失败，正在处理`
+}
+
 export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
   if (!isActive(p)) return p // 终态之后的事件忽略
   // 第一次执行的事件不带 attempt（后端只在接管后才加），当作 1。第一版写成“有 attempt 才比较”，
@@ -54,9 +80,10 @@ export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
     case 'token':
       return { ...p, status: 'streaming', text: p.text + e.data.text, activity: null }
     case 'tool.started':
-      return { ...p, status: 'waiting', text: '', activity: `正在检索知识库：${e.data.query}` }
+      // 旧版后端只有 query，没有 detail
+      return { ...p, status: 'waiting', text: '', activity: toolActivity(e.data.name, e.data.detail ?? e.data.query) }
     case 'tool.finished':
-      return { ...p, activity: e.data.ok ? `检索到 ${e.data.hits} 条资料，正在生成回答` : '知识库检索失败，正在生成回答' }
+      return { ...p, activity: toolDone(e.data.name, e.data.hits, e.data.ok) }
     case 'run.completed':
       return { ...p, status: 'completed' }
     case 'run.failed':

@@ -20,7 +20,7 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 | 知识图谱 | Neo4j（派生存储，PostgreSQL 为事实来源）+ cytoscape.js |
 | 文档解析 | pypdf / python-docx |
 | Embedding | bge-small-zh-v1.5（fastembed / ONNX，本地运行） |
-| 工具沙盒 | Docker SDK 容器隔离（内置于 worker） |
+| 工具沙盒 | 独立 sandbox 服务（唯一持有 Docker socket）+ 加固的一次性容器；MCP 网关 + Squid 出口代理 |
 | 部署 | Docker Compose |
 
 ## 快速开始
@@ -41,6 +41,7 @@ docker compose up -d --build
 - [docs/guides/message-lifecycle.md](docs/guides/message-lifecycle.md) — 学习导读：一条消息从发送到流式显示的完整旅程（代码位置、设计理由、故障表现、自测题）
 - [docs/guides/worker-leases.md](docs/guides/worker-leases.md) — 学习导读：独立 worker 与租约（认领、心跳、fencing、续做、跨进程取消、崩溃接管实测）
 - [docs/guides/knowledge-graph.md](docs/guides/knowledge-graph.md) — 学习导读：知识图谱的抽取、合并、存储分工、失败与恢复、自测题
+- [docs/guides/tools-sandbox.md](docs/guides/tools-sandbox.md) — 学习导读：工具、沙盒与 MCP（威胁模型、socket 风险、SSRF 与出口代理、Skills、自测题）
 - [docs/guides/rag-pipeline.md](docs/guides/rag-pipeline.md) — 学习导读：一份文档从上传到成为回答里的引用（入库、检索、重排、预检索与工具、三层评测、自测题）
 - [docs/PROGRESS.md](docs/PROGRESS.md) — 进度与架构总图：当前位置、主链路、数据模型、分模块任务清单（勾选）
 - [docs/dev-log.md](docs/dev-log.md) — 开发日志：每一步的设计思路、取舍与踩坑记录
@@ -76,7 +77,7 @@ AgentNexus/
 - [x] 阶段 1：核心骨架与 Agent 编排引擎（流式聊天、取消 / 重试、请求追踪、对话管理；走读见 docs/guides/message-lifecycle.md）
 - [x] 阶段 2：RAG 知识库（上传 → 后台入库 → 本地向量化 + Qdrant → 召回 + 重排 → 预检索与检索工具 → 带引用的回答；三层评测；走读见 docs/guides/rag-pipeline.md）
 - [x] 阶段 3：知识图谱（LLM 结构化抽取 + 缓存与费用预估 → 合并 → PostgreSQL 事实来源 + Neo4j 派生存储 → 图谱浏览与溯源；走读见 docs/guides/knowledge-graph.md）
-- [ ] 阶段 4：多智能体、工具与扩展生态（4.1 已完成：独立 worker + PostgreSQL 租约队列，崩溃接管不重复执行，走读见 docs/guides/worker-leases.md）
+- [ ] 阶段 4：多智能体、工具与扩展生态（4.1 已完成：独立 worker + PostgreSQL 租约队列，崩溃接管不重复执行，走读见 docs/guides/worker-leases.md；4.2 已完成：沙盒执行代码、MCP 网关 + 出口代理、Skills，走读见 docs/guides/tools-sandbox.md）
 - [ ] 阶段 5：多租户权限与 Dashboard
 - [ ] 阶段 6：打磨、部署与简历包装
 

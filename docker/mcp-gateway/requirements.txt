@@ -1,0 +1,5 @@
+# MCP 网关镜像（decisions/0021）：只装网关和第三方 MCP 服务需要的包。镜像里不装 Node.js：
+# mcp-server-fetch 的依赖 readabilipy 检测到 Node 会在运行时执行 npm install（实验中污染了 stdio 协议流、绕过锁文件）
+mcp>=1.30,<2
+mcp-server-fetch==2026.8.18
+uvicorn>=0.30

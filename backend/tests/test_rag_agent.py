@@ -108,7 +108,7 @@ async def test_searches_with_server_side_scope_and_returns_marked_citations():
     assert reply.content == "echo: 退货要几天 [1]"
     assert [(c["n"], c["filename"], c["page"], c["cited"]) for c in reply.citations] == [
         (1, "退货.txt", None, True), (2, "手册.pdf", 3, False)]
-    assert events.of(TOOL_STARTED) == [{"name": "knowledge_search", "query": "退货要几天"}]
+    assert events.of(TOOL_STARTED) == [{"name": "knowledge_search", "query": "退货要几天", "detail": "退货要几天"}]
     assert events.of(TOOL_FINISHED) == [{"name": "knowledge_search", "hits": 2, "ok": True}]
     kinds = [t for t, _ in events.items]
     assert kinds.index(TOOL_FINISHED) < kinds.index(TOKEN)  # 先检索完，再流出回答
@@ -271,7 +271,7 @@ async def test_prefetch_searches_with_the_raw_question_before_the_model():
     assert isinstance(seen[-1], ToolMessage) and seen[-1].content.startswith("[1] 来源：退货.txt")
     assert "系统已经用用户的原话检索过一次" in seen[0].content
     assert [c["cited"] for c in reply.citations] == [True, False]
-    assert events.of(TOOL_STARTED) == [{"name": "knowledge_search", "query": "退货要几天"}]
+    assert events.of(TOOL_STARTED) == [{"name": "knowledge_search", "query": "退货要几天", "detail": "退货要几天"}]
     assert events.of(TOOL_FINISHED) == [{"name": "knowledge_search", "hits": 2, "ok": True}]
 
 

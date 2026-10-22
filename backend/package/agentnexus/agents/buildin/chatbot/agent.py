@@ -31,9 +31,11 @@ class ChatbotAgent(BaseAgent):
                 "thread_id": str(ctx.run_id),
                 "user_id": str(ctx.user_id) if ctx.user_id else None,
                 "knowledge_base_ids": [str(k) for k in ctx.knowledge_base_ids],
+                # 决策 0021：沙盒文件区按对话划分，同样由服务端决定，模型的参数里没有它
+                "workspace_id": str(ctx.conversation_id),
             },
-            # 兜底：模型无视“检索次数已达上限”反复调用工具时，图在这么多步后报错，不会无限循环、无限花钱
-            "recursion_limit": 2 * (self._context.max_tool_rounds + 2) + 1,
+            # 兜底：模型无视“调用次数已达上限”反复调用工具时，图在这么多步后报错，不会无限循环、无限花钱
+            "recursion_limit": 2 * (self._max_rounds() + 2) + 1,
         }
         # 决策 0007：同时订阅三种流——
         #   "messages"：模型逐段产出的 token；
@@ -41,7 +43,7 @@ class ChatbotAgent(BaseAgent):
         #   "values"  ：每一步之后的完整状态，最后一个就是最终状态。
         # 最终回复取自最终状态，而不是把 token 拼起来：状态才是图认定的结果，token 只是过程中的视图。
         final_state = None
-        graph_input = {"messages": to_langchain(ctx.history), "citations": []}
+        graph_input = {"messages": to_langchain(ctx.history), "citations": [], "skills": []}
         if ctx.attempt > 1 and self._graph.checkpointer is not None:
             # 接管（decisions/0020）：thread_id 就是 run_id，上一个 worker 的进度都在 checkpoint 里
             snapshot = await self._graph.aget_state(config)
@@ -70,6 +72,11 @@ class ChatbotAgent(BaseAgent):
                 final_state = payload
         self._log_usage(final_state["messages"][len(ctx.history):])
         return self._reply(final_state)
+
+    def _max_rounds(self) -> int:
+        # 有技能时，加载技能后上限会提高到 max_skill_tool_rounds；没有技能就保持检索的上限（步数兜底也更紧）
+        c = self._context
+        return max(c.max_tool_rounds, c.max_skill_tool_rounds) if c.skills else c.max_tool_rounds
 
     @staticmethod
     def _reply(state: dict) -> AgentReply:
@@ -102,8 +109,19 @@ class ChatbotAgent(BaseAgent):
                     for call in msg.tool_calls:
                         # 模型在调用工具前可能先说了几句（“我查一下”），那段文字不会成为最终回复；
                         # 前端收到 tool.started 时清空正在显示的临时文字（与“最终回复取自最终状态”保持一致）
-                        await ctx.events.emit(TOOL_STARTED, {"name": call["name"], "query": str(call["args"].get("query", ""))})
+                        args = call["args"] or {}
+                        await ctx.events.emit(TOOL_STARTED, {"name": call["name"], "query": str(args.get("query", "")),
+                                                             "detail": _detail(args)})
                 elif isinstance(msg, ToolMessage):
                     hits = len(_SOURCE_LINE.findall(msg.content)) if isinstance(msg.content, str) else 0
                     await ctx.events.emit(TOOL_FINISHED, {"name": msg.name or "knowledge_search", "hits": hits,
                                                           "ok": msg.status != "error"})
+
+
+def _detail(args: dict) -> str:
+    """给前端显示的一行摘要：检索词、网址、文件路径、技能名，或代码的第一行。"""
+    for key in ("query", "url", "path", "name"):
+        if args.get(key):
+            return str(args[key])[:200]
+    code = str(args.get("code", "")).strip()
+    return code.splitlines()[0][:200] if code else ""

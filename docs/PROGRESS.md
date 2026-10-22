@@ -5,14 +5,15 @@
 
 ## 1. 当前位置
 
-**阶段 4 进行中：4.1 独立 worker 与 PostgreSQL 租约队列已完成（0020）。下一步 4.2：工具、沙盒、MCP（先写选型草稿）。**
+**阶段 4 进行中：4.1 独立 worker 与租约队列（0020）、4.2 工具 / 沙盒 / MCP / Skills（0021）已完成。下一步 4.3：多 Agent 编排与审批中断（先写选型草稿）。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
 打开 `http://localhost:8080` 即可在网页上使用。
 生成中可以“停止”，失败或停止后可一键重试，失败原因以友好文案显示且刷新后仍在。
 对话可改名、归档 / 恢复，列表按最近活动排序，长对话分页加载。
-当前做不到的：还没有知识库、工具和多 Agent；没有真正的登录（`X-User-Id` 占位）。真实模型验证过 Gemini 与 DeepSeek（两种格式）。
+Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、读写对话的工作目录、经 MCP 网关抓取网页（出口代理拦截内部地址）。
+当前做不到的：还没有多 Agent 编排与审批中断，沙盒生成的文件还不能在网页上下载；没有真正的登录（`X-User-Id` 占位）。真实模型验证过 Gemini 与 DeepSeek（两种格式）。
 
 ### 完成度（由勾选框统计，粒度不等，仅作参考）
 
@@ -22,11 +23,11 @@
 | M1 核心骨架与 Agent 引擎 | 53 | 0 | 53 | 100% |
 | M2 RAG 知识库 | 12 | 0 | 12 | 100% |
 | M3 知识图谱 | 7 | 0 | 8 | 87% |
-| M4 多智能体/工具/沙盒/worker | 3 | 0 | 11 | 27% |
+| M4 多智能体/工具/沙盒/worker | 6 | 0 | 11 | 54% |
 | M5 多租户与 Dashboard | 0 | 0 | 6 | 0% |
 | M6 打磨与包装 | 0 | 0 | 6 | 0% |
 | 贯穿：质量与文档 | 4 | 0 | 8 | 50% |
-| **合计** | **91** | 2 | **118** | **77%** |
+| **合计** | **94** | 2 | **118** | **79%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -229,9 +230,9 @@
 - [ ] `agents/middlewares/`：subagent 派发、摘要压缩、审批中断（interrupt + resume）
 - [ ] 多 Agent 编排：supervisor 派发 + 子 Agent 并行执行 + 汇总
 - [ ] “深度调研”Agent：拆解任务 → 并行子任务 → 汇总成可下载文件（产物进 MinIO）
-- [ ] 沙盒：`agents/backends/sandbox/`，Docker SDK 起隔离容器（资源限制、网络隔离、超时、文件挂载边界）；明确威胁模型
-- [ ] 接入至少一个 MCP server（`langchain-mcp-adapters`）
-- [ ] Skills：简化为“按需加载的工具配置”
+- [x] 沙盒（decisions/0021）：独立 sandbox 服务独占 Docker socket（`sandbox/`），每次执行新建加固容器（断网、只读、nobody、进程 / 内存 / CPU 上限、超时）；工作空间按对话划分（卷子目录挂载 + 路径校验）；威胁模型见 0021；工具 `python_exec` / `list_files` / `read_file` / `write_file`
+- [x] MCP：网关（`mcp_gateway/`，只接入 internal 网络、每次调用新起子进程）接入官方 fetch 服务，Squid 出口代理按解析后的 IP 拒绝内部地址；worker 直接用 mcp SDK（实验后未用 langchain-mcp-adapters）
+- [x] Skills：`backend/skills/*.md`（data-analysis、web-research）+ `load_skill`；工具只在加载技能后启用，执行前再检查；真实 DeepSeek 跑通数据分析与网页问答
 - [ ] 审批流 UI：中断后用户批准/拒绝再恢复
 - [ ] **里程碑：复杂任务被拆解并行执行并产出可下载报告；杀 worker 后任务被正确接管**
 

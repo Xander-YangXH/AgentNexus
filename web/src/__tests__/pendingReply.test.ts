@@ -60,6 +60,34 @@ describe('knowledge search events', () => {
   })
 })
 
+describe('agent tools (decisions/0021)', () => {
+  const started = (name: string, detail: string) =>
+    ({ type: 'tool.started', data: { name, query: '', detail }, id: null }) as RunEvent
+  const finished = (name: string, ok: boolean) =>
+    ({ type: 'tool.finished', data: { name, hits: 0, ok }, id: null }) as RunEvent
+
+  it('labels each tool by name with its argument summary', () => {
+    expect(applyRunEvent(newPending('r', 0), started('python_exec', 'import pandas as pd')).activity)
+      .toBe('正在执行代码：import pandas as pd')
+    expect(applyRunEvent(newPending('r', 0), started('fetch', 'https://example.com')).activity)
+      .toBe('正在抓取网页：https://example.com')
+    expect(applyRunEvent(newPending('r', 0), started('load_skill', 'data-analysis')).activity)
+      .toBe('正在加载技能：data-analysis')
+    expect(applyRunEvent(newPending('r', 0), started('mystery', '')).activity).toBe('正在调用 mystery')
+  })
+
+  it('reports completion and failure of non-search tools', () => {
+    const p = applyRunEvent(newPending('r', 0), started('python_exec', 'x'))
+    expect(applyRunEvent(p, finished('python_exec', true)).activity).toBe('代码执行完成，继续处理')
+    expect(applyRunEvent(p, finished('python_exec', false)).activity).toBe('python_exec 执行失败，正在处理')
+  })
+
+  it('falls back to query when an older backend sends no detail', () => {
+    const old = { type: 'tool.started', data: { name: 'knowledge_search', query: '退货' }, id: null } as RunEvent
+    expect(applyRunEvent(newPending('r', 0), old).activity).toBe('正在检索知识库：退货')
+  })
+})
+
 describe('takeover (run.resumed)', () => {
   it('clears the partial text and ignores late events from the previous attempt', () => {
     let p = applyRunEvent(newPending('r', 0), tok('第一次执行的半截'))

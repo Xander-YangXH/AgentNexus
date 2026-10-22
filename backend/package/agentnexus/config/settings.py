@@ -50,6 +50,13 @@ class Settings:
     knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
     knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
     ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
+    # 工具与沙盒（decisions/0021）。没配置的部分就不提供对应工具（依赖它们的技能也不出现）
+    sandbox_url: str | None = None  # sandbox 服务地址，例如 http://sandbox:8000
+    sandbox_token: str | None = None
+    sandbox_exec_timeout: float = 30.0  # 单次 python_exec 的超时（模型不能改）
+    mcp_gateway_url: str | None = None  # 例如 http://mcp-gateway:8080/mcp
+    skills_dir: str | None = None  # 默认用代码里自带的 backend/skills
+    agent_max_tool_rounds: int = 8  # 加载技能后一次回答最多几轮工具调用（未加载技能时仍是检索的 3 轮）
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
     # 流式事件（decisions/0007）。用代码默认值、不开放环境变量，需要时再接入 compose
@@ -100,6 +107,12 @@ def get_settings() -> Settings:
         llm_price_cached_input=float(os.environ.get("LLM_PRICE_CACHED_INPUT", 0.006)),
         llm_price_output=float(os.environ.get("LLM_PRICE_OUTPUT", 1.2)),
         knowledge_prefetch=os.environ.get("KNOWLEDGE_PREFETCH", "true").lower() not in ("0", "false", "no", "off"),
+        sandbox_url=os.environ.get("SANDBOX_URL") or None,
+        sandbox_token=os.environ.get("SANDBOX_TOKEN") or None,
+        sandbox_exec_timeout=float(os.environ.get("SANDBOX_EXEC_TIMEOUT", 30)),
+        mcp_gateway_url=os.environ.get("MCP_GATEWAY_URL") or None,
+        skills_dir=os.environ.get("SKILLS_DIR") or None,
+        agent_max_tool_rounds=int(os.environ.get("AGENT_MAX_TOOL_ROUNDS", 8)),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

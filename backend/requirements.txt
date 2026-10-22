@@ -24,3 +24,10 @@ fastembed>=0.8,<0.10
 qdrant-client>=1.19,<1.20
 # 知识图谱（decisions/0019）：Neo4j 作为派生存储
 neo4j>=6.4,<7
+# 工具与沙盒（decisions/0021）：sandbox 服务用 Docker SDK 创建加固容器；worker 通过 MCP 网关使用外部工具
+docker>=7.2,<8
+# 直接用 mcp SDK 做客户端（实验用过 langchain-mcp-adapters，实现时不需要它的 BaseTool 转换，见 dev-log）。
+# 锁在 1.x：网关里的 mcp-server-fetch 要求 mcp<2，两边协议版本保持一致
+mcp>=1.30,<2
+# Skills（decisions/0021）：技能文件开头的 YAML 元数据。原本是 langchain-core 的间接依赖，直接使用就显式声明
+pyyaml>=6.0,<7
