@@ -19,11 +19,13 @@ from agentnexus.services.runs import RunService
 from agentnexus.storage.postgres import RunStatus
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
+from tests.fakes import install_test_auth
 
 
 @pytest_asyncio.fixture
 async def app_client(sessionmaker):
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
 
     async def boom():
         raise RuntimeError("secret internal detail: db password is hunter2")

@@ -42,6 +42,9 @@ x-backend-env: &backend-env
   RESEARCH_MAX_SUBTASKS: ${RESEARCH_MAX_SUBTASKS:-5}
   RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-3}
   APPROVAL_TTL_HOURS: ${APPROVAL_TTL_HOURS:-24}
+  # 登录（decisions/0023）。本地 http 演示时 COOKIE_SECURE 必须是 false，否则浏览器不保存会话 Cookie
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
   # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
 
 x-backend: &backend
@@ -126,9 +129,15 @@ services:
 
   # 一次性任务：建表/迁移后退出（restart: "no"），api 等它成功后再启动
   # 先跑我们自己的 Alembic 迁移，再建 LangGraph checkpoint 表（那套表由 LangGraph 自己管理）
+  # 最后创建 / 更新数据库角色并授权（decisions/0023）：api 用受 RLS 约束的普通角色，worker 用 BYPASSRLS 角色。
+  # 必须在建表之后执行：授权只覆盖已经存在的表，所以每次部署都要跑一遍（幂等）
   migrate:
     <<: *backend
-    command: ["sh", "-c", "alembic upgrade head && python -m agentnexus.storage.checkpoint"]
+    command: ["sh", "-c", "alembic upgrade head && python -m agentnexus.storage.checkpoint && python -m agentnexus.storage.roles"]
+    environment:
+      <<: *backend-env
+      DB_API_PASSWORD: ${DB_API_PASSWORD:?在 .env 里设置 DB_API_PASSWORD}
+      DB_WORKER_PASSWORD: ${DB_WORKER_PASSWORD:?在 .env 里设置 DB_WORKER_PASSWORD}
     working_dir: /app/backend
     depends_on:
       postgres:
@@ -137,6 +146,10 @@ services:
 
   api:
     <<: *backend
+    environment:
+      <<: *backend-env
+      # 受 RLS 约束的普通角色（decisions/0023）：超级用户和表所有者都会绕过 RLS
+      DATABASE_URL: postgresql://agentnexus_api:${DB_API_PASSWORD:?在 .env 里设置 DB_API_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - blob_data:/data/blobs  # 知识库文档原件（不放进数据库）
     ports:
@@ -166,6 +179,8 @@ services:
     command: ["python", "-m", "agentnexus.worker"]
     environment:
       <<: *backend-env
+      # BYPASSRLS 角色（decisions/0023）：后台任务按 run / 文档的归属取数据，不是“以某个用户的身份”查询
+      DATABASE_URL: postgresql://agentnexus_worker:${DB_WORKER_PASSWORD:?在 .env 里设置 DB_WORKER_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # 工具（decisions/0021）：worker 只是 HTTP 客户端，不持有 Docker socket、不运行第三方 MCP 服务。
       # sandbox / mcp-gateway 没起来时 worker 照常运行，只是没有对应的工具（依赖它们的技能也不出现）
       SANDBOX_URL: http://sandbox:8000

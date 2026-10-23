@@ -14,6 +14,22 @@ class UserExists(Exception):
     pass
 
 
+class UserNotFound(Exception):
+    pass
+
+
+class InvalidCredentials(Exception):
+    """用户名或密码错误（不区分用户不存在、密码错、已禁用）。"""
+
+
+class NoDepartment(Exception):
+    """用户不属于任何部门，不能把知识库共享到部门。"""
+
+
+class KnowledgeBaseReadOnly(Exception):
+    """知识库对当前用户可见但只读（部门共享），只有所有者能修改。"""
+
+
 class RunAlreadyFinished(Exception):
     """run 已经成功或失败，不能再取消。"""
 

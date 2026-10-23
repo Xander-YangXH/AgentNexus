@@ -26,6 +26,7 @@ from agentnexus.storage.blobs import LocalBlobStore
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
 from tests.fakes import FakeEmbedder
+from tests.fakes import install_test_auth
 
 
 def _hit(n, filename="退货.txt", text=None, page=None):
@@ -187,6 +188,7 @@ async def stack(sessionmaker, tmp_path, chunk_index, redis):
     agent = ChatbotAgent(ChatbotContext(model=FakeEchoChatModel(), knowledge_search=knowledge_search))
     dispatcher = RunDispatcher(sessionmaker, agent.run, sweep_interval=60, events=RunEventPublisher(redis))
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.dependency_overrides[get_dispatcher] = lambda: dispatcher
     await dispatcher.start()

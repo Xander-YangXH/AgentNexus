@@ -28,6 +28,7 @@ from agentnexus.storage.postgres import GraphBuild, GraphBuildStatus, GraphEntit
 from server.deps import get_graph_dispatcher, get_sessionmaker
 from server.main import create_app
 from tests.fakes import FakeEmbedder
+from tests.fakes import install_test_auth
 
 # ---------- 纯函数 ----------
 
@@ -284,6 +285,7 @@ async def api(env, sessionmaker, user):
 
     jobs = Jobs()
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.dependency_overrides[get_graph_dispatcher] = lambda: jobs
     app.state.graph_service = svc

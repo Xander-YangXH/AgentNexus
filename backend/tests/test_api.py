@@ -7,11 +7,13 @@ from agentnexus.agents.echo import echo_agent
 from agentnexus.runtime.dispatcher import RunDispatcher
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
+from tests.fakes import install_test_auth
 
 
 @pytest_asyncio.fixture
 async def client(sessionmaker):
     app = create_app()
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     # 不 start()：只入队、没人消费，run 保持 queued，便于断言“落库后”的状态
     dispatcher = RunDispatcher(sessionmaker, echo_agent)
@@ -99,13 +101,6 @@ async def test_validation(client):
         await client.post(f"/api/conversations/{cid}/messages", json={"content": ""}, headers=h)
     ).status_code == 422
     assert (await client.get("/api/conversations/not-a-uuid/messages", headers=h)).status_code == 422
-
-
-async def test_list_users_returns_created_users_in_order(client):
-    await client.post("/api/users", json={"name": "u-first"})
-    await client.post("/api/users", json={"name": "u-second"})
-    names = [u["name"] for u in (await client.get("/api/users")).json()]
-    assert names == ["u-first", "u-second"]
 
 
 async def test_active_run_lifecycle_and_ownership(client, sessionmaker):

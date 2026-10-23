@@ -1,32 +1,15 @@
 import { computed, ref, shallowRef } from 'vue'
-import { api, authHeaders, HttpError, setCurrentUser } from '../api/http'
+import { api, HttpError } from '../api/http'
 import { streamRunEvents } from '../api/sse'
-import type { AgentKind, Attachment, Conversation, KnowledgeBase, Message, Run, User } from '../api/types'
+import type { AgentKind, Attachment, Conversation, KnowledgeBase, Me, Message, Run } from '../api/types'
 import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
 import { mergeMessages } from './messagePages'
 import { computeNotices } from './runNotices'
 
-const USER_KEY = 'agentnexus.userId'
-
-function readStoredUser(): string | null {
-  try {
-    return localStorage.getItem(USER_KEY)
-  } catch {
-    return null // 隐私模式等情况下 localStorage 可能不可用
-  }
-}
-function storeUser(id: string | null) {
-  try {
-    if (id) localStorage.setItem(USER_KEY, id)
-    else localStorage.removeItem(USER_KEY)
-  } catch {
-    /* 只是“记住上次选的用户”的便利功能，失败不影响使用 */
-  }
-}
-
 export function useChat() {
-  const users = ref<User[]>([])
-  const userId = ref<string | null>(null)
+  // 当前登录用户（decisions/0023）。null = 未登录，显示登录页
+  const me = ref<Me | null>(null)
+  const userId = computed(() => me.value?.id ?? null)
   const conversations = ref<Conversation[]>([])
   const showArchived = ref(false)
   const conversationId = ref<string | null>(null)
@@ -95,23 +78,43 @@ export function useChat() {
     streamAbort.value = null
   }
 
+  /** 页面加载：已有会话就直接进入（Cookie 由浏览器保存），否则停在登录页 */
   async function init() {
-    users.value = await api.listUsers()
-    const stored = readStoredUser()
-    if (stored && users.value.some((u) => u.id === stored)) await selectUser(stored)
+    try {
+      await start(await api.me())
+    } catch (e) {
+      if (!(e instanceof HttpError && e.status === 401)) throw e
+    }
   }
 
-  async function createUser(name: string) {
-    const u = await api.createUser(name)
-    users.value = [...users.value, u]
-    await selectUser(u.id)
+  async function login(name: string, password: string) {
+    await start(await api.login(name, password))
   }
 
-  async function selectUser(id: string) {
+  async function logout() {
+    try {
+      await api.logout()
+    } finally {
+      reset()
+    }
+  }
+
+  /** 会话失效（任何接口返回 401）：清空界面，回到登录页 */
+  function reset() {
     stopStream()
-    userId.value = id
-    setCurrentUser(id)
-    storeUser(id)
+    me.value = null
+    conversations.value = []
+    conversationId.value = null
+    conversation.value = null
+    messages.value = []
+    runs.value = []
+    pending.value = null
+    knowledgeBases.value = []
+  }
+
+  async function start(user: Me) {
+    stopStream()
+    me.value = user
     conversationId.value = null
     conversation.value = null
     messages.value = []
@@ -175,7 +178,7 @@ export function useChat() {
     if (!resume || pending.value?.runId !== runId) pending.value = newPending(runId, startedAt)
 
     streamRunEvents(runId, {
-      headers: authHeaders(),
+      headers: {}, // 鉴权靠 Cookie，浏览器自动带
       signal: controller.signal,
       lastEventId,
       onEvent: (event) => {
@@ -260,7 +263,7 @@ export function useChat() {
   }
 
   return {
-    users,
+    me,
     userId,
     conversations,
     showArchived,
@@ -281,8 +284,9 @@ export function useChat() {
     error,
     busy,
     init,
-    createUser,
-    selectUser,
+    login,
+    logout,
+    reset,
     newConversation,
     selectConversation,
     send,

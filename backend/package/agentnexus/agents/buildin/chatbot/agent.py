@@ -37,6 +37,9 @@ class ChatbotAgent(BaseAgent):
             # 兜底：模型无视“调用次数已达上限”反复调用工具时，图在这么多步后报错，不会无限循环、无限花钱
             "recursion_limit": 2 * (self._max_rounds() + 2) + 1,
         }
+        if self._context.usage is not None:
+            # 回调随配置传给图：节点内部的每次模型调用结束都会写一行用量（decisions/0023）
+            config["callbacks"] = [self._context.usage.callback(ctx.user_id, "chat", ctx.run_id)]
         # 决策 0007：同时订阅三种流——
         #   "messages"：模型逐段产出的 token；
         #   "updates" ：每个节点的输出，用来发工具事件（开始检索 / 检索完成），让前端显示“正在检索”；

@@ -19,6 +19,7 @@ from agentnexus.services.runs import RunService
 from agentnexus.storage.postgres import RunStatus
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
+from tests.fakes import install_test_auth
 
 
 # ---------- 错误分类 ----------
@@ -298,6 +299,7 @@ async def test_retry_rules(sessionmaker, user):
 @pytest_asyncio.fixture
 async def api(sessionmaker):
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     dispatcher = RunDispatcher(sessionmaker, echo_agent)  # 不 start：run 停在排队，便于测取消
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.dependency_overrides[get_dispatcher] = lambda: dispatcher

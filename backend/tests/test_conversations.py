@@ -11,11 +11,13 @@ from agentnexus.services.runs import RunService, auto_title
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app
 from agentnexus.runtime.dispatcher import RunDispatcher
+from tests.fakes import install_test_auth
 
 
 @pytest_asyncio.fixture
 async def api(sessionmaker):
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.dependency_overrides[get_dispatcher] = lambda: RunDispatcher(sessionmaker, lambda ctx: None)  # 不执行
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:

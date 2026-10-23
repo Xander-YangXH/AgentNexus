@@ -8,6 +8,7 @@ from agentnexus.agents.buildin.chatbot.prompt import DEFAULT_SYSTEM_PROMPT, KNOW
 from agentnexus.agents.buildin.chatbot.tools import KnowledgeSearch
 from agentnexus.agents.skills import Skill
 from agentnexus.agents.tools import ToolSource
+from agentnexus.services.usage import UsageRecorder
 
 
 @dataclass
@@ -26,3 +27,5 @@ class ChatbotContext(BaseContext):
     skills_prompt: str = SKILLS_PROMPT
     # 加载了技能之后的工具轮数上限：数据分析要“写文件 → 执行 → 看报错 → 改 → 再执行”，3 轮不够
     max_skill_tool_rounds: int = 8
+    # 用量采集（decisions/0023）：每次模型调用结束写一行明细。None：不记（测试）
+    usage: "UsageRecorder | None" = None

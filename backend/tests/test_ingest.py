@@ -20,6 +20,7 @@ from agentnexus.storage.vectors import ChunkIndex, ChunkPoint, IndexMismatch
 from server.deps import get_sessionmaker
 from server.main import create_app
 from tests.fakes import NATIVE_MODELS, FakeEmbedder
+from tests.fakes import install_test_auth
 
 TEXT = "退货政策：签收后 7 天内可以无理由退货。定制商品不支持退货。\n\n退款到账：入库检验后 1 到 3 个工作日原路退回。"
 
@@ -179,6 +180,7 @@ async def test_dispatcher_takes_over_expired_leases_and_picks_up_pending(svc, us
 async def test_upload_through_api_is_processed_in_background(sessionmaker, svc):
     dispatcher = JobDispatcher(svc, name="ingest", sweep_interval=60)
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.state.knowledge_service = svc
     app.state.ingest_dispatcher = dispatcher

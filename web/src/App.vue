@@ -1,16 +1,51 @@
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
-import { onMounted, ref, watch } from 'vue'
-import { HttpError } from './api/http'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { HttpError, onUnauthorized } from './api/http'
 import type { AgentKind, Attachment } from './api/types'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
 import KnowledgePanel from './components/KnowledgePanel.vue'
-import UserPicker from './components/UserPicker.vue'
+import LoginPanel from './components/LoginPanel.vue'
 import { useChat } from './composables/useChat'
+import { ROLE_LABEL } from './composables/usage'
+
+// 用量看板和管理页按需加载：ECharts 只在打开“用量”时下载
+const UsagePanel = defineAsyncComponent(() => import('./components/UsagePanel.vue'))
+const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
 
 const chat = useChat()
-const view = ref<'chat' | 'knowledge'>('chat')
+const view = ref<'chat' | 'knowledge' | 'usage' | 'admin'>('chat')
+const views = computed(() => [
+  { value: 'chat', label: '对话' },
+  { value: 'knowledge', label: '知识库' },
+  { value: 'usage', label: '用量' },
+  ...(chat.me.value?.role === 'admin' ? [{ value: 'admin', label: '管理' }] : []),
+])
+const loginError = ref<string | null>(null)
+const loggingIn = ref(false)
+const ready = ref(false) // 首次检查会话之前不显示登录页，避免已登录的用户看到一闪而过的登录框
+
+// 任何接口返回 401（会话过期、被禁用、在别处退出）：回到登录页
+onUnauthorized(() => {
+  if (chat.me.value) {
+    chat.reset()
+    message.warning('登录已失效，请重新登录')
+  }
+})
+
+async function doLogin(name: string, password: string) {
+  loggingIn.value = true
+  loginError.value = null
+  try {
+    await chat.login(name, password)
+    view.value = 'chat'
+  } catch (e) {
+    loginError.value = e instanceof HttpError && e.status === 401 ? '用户名或密码错误' : describe(e)
+  } finally {
+    loggingIn.value = false
+  }
+}
 // 从知识库页面切回对话时刷新知识库列表（可能刚新建了知识库）
 watch(view, (v) => {
   if (v === 'chat' && chat.userId.value) run(chat.loadKnowledgeBases())
@@ -18,7 +53,12 @@ watch(view, (v) => {
 
 const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
 
-onMounted(() => chat.init().catch((e) => message.error(`加载失败：${describe(e)}`)))
+onMounted(() =>
+  chat
+    .init()
+    .catch((e) => message.error(`加载失败：${describe(e)}`))
+    .finally(() => (ready.value = true)),
+)
 
 function run(action: Promise<unknown>) {
   action.catch((e) => message.error(describe(e)))
@@ -26,25 +66,18 @@ function run(action: Promise<unknown>) {
 </script>
 
 <template>
-  <a-layout class="layout">
+  <LoginPanel v-if="ready && !chat.me.value" :error="loginError" :loading="loggingIn" @login="doLogin" />
+  <a-layout v-else-if="chat.me.value" class="layout">
     <a-layout-sider width="280" theme="light" class="sider">
       <div class="brand">AgentNexus</div>
-      <UserPicker
-        :users="chat.users.value"
-        :user-id="chat.userId.value"
-        @select="(id: string) => run(chat.selectUser(id))"
-        @create="(name: string) => run(chat.createUser(name))"
-      />
-      <a-segmented
-        v-if="chat.userId.value"
-        v-model:value="view"
-        block
-        class="views"
-        :options="[
-          { value: 'chat', label: '对话' },
-          { value: 'knowledge', label: '知识库' },
-        ]"
-      />
+      <div class="me">
+        <span>
+          <b>{{ chat.me.value.name }}</b>
+          <span class="me-meta">{{ ROLE_LABEL[chat.me.value.role] }}<template v-if="chat.me.value.department_name"> · {{ chat.me.value.department_name }}</template></span>
+        </span>
+        <a-button size="small" type="link" @click="run(chat.logout())">退出</a-button>
+      </div>
+      <a-segmented v-model:value="view" block class="views" :options="views" />
       <ConversationList
         v-if="chat.userId.value && view === 'chat'"
         :conversations="chat.conversations.value"
@@ -59,6 +92,8 @@ function run(action: Promise<unknown>) {
     </a-layout-sider>
     <a-layout-content class="content">
       <KnowledgePanel v-if="chat.userId.value && view === 'knowledge'" :user-id="chat.userId.value" />
+      <UsagePanel v-else-if="view === 'usage'" :me="chat.me.value" />
+      <AdminPanel v-else-if="view === 'admin'" />
       <ChatPanel
         v-else-if="chat.conversationId.value"
         :messages="chat.messages.value"
@@ -80,7 +115,7 @@ function run(action: Promise<unknown>) {
         :kb-ids="chat.conversationKbIds.value"
         @set-kbs="(ids: string[]) => run(chat.setConversationKbs(ids))"
       />
-      <a-empty v-else class="empty" :description="chat.userId.value ? '新建或选择一个对话' : '先选择或创建一个用户'" />
+      <a-empty v-else class="empty" description="新建或选择一个对话" />
     </a-layout-content>
   </a-layout>
 </template>
@@ -105,6 +140,17 @@ body,
 }
 .views {
   margin-bottom: 16px;
+}
+.me {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.me-meta {
+  margin-left: 6px;
+  color: #888;
+  font-size: 12px;
 }
 .brand {
   font-size: 18px;

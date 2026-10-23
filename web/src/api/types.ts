@@ -1,8 +1,47 @@
 // 与后端 server/schemas.py 对应的类型
 
+export type Role = 'admin' | 'manager' | 'member'
+
+/** 当前登录用户（decisions/0023） */
+export interface Me {
+  id: string
+  name: string
+  role: Role
+  department_id: string | null
+  department_name: string | null
+}
+
 export interface User {
   id: string
   name: string
+  role: Role
+  department_id: string | null
+  disabled_at: string | null
+}
+
+export interface Department {
+  id: string
+  name: string
+}
+
+export type UsageScope = 'me' | 'department' | 'all'
+
+export interface UsageRow {
+  runs: number
+  llm_calls: number
+  searches: number
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  cost_usd: number
+}
+
+export interface UsageSummary {
+  scope: UsageScope
+  days: number
+  series: (UsageRow & { day: string })[]
+  totals: UsageRow
+  by_user: (UsageRow & { user_id: string; name: string })[]
 }
 
 export interface Conversation {
@@ -99,6 +138,9 @@ export interface KnowledgeBase {
   name: string
   description: string | null
   created_at: string
+  user_id: string // 所有者；不是自己 = 部门共享给我的，只读（decisions/0023）
+  visibility: 'private' | 'department'
+  department_id: string | null
 }
 
 export type DocumentStatus = 'pending' | 'processing' | 'ready' | 'failed'

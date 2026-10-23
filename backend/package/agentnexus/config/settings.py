@@ -62,6 +62,9 @@ class Settings:
     research_max_subtasks: int = 5
     research_concurrency: int = 3  # 同时调用模型的子 Agent 数
     approval_ttl_hours: float = 24.0  # 等待审批多久后自动取消
+    # 登录（decisions/0023）
+    session_ttl_hours: float = 168.0  # 会话有效期（7 天）；退出或被禁用时立即失效
+    cookie_secure: bool = False  # 只在 HTTPS 下发送 Cookie。本地 http 演示必须为 false，否则浏览器不保存
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
     # 流式事件（decisions/0007）。用代码默认值、不开放环境变量，需要时再接入 compose
@@ -122,6 +125,8 @@ def get_settings() -> Settings:
         research_max_subtasks=int(os.environ.get("RESEARCH_MAX_SUBTASKS", 5)),
         research_concurrency=int(os.environ.get("RESEARCH_CONCURRENCY", 3)),
         approval_ttl_hours=float(os.environ.get("APPROVAL_TTL_HOURS", 24)),
+        session_ttl_hours=float(os.environ.get("SESSION_TTL_HOURS", 168)),
+        cookie_secure=os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes", "on"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

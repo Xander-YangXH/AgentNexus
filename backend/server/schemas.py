@@ -9,11 +9,50 @@ class _Out(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserCreate(BaseModel):
+class LoginRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class UserCreate(BaseModel):
+    """管理员创建用户（decisions/0023）。"""
+
+    name: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=256)
+    role: Literal["admin", "manager", "member"] = "member"
+    department_id: uuid.UUID | None = None
+
+
+class UserUpdate(BaseModel):
+    """只改传了的字段。department_id 传 null 表示移出部门。"""
+
+    role: Literal["admin", "manager", "member"] | None = None
+    department_id: uuid.UUID | None = None
+    disabled: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
 
 
 class UserOut(_Out):
+    id: uuid.UUID
+    name: str
+    role: str
+    department_id: uuid.UUID | None
+    disabled_at: datetime | None = None
+
+
+class MeOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    role: str
+    department_id: uuid.UUID | None
+    department_name: str | None
+
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class DepartmentOut(_Out):
     id: uuid.UUID
     name: str
 
@@ -123,6 +162,15 @@ class KnowledgeBaseOut(_Out):
     name: str
     description: str | None
     created_at: datetime
+    user_id: uuid.UUID  # 所有者：前端据此判断“只读”（部门共享给我的）
+    visibility: str
+    department_id: uuid.UUID | None
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    """可见性（decisions/0023）：private 只有自己；department 同部门的人只读可见。只有所有者能改。"""
+
+    visibility: Literal["private", "department"]
 
 
 class DocumentOut(_Out):

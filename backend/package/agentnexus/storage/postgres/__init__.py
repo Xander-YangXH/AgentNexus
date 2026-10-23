@@ -5,6 +5,7 @@ from agentnexus.storage.postgres.models import (
     Artifact,
     Base,
     Conversation,
+    Department,
     ConversationKnowledgeBase,
     Document,
     DocumentChunk,
@@ -18,8 +19,13 @@ from agentnexus.storage.postgres.models import (
     KnowledgeBase,
     Message,
     MessageRole,
+    Role,
     RunStatus,
+    UsageEvent,
+    UsageKind,
     User,
+    UserSession,
+    Visibility,
 )
 from agentnexus.storage.postgres.session import make_engine, make_sessionmaker
 
@@ -30,6 +36,7 @@ __all__ = [
     "Artifact",
     "Base",
     "Conversation",
+    "Department",
     "ConversationKnowledgeBase",
     "Document",
     "DocumentChunk",
@@ -43,8 +50,13 @@ __all__ = [
     "KnowledgeBase",
     "Message",
     "MessageRole",
+    "Role",
     "RunStatus",
+    "UsageEvent",
+    "UsageKind",
     "User",
+    "UserSession",
+    "Visibility",
     "make_engine",
     "make_sessionmaker",
 ]

@@ -35,6 +35,10 @@ from agentnexus.services.errors import (
     RunNotAwaitingApproval,
     ArtifactNotFound,
     UserExists,
+    UserNotFound,
+    InvalidCredentials,
+    KnowledgeBaseReadOnly,
+    NoDepartment,
 )
 
 log = logging.getLogger(__name__)
@@ -45,7 +49,11 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     ConversationArchived: (409, "conversation_archived", "conversation is archived"),
     RunNotFound: (404, "run_not_found", "run not found"),
     RunConflict: (409, "run_conflict", "conversation already has an active run"),
-    UserExists: (409, "user_exists", "user name already exists"),
+    UserExists: (409, "user_exists", "name already exists"),
+    UserNotFound: (404, "user_not_found", "user not found"),
+    InvalidCredentials: (401, "invalid_credentials", "invalid user name or password"),
+    KnowledgeBaseReadOnly: (403, "knowledge_base_read_only", "shared knowledge base is read-only"),
+    NoDepartment: (409, "no_department", "user does not belong to a department"),
     RunAlreadyFinished: (409, "run_already_finished", "run already finished"),
     RunNotRetryable: (409, "run_not_retryable", "run cannot be retried"),
     RunNotAwaitingApproval: (409, "run_not_awaiting_approval", "run is not awaiting approval"),

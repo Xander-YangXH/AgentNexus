@@ -8,7 +8,8 @@ import type { EntityDetail, GraphBuild, GraphData, GraphEstimate, GraphNode } fr
 import { buildSummary, ENTITY_TYPES, formatUsd, isBuildActive, mergeGraph, typeColor } from '../composables/graph'
 import { describeGraphBuildError, describeRequestError } from '../utils/errors'
 
-const props = defineProps<{ kbId: string }>()
+// readonly：部门共享给我的知识库（decisions/0023），只能浏览，不能预估和构建（会花所有者的钱）
+const props = defineProps<{ kbId: string; readonly?: boolean }>()
 
 const estimate = ref<GraphEstimate | null>(null)
 const build = ref<GraphBuild | null>(null) // 最近一次构建
@@ -33,7 +34,7 @@ function showError(e: unknown) {
 
 async function loadBuildState() {
   const id = props.kbId
-  const [est, builds] = await Promise.all([api.graphEstimate(id), api.listGraphBuilds(id)])
+  const [est, builds] = await Promise.all([props.readonly ? null : api.graphEstimate(id), api.listGraphBuilds(id)])
   if (id !== props.kbId) return
   estimate.value = est
   const wasActive = isBuildActive(build.value)

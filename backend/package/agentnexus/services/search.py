@@ -19,7 +19,8 @@ from agentnexus.knowledge.embedding import Embedder
 from agentnexus.knowledge.hits import SearchHit
 from agentnexus.knowledge.rerank import Reranker
 from agentnexus.services.errors import KnowledgeBaseNotFound
-from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase
+from agentnexus.security import access
+from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, UsageKind
 from agentnexus.storage.vectors import ChunkIndex
 
 
@@ -45,6 +46,7 @@ class SearchService:
         self.index = index
         self.reranker = reranker  # None：部署时关闭了重排（不加载模型，省约 0.8GB 内存）
         self.candidates = candidates
+        self.usage = None  # UsageRecorder：装配时设置（decisions/0023）
 
     async def search(
         self,
@@ -54,9 +56,12 @@ class SearchService:
         *,
         top_k: int = 5,
         rerank: bool = True,
+        source: str | None = None,
     ) -> SearchResult:
         kb_ids = list(dict.fromkeys(knowledge_base_ids))  # 去重并保持顺序
         await self._check_owned(user_id, kb_ids)
+        if self.usage is not None and source:  # 检索次数（decisions/0023）
+            await self.usage.record(user_id, UsageKind.SEARCH, source)
         rerank = rerank and self.reranker is not None
         timings: dict[str, float] = {}
 
@@ -74,12 +79,12 @@ class SearchService:
         return SearchResult(hits=hits[:top_k], reranked=rerank, timings_ms=timings)
 
     async def _check_owned(self, user_id: uuid.UUID, kb_ids: list[uuid.UUID]) -> None:
+        """自己的，或同部门共享的知识库（decisions/0023）。"""
         async with self.sessionmaker() as session:
-            stmt = select(KnowledgeBase.id).where(KnowledgeBase.id.in_(kb_ids), KnowledgeBase.user_id == user_id)
-            owned = set((await session.scalars(stmt)).all())
-        missing = [k for k in kb_ids if k not in owned]
+            visible = set(await access.visible_kb_ids(session, user_id, kb_ids))
+        missing = [k for k in kb_ids if k not in visible]
         if missing:
-            raise KnowledgeBaseNotFound(str(missing[0]))  # 别人的与不存在的一样返回 404
+            raise KnowledgeBaseNotFound(str(missing[0]))  # 看不见的与不存在的一样返回 404
 
     async def _fetch(self, scored: list[tuple[uuid.UUID, float]], kb_ids: list[uuid.UUID]) -> list[SearchHit]:
         if not scored:

@@ -27,8 +27,9 @@ from agentnexus.services.errors import (
     GraphBuildInProgress,
     GraphBuildTooLarge,
     KnowledgeBaseEmpty,
-    KnowledgeBaseNotFound,
 )
+from agentnexus.security import access
+from agentnexus.services.usage import usage_insert
 from agentnexus.storage.postgres import (
     Document,
     DocumentChunk,
@@ -40,6 +41,7 @@ from agentnexus.storage.postgres import (
     GraphMention,
     GraphRelation,
     KnowledgeBase,
+    UsageKind,
 )
 
 log = logging.getLogger(__name__)
@@ -93,7 +95,7 @@ class GraphService:
     # ---------- 预估与创建 ----------
 
     async def estimate(self, user_id: uuid.UUID, kb_id: uuid.UUID) -> dict:
-        await self._owned_kb(user_id, kb_id)
+        await self._owned_kb(user_id, kb_id, write=True)  # 预估是构建的第一步：只有所有者（会花钱）
         chunks = await self._chunks(kb_id)
         groups = _group(chunks)
         cached = await self._cached(kb_id, list(groups))
@@ -165,6 +167,8 @@ class GraphService:
 
     async def _run(self, build: GraphBuild, job: Claimed) -> tuple[int, int]:
         kb_id = build.knowledge_base_id
+        async with self.sessionmaker() as session:
+            owner = await session.scalar(select(KnowledgeBase.user_id).where(KnowledgeBase.id == kb_id))
         groups = _group(await self._chunks(kb_id))
         cached = await self._cached(kb_id, list(groups))
         missing = [h for h in groups if h not in cached]
@@ -184,6 +188,10 @@ class GraphService:
                     knowledge_base_id=kb_id, text_sha256=text_hash, prompt_version=PROMPT_VERSION, payload=result.payload,
                     input_tokens=result.input_tokens, cached_tokens=result.cached_tokens, output_tokens=result.output_tokens,
                 ).on_conflict_do_nothing())
+                # 用量明细（decisions/0023）：算在知识库所有者名下，与进度同一事务
+                await session.execute(usage_insert(
+                    owner, UsageKind.LLM, "graph", input_tokens=result.input_tokens,
+                    cached_tokens=result.cached_tokens, output_tokens=result.output_tokens))
                 progress = await session.execute(
                     update(GraphBuild).where(self.queue.fenced(job)).values(
                         done_count=GraphBuild.done_count + 1,
@@ -290,17 +298,17 @@ class GraphService:
 
     # ---------- 内部 ----------
 
-    async def _owned_kb(self, user_id: uuid.UUID, kb_id: uuid.UUID) -> None:
+    async def _owned_kb(self, user_id: uuid.UUID, kb_id: uuid.UUID, *, write: bool = False) -> None:
+        """浏览图谱：看得见知识库即可（部门共享，decisions/0023）；预估与构建：只有所有者。"""
         async with self.sessionmaker() as session:
-            kb = await session.get(KnowledgeBase, kb_id)
-        if kb is None or kb.user_id != user_id:
-            raise KnowledgeBaseNotFound(str(kb_id))
+            await (access.writable_kb if write else access.readable_kb)(session, user_id, kb_id)
 
     async def _owned_entity(self, user_id: uuid.UUID, entity_id: uuid.UUID) -> GraphEntity:
         async with self.sessionmaker() as session:
             entity = await session.get(GraphEntity, entity_id)
             kb = await session.get(KnowledgeBase, entity.knowledge_base_id) if entity else None
-        if entity is None or kb is None or kb.user_id != user_id:
+            dept = await access.department_of(session, user_id)
+        if entity is None or kb is None or not access.can_read(kb, user_id, dept):
             raise EntityNotFound(str(entity_id))
         return entity
 

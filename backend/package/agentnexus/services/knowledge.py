@@ -28,10 +28,12 @@ from agentnexus.services.errors import (
     FileTooLarge,
     KnowledgeBaseExists,
     KnowledgeBaseNotFound,
+    NoDepartment,
     UnsupportedFileType,
 )
+from agentnexus.security import access
 from agentnexus.storage.blobs import BlobStore
-from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase
+from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase, Visibility
 from agentnexus.storage.vectors import ChunkIndex, ChunkPoint
 
 log = logging.getLogger(__name__)
@@ -76,15 +78,31 @@ class KnowledgeService:
             raise KnowledgeBaseExists(name) from exc
 
     async def list_kbs(self, user_id: uuid.UUID) -> list[KnowledgeBase]:
+        """自己的，加上同部门共享的（decisions/0023）。"""
         async with self.sessionmaker() as session:
-            return await KnowledgeBaseRepository(session).list_by_user(user_id)
+            dept = await access.department_of(session, user_id)
+            stmt = select(KnowledgeBase).where(access.visible_clause(user_id, dept)).order_by(KnowledgeBase.created_at)
+            return list((await session.scalars(stmt)).all())
 
-    async def get_kb(self, user_id: uuid.UUID, kb_id: uuid.UUID) -> KnowledgeBase:
+    async def get_kb(self, user_id: uuid.UUID, kb_id: uuid.UUID, *, write: bool = False) -> KnowledgeBase:
+        """读：自己的或同部门共享的；write=True：只有所有者（共享的返回 403 只读）。"""
         async with self.sessionmaker() as session:
-            kb = await KnowledgeBaseRepository(session).get(kb_id)
-        if kb is None or kb.user_id != user_id:
-            raise KnowledgeBaseNotFound(str(kb_id))
-        return kb
+            return await (access.writable_kb if write else access.readable_kb)(session, user_id, kb_id)
+
+    async def set_visibility(self, user_id: uuid.UUID, kb_id: uuid.UUID, visibility: str) -> KnowledgeBase:
+        """改可见性。共享到“所有者当前所在的部门”；没有部门的用户不能共享。"""
+        async with self.sessionmaker() as session, session.begin():
+            kb = await access.writable_kb(session, user_id, kb_id)
+            if visibility == Visibility.DEPARTMENT:
+                dept = await access.department_of(session, user_id)
+                if dept is None:
+                    raise NoDepartment(str(user_id))
+                kb.department_id = dept
+            else:
+                kb.department_id = None
+            kb.visibility = visibility
+            await session.flush()
+            return kb
 
     # ---------- 文档 ----------
 
@@ -94,7 +112,7 @@ class KnowledgeService:
         顺序的理由：如果先插记录、再写原件失败，会留下一条“找不到原件”的文档，比多一个没人引用的文件更糟；
         所以先写原件，插入失败时尽力删除它。
         """
-        await self.get_kb(user_id, kb_id)  # 归属校验放在写文件之前：不给无权限的请求写任何东西
+        await self.get_kb(user_id, kb_id, write=True)  # 归属校验放在写文件之前：不给无权限的请求写任何东西
         filename = clean_filename(filename)
         if extension_of(filename) not in SUPPORTED_EXTENSIONS:
             raise UnsupportedFileType(filename)
@@ -135,12 +153,15 @@ class KnowledgeService:
         async with self.sessionmaker() as session:
             return await DocumentRepository(session).list_by_kb(kb_id)
 
-    async def get_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+    async def get_document(self, user_id: uuid.UUID, document_id: uuid.UUID, *, write: bool = False) -> Document:
         async with self.sessionmaker() as session:
             doc = await DocumentRepository(session).get(document_id)
-            kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id) if doc else None
-        if doc is None or kb is None or kb.user_id != user_id:
-            raise DocumentNotFound(str(document_id))
+            if doc is None:
+                raise DocumentNotFound(str(document_id))
+            try:
+                await (access.writable_kb if write else access.readable_kb)(session, user_id, doc.knowledge_base_id)
+            except KnowledgeBaseNotFound:
+                raise DocumentNotFound(str(document_id)) from None
         return doc
 
     async def list_chunks(self, user_id: uuid.UUID, document_id: uuid.UUID) -> list[DocumentChunk]:
@@ -150,7 +171,7 @@ class KnowledgeService:
 
     async def reprocess(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         """失败的文档重新排队（例如处理时 Qdrant 暂时不可用）。只允许 failed -> pending。"""
-        await self.get_document(user_id, document_id)
+        await self.get_document(user_id, document_id, write=True)
         async with self.sessionmaker() as session, session.begin():
             if not await DocumentRepository(session).reset(DocumentStatus.FAILED, document_id=document_id):
                 raise DocumentNotRetryable(str(document_id))

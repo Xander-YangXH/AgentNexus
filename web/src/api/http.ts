@@ -2,6 +2,11 @@ import type {
   AgentKind,
   Attachment,
   Chunk,
+  Department,
+  Me,
+  Role,
+  UsageScope,
+  UsageSummary,
   Conversation,
   EntityDetail,
   GraphBuild,
@@ -53,22 +58,24 @@ export function parseErrorBody(text: string): ApiErrorBody | null {
   }
 }
 
-// 鉴权占位：阶段 5 前用 X-User-Id 头标识用户（见后端 server/deps.py）
-let currentUserId: string | null = null
-export function setCurrentUser(id: string | null) {
-  currentUserId = id
+// 登录（decisions/0023）：会话令牌在 HttpOnly Cookie 里，浏览器对同源请求自动带上，脚本既不需要、也读不到它。
+// 任何接口返回 401（会话过期、被禁用、被退出）时通知界面回到登录页
+let unauthorizedHandler: (() => void) | null = null
+export function onUnauthorized(handler: () => void) {
+  unauthorizedHandler = handler
 }
-export function authHeaders(): Record<string, string> {
-  return currentUserId ? { 'X-User-Id': currentUserId } : {}
+function check401(res: Response, path: string) {
+  if (res.status === 401 && path !== '/api/auth/login') unauthorizedHandler?.()
 }
 
 async function send(method: string, path: string, body?: unknown): Promise<{ data: unknown; res: Response }> {
   // 相对路径：开发时由 Vite 代理、部署时由 Nginx 转发到后端，浏览器只看到一个源，不需要 CORS
   const res = await fetch(path, {
     method,
-    headers: { ...authHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  check401(res, path)
   const text = await res.text()
   if (!res.ok) throw new HttpError(res.status, parseErrorBody(text))
   return { data: text ? JSON.parse(text) : null, res }
@@ -82,28 +89,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 async function upload<T>(path: string, file: File): Promise<T> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(path, { method: 'POST', headers: authHeaders(), body: form })
+  const res = await fetch(path, { method: 'POST', body: form })
+  check401(res, path)
   const text = await res.text()
   if (!res.ok) throw new HttpError(res.status, parseErrorBody(text))
   return JSON.parse(text) as T
 }
 
 /**
- * 下载产物（decisions/0022）。接口要带 X-User-Id 头，普通 <a href> 带不上，所以先 fetch 成 Blob，
- * 再用临时的对象 URL 触发下载。文件名用接口记录里的（服务端也在 Content-Disposition 里给了）。
+ * 下载产物（decisions/0022）。阶段 5 换成 Cookie 会话后，普通链接就会带上登录状态（之前要带 X-User-Id 头，
+ * 只能先 fetch 成 Blob 再下载）。服务端返回 Content-Disposition: attachment，浏览器直接保存。
  */
-async function downloadArtifact(a: Attachment): Promise<void> {
-  const res = await fetch(`/api/artifacts/${a.id}/download`, { headers: authHeaders() })
-  if (!res.ok) throw new HttpError(res.status, parseErrorBody(await res.text()))
-  const url = URL.createObjectURL(await res.blob())
-  try {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = a.filename
-    link.click()
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
+function downloadArtifact(a: Attachment): void {
+  const link = document.createElement('a')
+  link.href = `/api/artifacts/${a.id}/download`
+  link.download = a.filename
+  link.click()
 }
 
 export interface MessagePage {
@@ -119,8 +120,23 @@ async function listMessagesPage(cid: string, beforeSeq?: number, limit = 50): Pr
 }
 
 export const api = {
-  listUsers: () => request<User[]>('GET', '/api/users'),
-  createUser: (name: string) => request<User>('POST', '/api/users', { name }),
+  login: (name: string, password: string) => request<Me>('POST', '/api/auth/login', { name, password }),
+  logout: () => request<null>('POST', '/api/auth/logout'),
+  me: () => request<Me>('GET', '/api/auth/me'),
+  listDepartments: () => request<Department[]>('GET', '/api/departments'),
+  adminListUsers: () => request<User[]>('GET', '/api/admin/users'),
+  adminCreateUser: (body: { name: string; password: string; role: Role; department_id: string | null }) =>
+    request<User>('POST', '/api/admin/users', body),
+  adminUpdateUser: (id: string, patch: Partial<{ role: Role; department_id: string | null; disabled: boolean; password: string }>) =>
+    request<User>('PATCH', `/api/admin/users/${id}`, patch),
+  adminCreateDepartment: (name: string) => request<Department>('POST', '/api/admin/departments', { name }),
+  usageSummary: (scope: UsageScope, days: number, departmentId?: string | null) => {
+    const q = new URLSearchParams({ scope, days: String(days) })
+    if (departmentId) q.set('department_id', departmentId)
+    return request<UsageSummary>('GET', `/api/usage/summary?${q}`)
+  },
+  setKnowledgeBaseVisibility: (kbId: string, visibility: 'private' | 'department') =>
+    request<KnowledgeBase>('PATCH', `/api/knowledge-bases/${kbId}`, { visibility }),
   listConversations: (archived = false) =>
     request<Conversation[]>('GET', `/api/conversations${archived ? '?archived=true' : ''}`),
   updateConversation: (cid: string, patch: { title?: string | null; archived?: boolean }) =>

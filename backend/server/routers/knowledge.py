@@ -7,7 +7,7 @@ from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
 from agentnexus.runtime.jobs import JobDispatcher
 from server.deps import CurrentUser, get_ingest_dispatcher, get_knowledge_service, get_search_service
-from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut, SearchOut, SearchRequest
+from server.schemas import ChunkOut, DocumentOut, KnowledgeBaseCreate, KnowledgeBaseOut, KnowledgeBaseUpdate, SearchOut, SearchRequest
 
 router = APIRouter(prefix="/api", tags=["knowledge"])
 
@@ -27,6 +27,13 @@ async def list_knowledge_bases(user_id: CurrentUser, svc: KnowledgeService = Dep
 @router.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut)
 async def get_knowledge_base(kb_id: uuid.UUID, user_id: CurrentUser, svc: KnowledgeService = Depends(get_knowledge_service)):
     return await svc.get_kb(user_id, kb_id)
+
+
+@router.patch("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut)
+async def update_knowledge_base(kb_id: uuid.UUID, body: KnowledgeBaseUpdate, user_id: CurrentUser,
+                                svc: KnowledgeService = Depends(get_knowledge_service)):
+    """共享到部门 / 取消共享。共享到所有者当前所在的部门；没有部门时 409。"""
+    return await svc.set_visibility(user_id, kb_id, body.visibility)
 
 
 @router.post("/knowledge-bases/{kb_id}/documents", response_model=DocumentOut, status_code=202)
@@ -80,4 +87,5 @@ async def list_chunks(document_id: uuid.UUID, user_id: CurrentUser, svc: Knowled
 @router.post("/knowledge/search", response_model=SearchOut)
 async def search(body: SearchRequest, user_id: CurrentUser, svc: SearchService = Depends(get_search_service)):
     """在一个或多个自己的知识库里检索（检索测试页面用；2.4 的 knowledge_search 工具走同一个服务）。"""
-    return await svc.search(user_id, body.knowledge_base_ids, body.query, top_k=body.top_k, rerank=body.rerank)
+    return await svc.search(user_id, body.knowledge_base_ids, body.query, top_k=body.top_k, rerank=body.rerank,
+                            source="search_page")

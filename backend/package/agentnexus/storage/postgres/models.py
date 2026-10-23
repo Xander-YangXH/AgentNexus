@@ -75,12 +75,51 @@ class LeaseMixin:
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
 
 
-class User(Base):
-    __tablename__ = "users"
+class Role(enum.StrEnum):
+    """固定角色（decisions/0023）。不做可配置的角色—权限表：演示和需求都用不到。"""
+
+    ADMIN = "admin"  # 管理用户和部门，看全站用量
+    MANAGER = "manager"  # 部门负责人：看本部门用量
+    MEMBER = "member"
+
+
+class Visibility(enum.StrEnum):
+    PRIVATE = "private"  # 只有所有者可见
+    DEPARTMENT = "department"  # 同部门的人只读可见
+
+
+class Department(Base):
+    __tablename__ = "departments"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (CheckConstraint(_in_list("role", Role), name="ck_users_role"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 登录（decisions/0023）：argon2id 哈希。为空 = 还没设置密码，不能登录（升级前就存在的用户）
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16), default=Role.MEMBER, server_default=Role.MEMBER.value)
+    department_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("departments.id"), index=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 禁用即刻生效：会话校验时检查
+
+
+class UserSession(Base):
+    """登录会话（decisions/0023）。只存令牌的 SHA-256：库泄露也拿不到能用的令牌。退出 = 删除这一行，即刻生效。"""
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Conversation(Base):
@@ -202,11 +241,18 @@ class DocumentStatus(enum.StrEnum):
 
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_knowledge_bases_user_name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_knowledge_bases_user_name"),
+        CheckConstraint(_in_list("visibility", Visibility), name="ck_knowledge_bases_visibility"),
+        Index("ix_knowledge_bases_department_shared", "department_id",
+              postgresql_where=text("visibility = 'department'")),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    # 阶段 5 前按用户归属；之后改为部门 / 角色可见性
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)  # 所有者：只有他能修改
+    # 可见性（decisions/0023）：department 时同部门的人只读可见。部门在设为共享时记下（所有者当时所在的部门）
+    visibility: Mapped[str] = mapped_column(String(16), default=Visibility.PRIVATE, server_default=Visibility.PRIVATE.value)
+    department_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("departments.id"))
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -377,3 +423,40 @@ class GraphMention(Base):
     chunk_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("document_chunks.id", ondelete="CASCADE"), index=True)
     entity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"), index=True)
     relation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kg_relations.id", ondelete="CASCADE"), index=True)
+
+
+# ---------------- 用量（阶段 5，decisions/0023） ----------------
+
+
+class UsageKind(enum.StrEnum):
+    RUN = "run"  # 一次对话 / 调研请求（提交时记）
+    LLM = "llm"  # 一次模型调用（回调在调用结束时记，崩溃前已花的也记得到）
+    SEARCH = "search"  # 一次知识库检索
+
+
+class UsageEvent(Base):
+    """用量明细：每次请求 / 模型调用 / 检索一行，Dashboard 查询时按天、按小时聚合（实验：百万行时个人 / 部门 5~21ms）。
+
+    记下当时所在的部门：用户换部门后，历史用量仍算在原部门。
+    """
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        CheckConstraint(_in_list("kind", UsageKind), name="ck_usage_events_kind"),
+        Index("ix_usage_events_user_time", "user_id", "created_at"),
+        Index("ix_usage_events_department_time", "department_id", "created_at"),
+        Index("ix_usage_events_time", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    department_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("departments.id"))
+    kind: Mapped[str] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(16))  # chat / research / graph / search_page
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # 不加外键：明细不随 run 删除
+    model: Mapped[str | None] = mapped_column(String(100))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+

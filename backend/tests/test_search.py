@@ -16,6 +16,7 @@ from agentnexus.storage.vectors import ChunkIndex, ChunkPoint
 from server.deps import get_sessionmaker
 from server.main import create_app
 from tests.fakes import NATIVE_MODELS, FakeEmbedder
+from tests.fakes import install_test_auth
 
 DOCS = {
     "退货.txt": "退货政策：签收后七天内可以无理由退货，定制商品不支持退货。",
@@ -139,6 +140,7 @@ async def test_only_own_knowledge_bases_can_be_searched(kb_env, sessionmaker, us
 async def test_search_api(kb_env, sessionmaker, user):
     knowledge, kb, _ = kb_env
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.state.search_service = _search(knowledge, KeywordReranker("发票"))
     h = {"X-User-Id": str(user.id)}

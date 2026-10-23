@@ -19,6 +19,7 @@ from agentnexus.models.fake import FakeEchoChatModel
 from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.services.run_events import RunEventStreamer
 from server.main import create_app
+from tests.fakes import install_test_auth
 
 SSE_CLIENT_NAME = "sse-test-reader"
 
@@ -47,6 +48,7 @@ async def make_live(sessionmaker, redis):
             # 默认：假模型逐块输出，每块间隔 0.05s
             handler = ChatbotAgent(ChatbotContext(model=FakeEchoChatModel(chunk_size=2, stream_delay=0.05))).run
         app = create_app(with_lifespan=False)
+        install_test_auth(app)
         dispatcher = RunDispatcher(sessionmaker, handler, sweep_interval=0.1, events=RunEventPublisher(redis))
         app.state.sessionmaker = sessionmaker
         app.state.dispatcher = dispatcher

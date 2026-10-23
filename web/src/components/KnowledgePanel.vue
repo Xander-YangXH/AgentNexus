@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 知识库页面：管理文档 + 检索测试（看召回了什么、分数多少、每步多久）。数据以后端为准，这里不做本地缓存
 import { message } from 'ant-design-vue'
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api, HttpError } from '../api/http'
 import type { Chunk, KnowledgeBase, KnowledgeDocument, SearchResult } from '../api/types'
 import { formatSize, formatTimings, needsPolling, STATUS_TAG } from '../composables/knowledge'
@@ -31,6 +31,21 @@ const result = ref<SearchResult | null>(null)
 function showError(e: unknown) {
   if (e instanceof HttpError) message.error(describeRequestError(e.code) ?? e.describe())
   else message.error(String(e))
+}
+
+// 部门共享给我的知识库（decisions/0023）：只读——能看文档、检索、浏览图谱，不能上传、重新处理、构建、改共享
+const current = computed(() => kbs.value.find((k) => k.id === kbId.value) ?? null)
+const readonly = computed(() => !!current.value && current.value.user_id !== props.userId)
+
+async function setShared(shared: boolean) {
+  if (!current.value) return
+  try {
+    await api.setKnowledgeBaseVisibility(current.value.id, shared ? 'department' : 'private')
+    await loadKbs()
+    message.success(shared ? '已共享给本部门（只读）' : '已取消共享')
+  } catch (e) {
+    showError(e)
+  }
 }
 
 async function loadKbs() {
@@ -147,10 +162,15 @@ const columns = [
         v-model:value="kbId"
         placeholder="选择知识库"
         style="width: 220px"
-        :options="kbs.map((k) => ({ value: k.id, label: k.name }))"
+        :options="kbs.map((k) => ({ value: k.id, label: k.user_id === userId ? k.name : `${k.name}（部门共享）` }))"
       />
+      <template v-if="current && !readonly">
+        <a-switch :checked="current.visibility === 'department'" checked-children="部门共享" un-checked-children="私有"
+                  @change="(v: unknown) => setShared(Boolean(v))" />
+      </template>
+      <a-tag v-else-if="readonly" color="blue">部门共享 · 只读</a-tag>
       <a-input-search v-model:value="newKbName" placeholder="新知识库名称" enter-button="新建" style="width: 260px" @search="createKb" />
-      <a-upload v-if="kbId" :before-upload="onFile" :show-upload-list="false" accept=".txt,.md,.markdown,.pdf,.docx">
+      <a-upload v-if="kbId && !readonly" :before-upload="onFile" :show-upload-list="false" accept=".txt,.md,.markdown,.pdf,.docx">
         <a-button type="primary" :loading="uploading">上传文档</a-button>
       </a-upload>
     </div>
@@ -168,7 +188,7 @@ const columns = [
             </template>
             <template v-else-if="column.key === 'actions'">
               <a-button v-if="record.status === 'ready'" size="small" type="link" @click="openChunks(record)">查看分块</a-button>
-              <a-button v-if="record.status === 'failed'" size="small" type="link" @click="reprocess(record)">重新处理</a-button>
+              <a-button v-if="record.status === 'failed' && !readonly" size="small" type="link" @click="reprocess(record)">重新处理</a-button>
             </template>
           </template>
         </a-table>
@@ -212,7 +232,7 @@ const columns = [
       </a-tab-pane>
       <!-- 切到这个标签页时才创建画布（cytoscape 需要可见的容器才能算尺寸） -->
       <a-tab-pane key="graph" tab="知识图谱">
-        <GraphPanel v-if="tab === 'graph'" :kb-id="kbId" />
+        <GraphPanel v-if="tab === 'graph'" :kb-id="kbId" :readonly="readonly" />
       </a-tab-pane>
     </a-tabs>
     <a-empty v-else class="empty" description="先新建一个知识库" />

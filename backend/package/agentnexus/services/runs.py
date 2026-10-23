@@ -18,7 +18,9 @@ from agentnexus.services.errors import (
     RunNotFound,
     RunNotRetryable,
 )
-from agentnexus.storage.postgres import AgentRun, Artifact, MessageRole, RunStatus
+from agentnexus.security import access
+from agentnexus.services.usage import usage_insert
+from agentnexus.storage.postgres import AgentRun, Artifact, MessageRole, RunStatus, UsageKind
 
 
 AUTO_TITLE_MAX = 30
@@ -57,6 +59,8 @@ class RunService:
                 conv.last_activity_at = func.now()  # 与消息同一事务：列表排序与消息内容不会不一致
                 msg = await MessageRepository(session).add(conversation_id, MessageRole.USER, content)
                 run = await AgentRunRepository(session).create(conversation_id, msg.id)
+                # 请求量（decisions/0023）：与 run 同一事务记一行，不会出现“有请求没记录”或反过来
+                await session.execute(usage_insert(user_id, UsageKind.RUN, conv.agent, run_id=run.id))
                 await notify_jobs(session, "run")  # 提交时才送达：worker 立刻被唤醒（decisions/0020）
                 return run
         except IntegrityError as exc:
@@ -192,6 +196,7 @@ class RunService:
                 if not messages or messages[-1].id != run.input_message_id:
                     raise RunNotRetryable("only the latest message can be retried")
                 new = await runs.create(run.conversation_id, run.input_message_id)
+                await session.execute(usage_insert(user_id, UsageKind.RUN, conv.agent, run_id=new.id))
                 await notify_jobs(session, "run")
                 return new
         except IntegrityError as exc:
@@ -220,7 +225,9 @@ class RunService:
                 history=[ChatMessage(m.role, m.content) for m in history],
                 user_id=conv.user_id,
                 # 执行时读取当前的关联：用户在排队期间改了关联，以执行时为准
-                knowledge_base_ids=tuple(await conversations.knowledge_base_ids(run.conversation_id)),
+                # 执行时再按可见性过滤一次（decisions/0023）：关联之后知识库可能被取消共享、或用户换了部门
+                knowledge_base_ids=tuple(await access.visible_kb_ids(
+                    session, conv.user_id, await conversations.knowledge_base_ids(run.conversation_id))),
                 agent=conv.agent,
                 approval=run.approval_response,
             )

@@ -26,11 +26,12 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 ## 快速开始
 
 ```bash
-cp .env.template .env              # 修改 POSTGRES_PASSWORD；默认 LLM_PROVIDER=fake，无需任何密钥
+cp .env.template .env              # 修改各项密码（POSTGRES / NEO4J / SANDBOX_TOKEN / DB_API / DB_WORKER）；默认 LLM_PROVIDER=fake，无需模型密钥
 docker compose up -d --build
+docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli create-user --name admin --role admin --password-env PW
 ```
 
-打开 http://localhost:8080 ：创建一个用户 → 新对话 → 发消息，回复会逐字出现。
+打开 http://localhost:8080 ：用 admin 登录 → 在“管理”里建部门和用户 → 新对话 → 发消息，回复会逐字出现。
 接入真实模型：在 `.env` 里设置 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`（说明见 `.env.template`），然后 `docker compose up -d api`。
 
 ## 文档索引
@@ -41,6 +42,7 @@ docker compose up -d --build
 - [docs/guides/message-lifecycle.md](docs/guides/message-lifecycle.md) — 学习导读：一条消息从发送到流式显示的完整旅程（代码位置、设计理由、故障表现、自测题）
 - [docs/guides/worker-leases.md](docs/guides/worker-leases.md) — 学习导读：独立 worker 与租约（认领、心跳、fencing、续做、跨进程取消、崩溃接管实测）
 - [docs/guides/knowledge-graph.md](docs/guides/knowledge-graph.md) — 学习导读：知识图谱的抽取、合并、存储分工、失败与恢复、自测题
+- [docs/guides/auth-tenancy.md](docs/guides/auth-tenancy.md) — 学习导读：登录、部门隔离与用量（会话 vs JWT、CSRF、RLS 的价值与陷阱、用量采集、自测题）
 - [docs/guides/multi-agent-research.md](docs/guides/multi-agent-research.md) — 学习导读：深度调研（Send 并行与崩溃续做、interrupt 审批的陷阱、等待审批放弃租约、报告产物、自测题）
 - [docs/guides/tools-sandbox.md](docs/guides/tools-sandbox.md) — 学习导读：工具、沙盒与 MCP（威胁模型、socket 风险、SSRF 与出口代理、Skills、自测题）
 - [docs/guides/rag-pipeline.md](docs/guides/rag-pipeline.md) — 学习导读：一份文档从上传到成为回答里的引用（入库、检索、重排、预检索与工具、三层评测、自测题）
@@ -79,7 +81,7 @@ AgentNexus/
 - [x] 阶段 2：RAG 知识库（上传 → 后台入库 → 本地向量化 + Qdrant → 召回 + 重排 → 预检索与检索工具 → 带引用的回答；三层评测；走读见 docs/guides/rag-pipeline.md）
 - [x] 阶段 3：知识图谱（LLM 结构化抽取 + 缓存与费用预估 → 合并 → PostgreSQL 事实来源 + Neo4j 派生存储 → 图谱浏览与溯源；走读见 docs/guides/knowledge-graph.md）
 - [x] 阶段 4：多智能体、工具与扩展生态（独立 worker + PostgreSQL 租约队列，走读见 docs/guides/worker-leases.md；沙盒执行代码、MCP 网关 + 出口代理、Skills，走读见 docs/guides/tools-sandbox.md；深度调研：计划审批 + 并行子 Agent + 可下载报告，崩溃后只重做未完成的子任务，走读见 docs/guides/multi-agent-research.md）
-- [ ] 阶段 5：多租户权限与 Dashboard
+- [x] 阶段 5：多租户权限与 Dashboard（会话登录、部门共享、应用层 + PostgreSQL RLS 双重隔离、用量看板，走读见 docs/guides/auth-tenancy.md）
 - [ ] 阶段 6：打磨、部署与简历包装
 
 详见 [ROADMAP.md](ROADMAP.md)。

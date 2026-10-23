@@ -35,6 +35,7 @@ from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.sandbox.client import SandboxClient
 from agentnexus.services.artifacts import ArtifactService
+from agentnexus.services.usage import UsageRecorder, UsageService
 from agentnexus.services.graph import GraphService, Prices
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.search import SearchService
@@ -50,6 +51,7 @@ class Components:
     sessionmaker: object
     knowledge_service: KnowledgeService
     artifact_service: ArtifactService
+    usage_service: UsageService
     search_service: SearchService
     graph_service: GraphService
     run_dispatcher: RunDispatcher
@@ -84,6 +86,10 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     )
     reranker = await asyncio.to_thread(FastReranker, settings.rerank_model) if settings.rerank_enabled else None
     search = SearchService(sessionmaker, embedder, index, reranker, candidates=settings.rerank_candidates)
+    usage = UsageRecorder(sessionmaker, model=settings.llm_model or settings.llm_provider)  # 用量明细（decisions/0023）
+    search.usage = usage
+    usage_service = UsageService(sessionmaker, price_input=settings.llm_price_input,
+                                 price_cached=settings.llm_price_cached_input, price_output=settings.llm_price_output)
 
     # 知识图谱（decisions/0019）。抽取用强制工具调用（结构化输出），与思考模式不兼容，所以单独建一个关闭思考的模型
     neo4j_driver = AsyncGraphDatabase.driver(settings.neo4j_url, auth=(settings.neo4j_user, settings.neo4j_password or ""))
@@ -107,13 +113,13 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         checkpointer = AsyncPostgresSaver(checkpoint_pool)
 
         async def knowledge_search(user_id, kb_ids, query):
-            return (await search.search(user_id, kb_ids, query, top_k=settings.knowledge_top_k)).hits
+            return (await search.search(user_id, kb_ids, query, top_k=settings.knowledge_top_k, source="agent")).hits
 
         chat_model = build_chat_model(settings)
         tools = await _tools(settings, stack)
         agent = ChatbotAgent(
             ChatbotContext(model=chat_model, knowledge_search=knowledge_search,
-                           prefetch=settings.knowledge_prefetch, **tools),
+                           prefetch=settings.knowledge_prefetch, usage=usage, **tools),
             checkpointer=checkpointer,
         )
         # 深度调研（decisions/0022）：计划用结构化输出（关闭思考的模型），子 Agent 与汇总用聊天模型
@@ -123,13 +129,14 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         research = ResearchAgent(
             ResearchContext(model=chat_model, planner=planner, knowledge_search=knowledge_search,
                             tool_sources=tools["tool_sources"], save_artifact=artifacts.save,
-                            concurrency=settings.research_concurrency),
+                            concurrency=settings.research_concurrency, usage=usage),
             checkpointer=checkpointer,
         )
         agents = {"chat": agent.run, "research": research.run}
 
-        async def handler(ctx):
+        async def handler(ctx):  # noqa: F811 —— 按对话的 Agent 类型分发（decisions/0022）
             return await agents[ctx.agent](ctx)
+
         janitor = CheckpointJanitor(
             sessionmaker, checkpointer, retention=timedelta(hours=settings.checkpoint_retention_hours),
             interval_seconds=settings.checkpoint_janitor_interval_seconds,
@@ -150,7 +157,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     # 一次只跑一个构建：每个构建内部已经并发调用模型
     graph_jobs = JobDispatcher(graph, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
                                heartbeat_seconds=settings.job_heartbeat_seconds)
-    return Components(settings, sessionmaker, knowledge, artifacts, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
+    return Components(settings, sessionmaker, knowledge, artifacts, usage_service, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
 
 
 async def _tools(settings: Settings, stack: contextlib.AsyncExitStack) -> dict:

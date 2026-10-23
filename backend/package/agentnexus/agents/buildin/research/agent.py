@@ -3,7 +3,7 @@
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -17,6 +17,7 @@ from agentnexus.agents.messages import message_text
 from agentnexus.agents.tools import ToolSource
 from agentnexus.agents.types import AgentReply, ApprovalRequired, RunContext
 from agentnexus.events import TOKEN
+from agentnexus.services.usage import UsageRecorder
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class ResearchContext:
     subagent_max_rounds: int = 4
     concurrency: int = 3  # 同时调用模型的子 Agent 数（max_concurrency）
     recursion_limit: int = 50
+    usage: UsageRecorder | None = None  # 用量采集（decisions/0023）
 
 
 class ResearchAgent(BaseAgent):
@@ -56,6 +58,8 @@ class ResearchAgent(BaseAgent):
             "max_concurrency": self._context.concurrency,
             "recursion_limit": self._context.recursion_limit,
         }
+        if self._context.usage is not None:
+            config["callbacks"] = [self._context.usage.callback(ctx.user_id, "research", ctx.run_id)]
         graph_input = await self._starting_point(ctx, config)
         if isinstance(graph_input, (AgentReply, ApprovalRequired)):
             return graph_input

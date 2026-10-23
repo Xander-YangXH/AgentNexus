@@ -32,6 +32,7 @@ from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.services.runs import RunService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.postgres import RunStatus
+from tests.fakes import install_test_auth
 
 
 class Crash(BaseException):
@@ -338,6 +339,8 @@ async def test_approval_and_download_api(sessionmaker, user, tmp_path):
     from server.main import create_app
 
     app = create_app(with_lifespan=False)
+
+    install_test_auth(app)
     artifacts = ArtifactService(sessionmaker, LocalBlobStore(tmp_path / "b"))
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     app.dependency_overrides[get_dispatcher] = lambda: RunDispatcher(sessionmaker, None)

@@ -1,7 +1,9 @@
 /**
  * 基于 fetch 的 SSE 客户端。
  *
- * 为什么不用浏览器原生 EventSource：它不能设置自定义请求头，而我们用 X-User-Id 头鉴权（阶段 5 换成 token 也一样在头里）。
+ * 为什么不用浏览器原生 EventSource：阶段 5 之前用 X-User-Id 头鉴权，EventSource 不能设置请求头；
+ * 现在换成了 Cookie 会话（decisions/0023），EventSource 也能用了，但断线续传要自己控制 Last-Event-ID、
+ * 审批暂停后从指定事件之后续订，这些用 fetch 更直接，所以保留。
  * 也不把用户标识放进 URL 查询串：URL 会进入访问日志和浏览器历史。
  *
  * 分两部分：

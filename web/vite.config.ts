@@ -10,7 +10,8 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
-    proxy: { '/api': { target: apiTarget, changeOrigin: true } },
+    // changeOrigin 保持 false：转发时保留浏览器的 Host（localhost:5173），与 Origin 一致，后端的 CSRF 检查才能通过（decisions/0023）
+    proxy: { '/api': { target: apiTarget, changeOrigin: false } },
   },
   test: { environment: 'node' },
 })

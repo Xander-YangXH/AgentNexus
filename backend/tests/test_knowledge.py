@@ -11,6 +11,7 @@ from agentnexus.storage.blobs import BlobNotFound, LocalBlobStore
 from server.deps import get_ingest_dispatcher, get_sessionmaker
 from server.main import create_app
 from tests.fakes import FakeEmbedder
+from tests.fakes import install_test_auth
 
 KB_TEXT = "退货政策：签收后 7 天内可以无理由退货。定制商品不支持退货。\n\n退款到账：入库检验后 1 到 3 个工作日原路退回。"
 
@@ -47,6 +48,7 @@ def test_clean_filename(raw, expected):
 @pytest_asyncio.fixture
 async def kb_api(sessionmaker, tmp_path, chunk_index):
     app = create_app(with_lifespan=False)
+    install_test_auth(app)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     svc = KnowledgeService(sessionmaker, LocalBlobStore(tmp_path), FakeEmbedder(), chunk_index, max_upload_bytes=2048)
     app.state.knowledge_service = svc
