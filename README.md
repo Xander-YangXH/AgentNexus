@@ -2,9 +2,17 @@
 
 ## 项目定位
 
-AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排、知识库、知识图谱、工具 / MCP 扩展、沙盒执行、权限）可复用，具体业务以「场景包」形式插拔接入。当前完整落地的场景包是 **智能客服与工单自动化**，其余场景包先留接口占位（stub）。
+AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上传文档建立知识库，和 Agent 对话时回答逐句标注引用；从文档抽取知识图谱并溯源；发起“深度调研”，确认计划后并行调研、生成可下载的报告；Agent 可以在隔离沙盒里执行代码、经出口代理抓取网页。多用户按部门隔离（应用层检查 + PostgreSQL 行级安全），用量有看板。演示场景是**客服知识库**（`backend/scripts/seed_demo.py` 一键生成）。
 
-设计目标覆盖 RAG 知识库、知识图谱、LangGraph 多智能体编排、可扩展工具协议、沙盒工具执行、多租户权限、运行监控看板这几类能力；每一项技术选型的推导过程见 [docs/interview-prep.md](docs/interview-prep.md)，基础设施规模按 solo 项目的体量做了取舍，具体见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
+每一项技术选型都先做实验再决定，推导过程见 [docs/decisions/](docs/decisions/) 与 [docs/interview-prep.md](docs/interview-prep.md)；基础设施规模按个人项目的体量做了取舍，见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
+
+![对话：回答逐句标注引用，悬停查看原文](docs/images/chat.png)
+
+| 深度调研：先确认计划 | 调研报告与下载 |
+|---|---|
+| ![](docs/images/research-plan.png) | ![](docs/images/research-report.png) |
+| **知识图谱：从文档抽取实体与关系** | **用量看板（深色模式）** |
+| ![](docs/images/graph.png) | ![](docs/images/usage-dark.png) |
 
 ## 技术栈
 
@@ -35,7 +43,15 @@ docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli creat
 ```
 
 打开 http://localhost:8080 ：用 admin 登录 → 在“管理”里建部门和用户 → 新对话 → 发消息，回复会逐字出现。
-接入真实模型：在 `.env` 里设置 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`（说明见 `.env.template`），然后 `docker compose up -d api`。
+
+演示数据（客服部 / 研发部、3 个账号、部门共享的客服知识库；不调用模型）：
+
+```bash
+ADMIN_PASSWORD='<管理员密码>' DEMO_PASSWORD='<演示账号密码>' python backend/scripts/seed_demo.py   # 需要 httpx；加 --graph --ask 会构建图谱并预先问几个问题（真实模型下花费约 $0.02）
+```
+
+接入真实模型：在 `.env` 里设置 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`（说明见 `.env.template`），然后 `docker compose up -d api worker`（模型调用在 worker 里执行）。
+README 截图由 `scripts/screenshots.py` 生成（Playwright + 本机 Chrome）。
 
 ## 文档索引
 

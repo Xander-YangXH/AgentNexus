@@ -33,6 +33,17 @@ export function citedSources(citations: Citation[] | null | undefined): Citation
   return (citations ?? []).filter((c) => c.cited).sort((a, b) => a.n - b.n)
 }
 
+/**
+ * 引用片段的展示文本：去掉 Markdown 标题符号、合并空行。
+ * 分块保留了原文（含“# 售后政策 ## 退货政策”这样的标题行，检索时有用），直接显示在引用卡片里很乱（截图时发现）
+ */
+export function plainSnippet(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+}
+
 export function sourceLabel(c: Citation): string {
   return `[${c.n}] ${c.filename}${c.page ? ` · 第 ${c.page} 页` : ''}`
 }

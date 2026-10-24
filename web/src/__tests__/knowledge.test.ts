@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeDocument } from '../api/types'
-import { formatSize, formatTimings, needsPolling } from '../composables/knowledge'
+import { formatSize, formatTimings, needsPolling, plainSnippet } from '../composables/knowledge'
 import { describeDocumentError, describeRequestError } from '../utils/errors'
 
 const doc = (status: KnowledgeDocument['status']): KnowledgeDocument => ({
@@ -42,5 +42,12 @@ describe('citations', () => {
     const { citedSources, sourceLabel } = await import('../composables/knowledge')
     expect(citedSources([c(3, true), c(1, false), c(2, true, 5)]).map(sourceLabel)).toEqual(['[2] 退货.txt · 第 5 页', '[3] 退货.txt'])
     expect(citedSources(null)).toEqual([])
+  })
+})
+
+describe('plainSnippet', () => {
+  it('drops markdown heading markers and blank lines from citation snippets', () => {
+    expect(plainSnippet('# 售后政策\n\n## 退货政策\n\n签收后 7 天内可以退货。')).toBe('售后政策\n退货政策\n签收后 7 天内可以退货。')
+    expect(plainSnippet('价格 #1 不是标题')).toBe('价格 #1 不是标题')
   })
 })

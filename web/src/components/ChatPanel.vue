@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons-vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentKind, Attachment, KnowledgeBase, Message } from '../api/types'
-import { citedSources, formatSize } from '../composables/knowledge'
+import { citedSources, formatSize, plainSnippet } from '../composables/knowledge'
 import { isActive, type PendingReply } from '../composables/pendingReply'
 import type { RunNotice } from '../composables/runNotices'
 import { describeError } from '../utils/errors'
@@ -202,12 +202,12 @@ watch(
                 <div class="source-grid">
                   <a-popover v-for="c in citedSources(m.citations)" :key="c.n" placement="topLeft">
                     <template #title>{{ c.filename }}<template v-if="c.page"> · 第 {{ c.page }} 页</template></template>
-                    <template #content><div class="source-full">{{ c.text }}</div></template>
+                    <template #content><div class="source-full">{{ plainSnippet(c.text) }}</div></template>
                     <div class="source" tabindex="0">
                       <span class="source-n">{{ c.n }}</span>
                       <div class="source-meta">
                         <div class="source-name">{{ c.filename }}<template v-if="c.page"> · 第 {{ c.page }} 页</template></div>
-                        <div class="source-text">{{ c.text }}</div>
+                        <div class="source-text">{{ plainSnippet(c.text) }}</div>
                       </div>
                     </div>
                   </a-popover>
