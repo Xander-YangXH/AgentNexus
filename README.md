@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上传文档建立知识库，和 Agent 对话时回答逐句标注引用；从文档抽取知识图谱并溯源；发起“深度调研”，确认计划后并行调研、生成可下载的报告；Agent 可以在隔离沙盒里执行代码、经出口代理抓取网页。多用户按部门隔离（应用层检查 + PostgreSQL 行级安全），用量有看板。安全设计与已知局限见 [SECURITY.md](SECURITY.md)。演示场景是**客服知识库**（`backend/scripts/seed_demo.py` 一键生成）。
+AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上传文档建立知识库，和 Agent 对话时回答逐句标注引用（向量 + 关键词混合检索，再重排）；从文档抽取知识图谱并溯源；发起“深度调研”，确认计划后并行调研、生成可下载的报告；Agent 可以在隔离沙盒里执行代码、画图，把图表和数据作为附件交给用户，也能经出口代理抓取网页。多用户按部门隔离（应用层检查 + PostgreSQL 行级安全），用量有看板、每人有费用上限；知识库、文档、对话都可以彻底删除（派生副本由后台清理）；管理员能看到队列积压、失败与在线的 worker（也提供 Prometheus `/metrics`）。安全设计与已知局限见 [SECURITY.md](SECURITY.md)。演示场景是**客服知识库**（`backend/scripts/seed_demo.py` 一键生成）。
 
 每一项技术选型都先做实验再决定，推导过程见 [docs/decisions/](docs/decisions/) 与 [docs/interview-prep.md](docs/interview-prep.md)；基础设施规模按个人项目的体量做了取舍，见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
 
@@ -34,6 +34,7 @@ AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上�
 | Embedding / 重排 | bge-small-zh-v1.5、bge-reranker-v2-m3（fastembed / ONNX，本地运行） |
 | 模型 | DeepSeek（Anthropic 兼容接口）；默认假模型，无需密钥即可跑通 |
 | 工具沙盒 | 独立 sandbox 服务（唯一持有 Docker socket）+ 加固的一次性容器；MCP 网关 + Squid 出口代理 |
+| 可观测性 | request-id + 结构化日志；用量明细与看板；运行状态由数据库函数从业务表聚合（管理页面 + Prometheus 文本格式） |
 | 部署 | Docker Compose（12 个服务，一键启动）；GitHub Actions CI（含 pip-audit / npm audit 依赖扫描） |
 
 ## 快速开始
@@ -49,7 +50,7 @@ docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli creat
 演示数据（客服部 / 研发部、3 个账号、部门共享的客服知识库；不调用模型）：
 
 ```bash
-ADMIN_PASSWORD='<管理员密码>' DEMO_PASSWORD='<演示账号密码>' python backend/scripts/seed_demo.py   # 需要 httpx；加 --graph --ask 会构建图谱并预先问几个问题（真实模型下花费约 $0.02）
+ADMIN_PASSWORD='<管理员密码>' DEMO_PASSWORD='<演示账号密码>' python backend/scripts/seed_demo.py   # 需要 httpx；加 --graph --ask --analysis 会构建图谱、预先问几个问题、做一次数据分析（真实模型下花费约 $0.025）
 ```
 
 接入真实模型：在 `.env` 里设置 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`（说明见 `.env.template`），然后 `docker compose up -d api worker`（模型调用在 worker 里执行）。
@@ -58,7 +59,7 @@ README 截图由 `scripts/screenshots.py` 生成（Playwright + 本机 Chrome）
 ## 文档索引
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构：进程拓扑、代码地图、核心链路、架构不变量
-- [SECURITY.md](SECURITY.md) — 安全：威胁模型、每道防线在哪里（登录限流、RLS、沙盒、出口代理、子进程解析、依赖扫描）、已知局限、报告方式
+- [SECURITY.md](SECURITY.md) — 安全：威胁模型、每道防线在哪里（登录限流、RLS、沙盒、出口代理、子进程解析、依赖扫描、删除、费用上限、监控接口的暴露面）、已知局限、报告方式
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
 - [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md) — 基础设施与能力深度的取舍及理由
 - `docs/decisions/` — 关键架构决策记录（每次重大取舍写一条，含背景/决定/后果/验证）
@@ -107,6 +108,7 @@ AgentNexus/
 - [x] 补全 7.1：删除知识库与文档（数据库事务 + 清理任务发件箱，派生存储故障时删除照样成功，见 docs/decisions/0026）
 - [x] 补全 7.2：Agent 把沙盒里画的图、算的表作为附件交给用户（见 docs/decisions/0027）
 - [x] 补全 7.3：删除对话（文件、工作空间、checkpoint 一并清理，用量统计保留，见 docs/decisions/0028）
+- [x] 补全 7.4：清理孤儿原件（失败、取消的运行留下的文件，24 小时宽限期）
 - [x] 补全 7.5：混合检索（稠密向量 + 关键词，大语料下精确词查询的候选召回 0.70 → 1.00，见 docs/decisions/0029）
 - [x] 补全 7.6：追问的预检索（两路检索交替合并，追问命中 0.87 → 1.00、换话题不被带偏，见 docs/decisions/0030）
 - [x] 补全 7.7 ~ 7.8：回答质量评测（模型裁判，先用篡改的回答校准）；运行状态（管理页面 + Prometheus `/metrics`，见 docs/decisions/0031）
