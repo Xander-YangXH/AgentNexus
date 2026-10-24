@@ -18,6 +18,7 @@ import type {
   Message,
   Run,
   SearchResult,
+  SystemStatus,
   User,
 } from './types'
 
@@ -125,6 +126,7 @@ export const api = {
   me: () => request<Me>('GET', '/api/auth/me'),
   listDepartments: () => request<Department[]>('GET', '/api/departments'),
   adminListUsers: () => request<User[]>('GET', '/api/admin/users'),
+  adminStatus: () => request<SystemStatus>('GET', '/api/admin/status'),
   adminCreateUser: (body: { name: string; password: string; role: Role; department_id: string | null }) =>
     request<User>('POST', '/api/admin/users', body),
   adminUpdateUser: (id: string, patch: Partial<{ role: Role; department_id: string | null; disabled: boolean; password: string }>) =>

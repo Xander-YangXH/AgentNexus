@@ -14,7 +14,7 @@ from agentnexus.security.throttle import LoginThrottle
 from server.csrf import CsrfMiddleware
 from server.errors import install_error_handlers
 from server.middleware import RequestContextMiddleware
-from server.routers import artifacts, conversations, events, graph, health, knowledge, usage, users
+from server.routers import artifacts, conversations, events, graph, health, knowledge, status, usage, users
 
 
 @asynccontextmanager
@@ -66,6 +66,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     app.include_router(graph.router)
     app.include_router(artifacts.router)
     app.include_router(usage.router)
+    app.include_router(status.router)
     # 服务层只抛领域异常，HTTP 状态码与统一错误格式在这里映射（server/errors.py）
     install_error_handlers(app)
     # 每个数据库事务开始时设置当前用户（RLS，decisions/0023）

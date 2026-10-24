@@ -58,6 +58,10 @@ AgentNexus 是一个求职用的个人项目，按“企业内部部署”的威
 - 前端渲染 Markdown 时关闭原始 HTML（`html: false`），模型输出的标签当文本显示，不会被执行。
 - markdown-it 升级到 15.0.3，修复了两个“构造的输入导致渲染时间平方级增长”的问题。
 
+### 运行状态与监控（[decisions/0031](docs/decisions/0031-system-status.md)）
+- `/api/admin/status` 只给管理员；`/metrics`（Prometheus）不要求登录，但不在 `/api` 下，Nginx 不转发，只能在内部网络或本机抓取。
+- 两者都只有计数和时长：统计由 `SECURITY DEFINER` 函数完成（绕过 RLS），不返回任何行，`search_path` 固定，PUBLIC 没有执行权限。
+
 ### 密钥
 - 只放在 `.env`（不进版本库，镜像构建上下文也不包含）；每个服务只拿到自己需要的密钥。
 - 前端拿不到任何模型密钥，所有模型调用都在服务端。

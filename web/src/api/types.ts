@@ -246,3 +246,21 @@ export interface EntityDetail {
   relations: { id: string; direction: 'in' | 'out'; predicate: string; description: string; other_id: string; other_name: string; mentions: number }[]
   mentions: { chunk_id: string; filename: string; page: number | null; seq: number; text: string }[]
 }
+
+/** 运行状态（decisions/0031）：后端从业务表聚合的计数，只给管理员 */
+export interface SystemStatus {
+  runs: {
+    queued: number
+    running: number
+    awaiting_approval: number
+    oldest_queued_seconds: number
+    succeeded_24h: number
+    failed_24h: number
+    p50_seconds_24h: number | null
+    p95_seconds_24h: number | null
+  }
+  documents: { pending: number; processing: number; failed: number; oldest_pending_seconds: number }
+  graph_builds: { pending: number; running: number }
+  purge_jobs: { pending: number; retrying: number; max_attempts: number; oldest_seconds: number }
+  busy_workers: number
+}

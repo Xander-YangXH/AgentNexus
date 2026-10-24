@@ -109,5 +109,6 @@ AgentNexus/
 - [x] 补全 7.3：删除对话（文件、工作空间、checkpoint 一并清理，用量统计保留，见 docs/decisions/0028）
 - [x] 补全 7.5：混合检索（稠密向量 + 关键词，大语料下精确词查询的候选召回 0.70 → 1.00，见 docs/decisions/0029）
 - [x] 补全 7.6：追问的预检索（两路检索交替合并，追问命中 0.87 → 1.00、换话题不被带偏，见 docs/decisions/0030）
+- [x] 补全 7.7 ~ 7.8：回答质量评测（模型裁判，先用篡改的回答校准）；运行状态（管理页面 + Prometheus `/metrics`，见 docs/decisions/0031）
 
 详见 [ROADMAP.md](ROADMAP.md)。

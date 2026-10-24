@@ -126,7 +126,7 @@ docs/                           decisions（ADR）、guides（走读）、dev-lo
 
 ## 6. 横切关注点
 - **认证**：服务端会话（会话表存令牌哈希）+ HttpOnly / SameSite=Lax Cookie；写请求校验 Origin。密码 argon2id，在线程池里计算。登录限流按“账号 + IP”和按 IP 计数（Redis），客户端 IP 取 Nginx 覆盖的 `X-Real-IP`。威胁模型与已知局限见 `SECURITY.md`。
-- **可观测性**：每个请求一个 request-id，run 执行期间日志自动带 run_id；结构化日志（text / json）。用量从回调采集，写 `usage_events`。
+- **可观测性**：每个请求一个 request-id，run 执行期间日志自动带 run_id；结构化日志（text / json）。用量从回调采集，写 `usage_events`。运行状态（积压、失败、清理重试、执行中的 worker）由数据库函数 `system_status()` 从业务表聚合：管理页面卡片 + api 端口的 `/metrics`（不经 Nginx，decisions/0031）。
 - **配置**：全部来自环境变量（`config/settings.py`），compose 通过 `.env` 注入；密钥只在需要它的服务里出现。
 - **依赖**：后端按 `requirements.lock`（uv，只取发布满两周的版本；有已知漏洞且影响我们的包例外）安装；前端 `package-lock.json`。CI 每次用 pip-audit / npm audit 扫描，豁免写在 `scripts/audit-allowlist.json`（带到期日）。
 - **测试**：后端集成测试用真实数据库和 Docker，模型一律用假模型；越权矩阵用两种数据库角色各跑一遍；安全相关逻辑做变异检查。CI 见 `.github/workflows/ci.yml`。

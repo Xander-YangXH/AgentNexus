@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 管理员（decisions/0023、0024 改版）：部门、用户（创建、改角色 / 部门、禁用、重置密码）。禁用和重置密码会让该用户的会话立刻失效
-import { PlusOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons-vue'
+import { DashboardOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { computed, onMounted, ref } from 'vue'
 import { api, HttpError } from '../api/http'
-import type { Department, Role, User } from '../api/types'
+import type { Department, Role, SystemStatus, User } from '../api/types'
+import { statusItems } from '../composables/status'
 import { ROLE_LABEL } from '../composables/usage'
 
 const users = ref<User[]>([])
@@ -12,6 +13,7 @@ const departments = ref<Department[]>([])
 const newDept = ref('')
 const draft = ref({ name: '', password: '', role: 'member' as Role, department_id: null as string | null })
 const resetting = ref<User | null>(null)
+const status = ref<SystemStatus | null>(null)
 const newPassword = ref('')
 
 const roleOptions = (Object.keys(ROLE_LABEL) as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))
@@ -24,6 +26,15 @@ function fail(e: unknown) {
 
 async function load() {
   ;[users.value, departments.value] = await Promise.all([api.adminListUsers(), api.listDepartments()])
+}
+
+// 运行状态（decisions/0031）：队列积压、失败、清理重试，从业务表现算；手动刷新
+async function loadStatus() {
+  try {
+    status.value = await api.adminStatus()
+  } catch (e) {
+    fail(e)
+  }
 }
 
 async function createDept() {
@@ -64,7 +75,10 @@ async function confirmReset() {
   newPassword.value = ''
 }
 
-onMounted(() => load().catch(fail))
+onMounted(() => {
+  load().catch(fail)
+  loadStatus()
+})
 
 const columns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
@@ -83,6 +97,20 @@ const columns = [
         <p class="an-page-subtitle">部门决定知识库能共享给谁；角色决定能看哪些用量。禁用或重置密码会让该用户立即退出登录</p>
       </div>
     </header>
+
+    <div v-if="status" class="an-card status-card">
+      <div class="an-card-header">
+        <span><DashboardOutlined /> 运行状态</span>
+        <a-button size="small" type="text" aria-label="刷新运行状态" @click="loadStatus"><ReloadOutlined /></a-button>
+      </div>
+      <div class="an-card-body status-grid">
+        <div v-for="item in statusItems(status)" :key="item.label" :class="['stat', { warn: item.warn }]">
+          <div class="an-hint">{{ item.label }}</div>
+          <div class="stat-value">{{ item.value }}</div>
+          <div v-if="item.hint" class="an-hint">{{ item.hint }}</div>
+        </div>
+      </div>
+    </div>
 
     <div class="top">
       <div class="an-card">
@@ -153,6 +181,30 @@ const columns = [
 </template>
 
 <style scoped>
+.status-card {
+  margin-bottom: 16px;
+}
+.status-grid {
+  display: grid;
+  /* minmax(0, 1fr)：网格项默认 min-width: auto，长文字会把列撑宽（6.1 踩过的坑） */
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+  gap: 12px;
+}
+.stat {
+  padding: 10px 12px;
+  border: 1px solid var(--an-border);
+  border-radius: 10px;
+  min-width: 0;
+}
+.stat.warn {
+  border-color: var(--an-warning);
+  background: var(--an-warning-soft);
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 2px 0;
+}
 .top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
