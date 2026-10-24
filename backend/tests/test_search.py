@@ -76,11 +76,12 @@ async def test_rerank_reorders_candidates_by_rerank_score(kb_env, user):
 
 async def test_candidate_count_depends_on_rerank(kb_env, user, monkeypatch):
     knowledge, kb, _ = kb_env
-    limits = []
+    limits, texts = [], []
     original = ChunkIndex.search
 
     async def spy(self, vector, kb_ids, *, limit, text=None):
         limits.append(limit)
+        texts.append(text)
         return await original(self, vector, kb_ids, limit=limit, text=text)
 
     monkeypatch.setattr(ChunkIndex, "search", spy)
@@ -88,6 +89,8 @@ async def test_candidate_count_depends_on_rerank(kb_env, user, monkeypatch):
     await _search(knowledge, KeywordReranker("x"), candidates=8).search(user.id, [kb.id], "退货", top_k=2, rerank=False)
     await _search(knowledge, None, candidates=8).search(user.id, [kb.id], "退货", top_k=2)  # 部署关闭了重排
     assert limits == [8, 2, 2]
+    # 关键词融合只在有重排时用（decisions/0029）：融合后的顺序要靠重排排好，没有重排时只用向量
+    assert texts == ["退货", None, None]
 
 
 async def test_points_without_a_ready_chunk_in_the_database_are_dropped(kb_env, user):

@@ -68,9 +68,10 @@ class SearchService:
         with _timer(timings, "embed"):
             vector = await asyncio.to_thread(self.embedder.embed_query, query)
         with _timer(timings, "vector"):
-            # 混合检索（decisions/0029）：稠密向量 + 关键词，在 Qdrant 里按排名融合
+            # 混合检索（decisions/0029）：稠密向量 + 关键词，在 Qdrant 里按排名融合。只在有重排时用：
+            # 融合能把精确词的答案带进候选，但融合后的顺序比纯向量差（换说法的问题第一名 0.90 → 0.73），要靠重排排好
             scored = await self.index.search(vector, kb_ids, limit=max(top_k, self.candidates) if rerank else top_k,
-                                             text=query)
+                                             text=query if rerank else None)
         with _timer(timings, "fetch"):
             hits = await self._fetch(scored, kb_ids)
         if rerank and hits:

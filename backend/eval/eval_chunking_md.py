@@ -5,14 +5,12 @@
 """
 
 import time
-import uuid
 
-from eval_search_api import DATA, call, upload
+from eval_search_api import DATA, call, eval_session, upload
 
 
 def main():
-    user = call("POST", "/api/users", {"name": f"eval-md-{uuid.uuid4().hex[:8]}"})
-    h = {"X-User-Id": user["id"]}
+    h = eval_session("eval-md")
     kb = call("POST", "/api/knowledge-bases", {"name": "分块评测"}, headers=h)["id"]
     md = "\n\n".join(f"## {doc_id}\n{text}" for doc_id, text in DATA["docs"].items())
     upload(kb, h, "客服手册.md", md)
@@ -30,7 +28,8 @@ def main():
             hit1 += bool(found[:1] and found[0])
             hit3 += any(found)
         n = len(DATA["queries"])
-        print(f"{'重排' if rerank else '仅向量'}：第一名包含答案 {hit1 / n:.2f}，前三名包含答案 {hit3 / n:.2f}")
+        print(f"{'重排' if rerank else '仅召回'}：第一名包含答案 {hit1 / n:.2f}，前三名包含答案 {hit3 / n:.2f}")
+    call("DELETE", f"/api/knowledge-bases/{kb}")  # 评测数据用完即删（decisions/0026）
 
 
 if __name__ == "__main__":

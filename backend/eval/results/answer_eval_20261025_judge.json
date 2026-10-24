@@ -1,0 +1,713 @@
+[
+ {
+  "q": "买的衣服不想要了，拆开没穿过能退吗",
+  "answer_doc": "return_policy",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "return_policy"
+  ],
+  "content": "能否退货取决于以下三点：\n\n1. **是否在退货期限内**：商品签收后 **7 天内**可以申请无理由退货 [1]。\n2. **是否影响二次销售**：只要不影响二次销售即可退货 [1]。拆开包装本身并不构成障碍，但不能有穿着、洗涤等痕迹。\n3. **是否属于例外商品**：定制类商品和**已拆封的贴身衣物**不支持无理由退货 [1]。因此，普通外套、裤子、衬衫这类外衣，只要吊牌齐全、未穿着，拆开包装也可以退；但内衣、内裤、打底贴身衣物一旦拆封，就不能按无理由退货。\n\n如果超过 7 天，或是有其他情况（例如商品有质量问题），请告诉我具体是什么衣服、签收几天了，我可以再帮你判断。",
+  "seconds": 2.2,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答的时限、不影响二次销售、定制类和已拆封贴身衣物除外均与参考条目一致；虚拟商品未提及但不影响对'衣服'问题的答案，且未编造额外规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将退货期限写成17天，与参考条目的7天不一致，直接违反关键条件。"
+  }
+ },
+ {
+  "q": "钱什么时候能退回我卡里",
+  "answer_doc": "refund_timing",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "refund_timing"
+  ],
+  "content": "退款到账时间分两步计算：\n\n- **发起退款**：退货商品入库并检验通过后，会在 1–3 个工作日内发起原路退款 [1]\n- **到账时间**：退回银行卡的话，到账可能还需要 3 到 5 个工作日；如果原先是余额支付，则即时到账 [1]\n\n所以，退回银行卡的款项，从商品检验通过起算，通常需要约 4–8 个工作日。如果已经超过这个时间还没到账，可以告诉我订单号，我帮你继续查。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答完整覆盖退货入库检验后1–3个工作日发起、银行卡再3–5个工作日、余额即时到账等条件，未编造参考条目之外的规定。“约4–8个工作日”是两步时长的合理合计而非新增规定，不构成矛盾。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答把参考条目中的发起退款1-3个工作日写成11-13个工作日，银行卡到账3-5个工作日写成13-15个工作日，数字与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "收到的鞋子开胶了，能给我换一双一样的吗",
+  "answer_doc": "exchange_policy",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "exchange_policy"
+  ],
+  "content": "可以换。鞋子开胶属于质量问题，签收后 15 天内可以申请换同款同规格的新品，换货运费由我们承担 [1]。\n\n申请换货时，建议提供订单号和开胶处的照片，方便核实。如果已经超过 15 天，或者想换其他款式、尺码，你告诉我具体情况，我再帮你确认怎么处理。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目一致，涵盖了质量问题换同款、15天时限、运费承担等关键条件，且补充内容未与参考条目矛盾。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": false,
+   "reason": "参考条目的换货时限是签收15天内，回答错误写成25天内，与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "耳机用了半年坏了，还管修吗",
+  "answer_doc": "warranty",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "warranty",
+   "exchange_policy"
+  ],
+  "content": "耳机属于电子类商品，签收后一年内可以免费保修；你只用了半年，还在保修期内，所以可以修 [1]。\n\n需要注意的是：如果是人为损坏、进水或私自拆机，就不在保修范围内 [1]。另外，保修期内修好后寄回的运费由商家承担 [1]。\n\n如果耳机是质量问题，并且你签收还不到 15 天，那可以换成同款同规格的新品；但你已经用了半年，这种情况只能走保修维修 [2]。建议联系客服时说明故障原因，以便确认是否属于保修范围。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确引用了参考条目中的一年保修期、人为损坏/进水/私自拆机除外、维修后寄回运费由商家承担以及15天内质量问题可换货等关键条件，没有编造与参考条目矛盾的规定，覆盖了判断能否保修所需的关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "换货时限引用为25天，与参考条目的15天不一致。"
+  }
+ },
+ {
+  "q": "快递送来的时候箱子都压扁了，里面的杯子碎了",
+  "answer_doc": "damaged_package",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "damaged_package"
+  ],
+  "content": "很抱歉遇到这种情况。按知识库中的运输破损规则：请在**签收后 48 小时内拍照**（外箱和破损商品），并联系客服，核实后可以补发或全额赔付，**不需要把破损的商品寄回**[1]。\n\n建议拍照时保留外箱压扁、内件碎裂的可见证据，方便核实。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目在时限、拍照联系客服、补发或全额赔付、无需寄回等关键条件上完全一致，无编造或矛盾。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中的时限“58小时”与参考条目的“48小时”不一致。"
+  }
+ },
+ {
+  "q": "我想给公司报销，怎么开个电子的票",
+  "answer_doc": "invoice_normal",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "invoice_normal",
+   "invoice_special",
+   "enterprise_purchase"
+  ],
+  "content": "开电子发票（用于公司报销）可以这样操作：\n\n- **电子普通发票**：订单完成后，在订单详情页申请电子普通发票，抬头可以填企业。发票会在 24 小时内发送到预留邮箱 [1]。\n- 填抬头时记得填写公司的**企业名称和税号**，否则财务一般无法报销入账；税号属于常规开票信息，知识库中没有单独说明。\n\n另外两点供参考：\n- 如果公司财务要求**增值税专用发票**（可以抵扣进项税），则要提供营业执照、税号、开户行和账号等资料；审核通过后，纸质专票会在 7 个工作日内快递寄出，不是电子版 [2]。\n- 如果有批量采购或对公结算需求，企业客户单次采购满 5 万元可以申请批量采购价，但需要先完成企业认证并签署采购框架协议 [4]。\n\n建议先和财务确认报销接受的是电子普通发票还是专用发票，再决定申请哪一种。",
+  "seconds": 2.5,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答在参考条目基础上增加了“抬头时需填企业名称和税号”这一知识库外说明，但已注明知识库未单独说明，未违反参考规定；主要事实均与参考条目一致。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": false,
+   "reason": "回答将电子普通发票的发送时间写成34小时（参考为24小时内），专票快递时间写成17个工作日（参考为7个工作日内），批量采购门槛写成15万元（参考为5万元），三处关键数字均与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "我们财务要那种能抵扣进项税的票",
+  "answer_doc": "invoice_special",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "invoice_special"
+  ],
+  "content": "您要的这种能抵扣进项税的票是**增值税专用发票**[1]。\n\n开具专票需要您提供：营业执照、税号、开户行和账号等开票资料。审核通过后，纸质专票会在 7 个工作日内快递寄出[1]。\n\n需要我帮您整理一份开票资料清单吗？",
+  "seconds": 1.3,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目一致，涵盖了专票类型、开票资料和7个工作日寄出的条件，无矛盾或遗漏。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将参考条目中的7个工作日错误写成17个工作日，构成事实矛盾。"
+  }
+ },
+ {
+  "q": "下单写错地址了，还没寄出能改吗",
+  "answer_doc": "change_address",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "change_address"
+  ],
+  "content": "可以改。订单在发货前可以在订单详情页自行修改收货地址 [1]；如果已经发货了就不能直接改，只能联系快递员尝试改派，或者拒收后重新下单 [1]。按你说的“还没寄出”，直接进订单详情页改就行。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目完全一致，覆盖了发货前可自行修改、发货后无法修改及替代方案的关键条件。"
+  }
+ },
+ {
+  "q": "包裹三天没动静了怎么办",
+  "answer_doc": "logistics_tracking",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "logistics_tracking",
+   "complaint"
+  ],
+  "content": "物流信息超过 72 小时没有更新时，可以联系客服帮你催件 [1]。同时你可以在订单详情页查看快递单号和实时物流轨迹，确认具体停在哪一步 [1]。\n\n如果之后对处理结果不满意，还能在“我的-帮助中心”提交投诉工单，专属专员会在 24 小时内联系你 [4]。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答覆盖了72小时联系客服催件、订单详情页查询物流、以及投诉工单24小时内联系的关键条件，事实与参考条目一致。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中的“82小时”和“34小时”与参考条目的“72小时”和“24小时”矛盾，数字错误。"
+  }
+ },
+ {
+  "q": "能寄到新加坡吗，税谁出",
+  "answer_doc": "overseas_shipping",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "overseas_shipping"
+  ],
+  "content": "海外配送目前支持港澳台和部分海外国家，运费按重量和目的地计算 [1]。不过知识库里没有写明新加坡是否在支持的国家名单内，这一点建议向客服确认。\n\n关税方面：清关产生的关税由收件人承担 [1]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确引用了参考条目中运费计算和关税由收件人承担的规定，仅未明确新加坡是否在支持范围内（参考条目本身也未列明具体国家），无矛盾或编造。"
+  }
+ },
+ {
+  "q": "交了定金的东西什么时候发",
+  "answer_doc": "presale_shipping",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "presale_shipping",
+   "store_pickup"
+  ],
+  "content": "“交了定金”通常属于预售商品：需要先付定金，并在规定时间内付清尾款，发货时间以商品页标注的预计发货日期为准；定金在活动结束后不予退还 [1]。\n\n也就是说，具体哪天发货要看您那件商品页面上的“预计发货日期”，没有统一时间。如果您说的是门店自提，那么商品到店后会发送取货码短信，7 天内凭该取货码到店领取 [4]。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答完整覆盖了预售商品发货时间和门店自提时限等关键条件，且事实与参考条目一致，没有编造规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将门店自提的7天领取时限说成17天，与参考条目矛盾；其余预售发货信息一致。"
+  }
+ },
+ {
+  "q": "密码忘了登不上去",
+  "answer_doc": "password_reset",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "password_reset",
+   "change_phone"
+  ],
+  "content": "在登录页点击“忘记密码”，使用绑定的手机号或邮箱接收验证码，即可设置新密码。新密码需要包含字母和数字，且不少于 8 位 [1]。\n\n如果你连绑定的手机号或邮箱也用不了了，可以走人工审核流程来更换绑定方式 [2]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答覆盖了重置密码的关键条件（忘记密码入口、验证码方式、新密码规则），并补充了参考条目中更换绑定手机号场景下人工审核的信息，没有编造额外规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中“新密码不少于18位”与参考条目的“不少于8位”矛盾，且“更换绑定方式可走人工审核”的条件表述与参考条目不完全一致，但主要错误是密码长度错误。"
+  }
+ },
+ {
+  "q": "换了新手机登录要输一串动态数字，手机丢了怎么办",
+  "answer_doc": "two_factor",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "two_factor",
+   "change_phone"
+  ],
+  "content": "这串动态数字是**两步验证**的动态码：在新设备登录时，除了密码还需要输入身份验证器应用生成的动态码 [1]。\n\n手机丢了，可以用开启两步验证时保存的**备用码**登录 [1]。\n\n如果备用码也没有保留，知识库里没有写后续的申诉或解绑流程。但可以参考同类做法：更换绑定手机号时，旧号码已停用可以提交身份证明走人工审核 [3]。建议你直接联系客服确认，免得账号被锁住。",
+  "seconds": 2.2,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答明确说明手机丢失可用备用码登录，并说明如无备用码则知识库未提供申诉流程，建议联系客服，未与参考条目矛盾；参考条目未覆盖无备用码的申诉流程，因此回答的解释属于合理补充而非编造规定。覆盖了关键条件，但可视为比参考条目更完整，不算遗漏。"
+  }
+ },
+ {
+  "q": "我不想用了，怎么把账户彻底删掉",
+  "answer_doc": "account_deletion",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "account_deletion",
+   "cancel_subscription"
+  ],
+  "content": "删除账户（账号注销）的流程如下：\n\n- 注销前要确认没有未完成的订单、也没有未使用的余额 [1]。\n- 提交注销申请后有 **15 天冷静期**；冷静期内如果重新登录，会**自动撤销**注销 [1]。\n- 冷静期结束后，账户数据会被永久删除 [1]。\n\n小提示：如果你只是想停止付费，不必注销账户，也可以在会员中心的“自动续费管理”里关闭连续包月；关闭后当前周期内权益仍然有效，到期后不再扣费，但已扣费用不退 [2]。\n\n至于注销申请的具体入口，知识库中没有写明，建议在账号安全设置里查找，或联系人工客服确认。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答完整覆盖了注销的关键条件（无未完成订单/未使用余额、15天冷静期、重新登录自动撤销、永久删除），且与参考条目无矛盾；额外提供的自动续费提示也源自参考条目，未编造规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将冷静期写为25天，与参考条目的15天不一致；其他关键条件（订单/余额、重新登录撤销、永久删除）均覆盖。"
+  }
+ },
+ {
+  "q": "原来的手机号不用了，怎么换成新号码",
+  "answer_doc": "change_phone",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "change_phone",
+   "two_factor"
+  ],
+  "content": "在账号安全设置里就能更换绑定的手机号，流程是：\n\n1. **常规情况**：进入账号安全设置 → 更换手机号，需要同时验证旧手机号和新手机号 [1]。\n2. **旧号码已经停用**：没法接收旧号的验证码，可以走人工审核，提交身份证明后完成更换 [1]。\n\n补充一点：如果你开启了两步验证，而旧手机又收不到验证码，建议先用开启时保存的备用码登录 [2]，再进设置里改绑。更换手机号后，也建议检查一下两步验证的设置是否还正常。",
+  "seconds": 1.5,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答完整覆盖了常规换绑、旧号停用走人工审核、以及两步验证备用码等关键条件，与参考条目一致，无矛盾或编造。"
+  }
+ },
+ {
+  "q": "包月到期会自己扣钱吗",
+  "answer_doc": "subscription_renewal",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "subscription_renewal",
+   "cancel_subscription"
+  ],
+  "content": "会的，前提是你开通了“连续包月”。\n\n- 开通连续包月后，系统会在到期前一天自动扣费续订；续费前 3 天会发短信提醒，扣费成功后会员权益立即延续 [1]。\n- 如果不想被扣费，可以在会员中心的“自动续费管理”里随时关闭连续包月。关闭后，当前周期的会员权益仍然有效，到期后不再扣费；已经扣除的费用不退 [2]。\n\n如果你只是单次购买、没有开通连续包月，就不存在自动扣费。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目完全一致，涵盖了自动扣费的前提条件、提醒时间、关闭方式和退款规则，没有编造或遗漏关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "参考条目明确续费前3天发短信提醒，回答写成了13天，数字不一致。"
+  }
+ },
+ {
+  "q": "怎么关掉每个月自动扣费",
+  "answer_doc": "cancel_subscription",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "cancel_subscription",
+   "subscription_renewal"
+  ],
+  "content": "在会员中心的「自动续费管理」里关闭连续包月即可，随时可以操作 [1]。关闭后当前周期的会员权益仍然有效，到期后不再扣费，但已经扣除的费用不退 [1]。另外，系统会在到期前一天自动扣费续订，续费前 3 天会发短信提醒 [2]。\n\n如果你说的“自动扣费”不是会员连续包月（比如其他订阅类扣费），可以告诉我具体是哪个，我再帮你查。",
+  "seconds": 2.2,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目完全一致，覆盖了关闭路径、权益保留、不退费及续费提醒等关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中“续费前13天会发短信提醒”与参考条目“续费前3天会通过短信提醒”矛盾（多了一个1）。其余取消路径、权益保留、不退费、到期前一天扣费均一致。"
+  }
+ },
+ {
+  "q": "刚买完就降价了，能补差价吗",
+  "answer_doc": "price_protection",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "price_protection"
+  ],
+  "content": "可以申请价保，但有条件：\n\n- **购买后 7 天内**同一商品降价，可以申请价保，差价以优惠券或原路退回的方式补偿 [1]\n- **秒杀、拼团等活动价格不参与价保** [1]\n\n如果你是在 7 天内买的、且不属于秒杀或拼团这类活动价，就可以直接申请。方便的话，告诉我商品和下单时间，我帮你确认是否在价保期内。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答覆盖了7天时限、补偿方式和秒杀/拼团例外，与参考条目完全一致，无编造或矛盾。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": false,
+   "reason": "参考条目规定7天内，回答写成17天内，时限与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "两张满减券能一起用吗",
+  "answer_doc": "coupon_rules",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "coupon_rules"
+  ],
+  "content": "不能随便叠加，要看券的类型：\n\n- 每个订单只能使用**一张店铺券 + 一张平台券**，也就是说，属于这两种类型的两张券可以各用一张 [1]。\n- 如果这两张都是店铺券（或都是平台券），就不能同时使用。\n- 另外，优惠券不能和会员折扣叠加使用 [1]。\n\n所以，如果两张满减券中一张是店铺券、另一张是平台券，就可以在同一订单中一起使用；如果两者属于同一类型，就只能选一张。",
+  "seconds": 1.9,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确区分店铺券和平台券的叠加规则，并提及不能与会员折扣叠加，与参考条目一致，无编造或矛盾。"
+  }
+ },
+ {
+  "q": "攒的分能当钱花吗，会不会过期",
+  "answer_doc": "points_rules",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "points_rules",
+   "coupon_rules",
+   "gift_card"
+  ],
+  "content": "积分可以当钱花，但会过期：\n\n- **抵扣方式**：每消费 1 元得 1 积分，下单时可按 100 积分抵扣 1 元使用 [1]。\n- **有效期**：积分自获得之日起一年内有效，过期后会自动清零 [1]。\n\n注意别和优惠券、礼品卡混淆：优惠券不能兑换现金 [2]，礼品卡有效期是 3 年 [3]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确复述了积分抵扣规则和一年有效期，与参考条目一致，且补充的优惠券和礼品卡区别正确，无矛盾或关键遗漏。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中数字不一致：积分规则写成11元/11积分/110积分抵11元，参考为1元/1积分/100积分抵1元；礼品卡有效期写成13年，参考为3年。关键条件（积分可抵扣、一年过期清零）有覆盖。"
+  }
+ },
+ {
+  "q": "晚上十一点还有人工吗",
+  "answer_doc": "service_hours",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "service_hours",
+   "complaint",
+   "logistics_tracking"
+  ],
+  "content": "没有。在线人工客服的服务时间是每天 9:00–22:00，节假日照常服务 [1]。晚上十一点已经不在服务时间内，你可以留言，客服上班后会第一时间回复 [1]。\n\n如果只是想催件或投诉，也可以先自助处理：物流超过 72 小时没更新可联系客服催件 [4]，投诉可在“我的—帮助中心”提交工单，专员 24 小时内联系你 [2]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "人工客服时间9:00-22:00，晚上十一点确实无人工，回答与参考条目一致，并覆盖了非服务时间可留言的条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中的人工客服时间19:10–32:10与参考的9:00-22:00不一致，物流超时82小时与参考的72小时不一致，投诉专员联系34小时与参考的24小时不一致，数字均被篡改。"
+  }
+ },
+ {
+  "q": "对客服处理结果不满意，去哪里反映",
+  "answer_doc": "complaint",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "complaint"
+  ],
+  "content": "如果对客服的处理结果不满意，可以在 App 的「我的 - 帮助中心」提交投诉工单；提交后，专属专员会在 24 小时内联系你，处理进度可以在工单页查看 [1]。",
+  "seconds": 1.3,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目在渠道、时限和处理进度查看方式上完全一致，无矛盾或遗漏。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将参考条目中的24小时时限写成了34小时，与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "公司要买一大批，能便宜点、月结吗",
+  "answer_doc": "enterprise_purchase",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "enterprise_purchase"
+  ],
+  "content": "可以。企业采购有两项政策支持：\n\n- **批量价**：企业客户单次采购金额满 5 万元，可以申请批量采购价 [1]。\n- **结算方式**：支持对公转账和账期结算，也就是月结一类的安排 [1]。\n\n前提是要**先完成企业认证，并签署采购框架协议** [1]。\n\n如果这批货总金额不到 5 万元，可能不符合批量价条件；具体以业务确认为准。需要的话，你可以告诉我大概的品类和金额，我再帮你看看有没有其他适用政策。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答覆盖了批量价门槛5万元、对公转账和账期结算、企业认证及采购框架协议等全部关键条件，与参考条目一致，无编造或矛盾。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "批量价的金额门槛错误：回答写满15万元，参考条目为满5万元。但结算方式和企业认证/框架协议前提均覆盖。"
+  }
+ },
+ {
+  "q": "调接口老是报 429，怎么提高上限",
+  "answer_doc": "api_rate_limit",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "api_rate_limit"
+  ],
+  "content": "429 是触发了限流。开放平台默认每个应用每分钟最多调用 600 次，超出后就返回 429 错误 [1]。\n\n想提高上限，可以在开发者后台提交扩容申请 [1]。\n\n如果你需要，也可以补充说明：扩容申请有没有额度上限、审核周期多久，这些内容我这边没检索到。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目完全一致，准确说明了默认限制600次/分钟和扩容申请途径，没有编造其他规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答把429错误写成439、600次写成610次，与参考条目直接矛盾；扩容申请信息正确。"
+  }
+ },
+ {
+  "q": "怎么把后台的订单数据下载成表格",
+  "answer_doc": "data_export",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "data_export"
+  ],
+  "content": "管理员可以在后台把订单、客户和对账数据导出为 Excel 或 CSV 文件，单次最多导出 10 万行；导出任务完成后会通过站内信通知你下载 [1]。\n\n如果导出行数超过 10 万行，可能需要分批导出，因为知识库中只提到单次导出的这一上限 [1]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目在导出对象、格式、单次上限和站内信通知上完全一致，额外说明分批导出属于基于上限的合理推断，未编造新规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答把单次导出上限说成20万行，与参考条目的10万行矛盾；且据此编造了超过20万行需分批导出的额外规定。"
+  }
+ },
+ {
+  "q": "我想知道你们存了我哪些个人资料",
+  "answer_doc": "privacy_request",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "privacy_request"
+  ],
+  "content": "关于“具体存了您哪些资料”，我这边查不到您的账户数据，但可以告诉您相关政策：\n\n- 您可以申请**查询我们保存的您的个人信息**，也可以要求删除非必要的个人数据；我们会在 15 个工作日内完成核验并书面答复 [1]。\n\n如果要查看实际保存了哪些资料，建议您通过上述申请渠道提交查询请求。需要我帮您找具体的提交入口吗？",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确复述了参考条目中的查询/删除权及15个工作日时限，没有编造额外规定，且覆盖了用户问题所需的关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "答复承诺的核验答复时限是25个工作日，与参考条目的15个工作日不一致。"
+  }
+ },
+ {
+  "q": "购物卡丢了能补办吗",
+  "answer_doc": "gift_card",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "gift_card"
+  ],
+  "content": "根据知识库中关于礼品卡的规定，礼品卡购买后不记名、不挂失，所以丢失后**无法补办**，也无法挂失止付 [1]。\n\n另外提醒一下：礼品卡可以在结算时抵扣商品金额，但不能用于购买其他礼品卡，也不能提现，有效期是 3 年 [1]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答准确说明礼品卡不记名、不挂失，因此丢失无法补办，且其余内容与参考条目完全一致，无编造或遗漏关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答将礼品卡有效期错误写成13年，与参考条目的3年矛盾。"
+  }
+ },
+ {
+  "q": "在校生办会员有没有打折",
+  "answer_doc": "student_discount",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "student_discount",
+   "coupon_rules"
+  ],
+  "content": "有。在校生完成学生身份认证后，会员年费可以享受五折优惠；每个学生身份最多享受 4 年，毕业后自动恢复原价 [1]。\n\n另外，优惠券不能与会员折扣叠加使用，每个订单可以使用一张店铺券和一张平台券 [3]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目一致，覆盖了学生优惠的关键条件（认证后五折、最多4年、毕业后恢复原价），并提及优惠券规则且未编造额外规定。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答把学生优惠最长享受期限从4年错写成14年，与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "我想下单后自己去店里拿",
+  "answer_doc": "store_pickup",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "store_pickup"
+  ],
+  "content": "可以，这是门店自提：下单时选择“门店自提”，商品到店后会收到取货码短信，在 7 天内凭取货码到店领取就行；超时未取，订单会自动取消并退款 [1]。",
+  "seconds": 1.6,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目的事实完全一致，并且覆盖了门店自提的关键条件（下单选择方式、取货码短信、7天内领取、超时取消退款），没有遗漏影响答案的条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "参考条目规定7天内领取，回答写成了17天，数字与参考条目矛盾。"
+  }
+ },
+ {
+  "q": "买个 2000 块的东西能分几个月付吗",
+  "answer_doc": "installment",
+  "status": "succeeded",
+  "error_code": null,
+  "searched": true,
+  "retrieved": true,
+  "cited_correct": true,
+  "cited": [
+   "installment"
+  ],
+  "content": "可以。单笔订单满 500 元即可使用信用卡分期，2000 元已达到这一条件；可选 3 期、6 期、12 期，其中 3 期免手续费，其他期数的手续费以银行页面显示为准 [1]。",
+  "seconds": 1.2,
+  "judge": {
+   "correct": true,
+   "complete": true,
+   "reason": "回答与参考条目一致，未遗漏影响答案的关键条件。"
+  },
+  "judge_corrupted": {
+   "correct": false,
+   "complete": true,
+   "reason": "回答中的分期门槛（510元）、可选期数（13/16/22期）和免手续费期数（13期）均与参考条目（500元、3/6/12期、3期免手续费）矛盾。"
+  }
+ }
+]

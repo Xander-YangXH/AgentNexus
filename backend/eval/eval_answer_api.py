@@ -2,24 +2,29 @@
 
 会调用真实模型（按 .env 的 LLM_* 配置），会产生费用：30 个评测问题 + 3 个知识库外的问题，每题一个新对话，
 每题通常 2 次模型调用（决定检索、生成回答）。token 用量看 api 日志里的 “llm usage” 行。
-用法（服务已用 docker compose 启动）：python eval_answer_api.py [http://localhost:8080] [题数上限]
+用法（服务已用 docker compose 启动）：ADMIN_PASSWORD=... python eval_answer_api.py [http://localhost:8080] [题数上限]
+加裁判（阶段 7.7，answer_judge.py）：在 worker 容器里运行（要用模型配置），EVAL_JUDGE=1，基址用 http://api:8000：
+  docker compose cp backend/eval/. worker:/tmp/eval
+  docker compose exec -T -w /tmp/eval -e EVAL_JUDGE=1 -e ADMIN_PASSWORD=... worker python eval_answer_api.py http://api:8000
 
 指标（不用模型打分，只看可客观判断的部分）：
 - 检索率：回答前调用了 knowledge_search 的比例；
 - 召回：正确答案所在的文档出现在给模型的片段里；
 - 引用正确：回答里标注的引用包含正确答案所在的文档；
 - 引用精确度：标注的引用中来自正确文档的比例；
-- 知识库外的问题：打印回答，人工看是否如实说“没有找到”而不是编造。
+- 知识库外的问题：打印回答，人工看是否如实说“没有找到”而不是编造；
+- 加裁判时：回答正确率、完整率（对照参考条目），以及裁判的校准——把回答里的数字改掉后，被判错的比例。
 """
 
+import asyncio
 import json
+import os
 import statistics
 import sys
 import time
-import uuid
 from pathlib import Path
 
-from eval_search_api import BASE, DATA, call, upload
+from eval_search_api import DATA, call, eval_session, upload
 
 LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else len(DATA["queries"])
 OUT_OF_SCOPE = ["你们支持用比特币付款吗？", "你们公司的 CEO 是谁？", "会员可以免费借用充电宝吗？"]
@@ -42,8 +47,7 @@ def ask(h, kb, question):
 
 
 def main():
-    user = call("POST", "/api/users", {"name": f"eval-ans-{uuid.uuid4().hex[:8]}"})
-    h = {"X-User-Id": user["id"]}
+    h = eval_session("eval-ans")
     kb = call("POST", "/api/knowledge-bases", {"name": "回答评测"}, headers=h)["id"]
     for doc_id, text in DATA["docs"].items():
         upload(kb, h, f"{doc_id}.txt", text)
@@ -79,6 +83,12 @@ def main():
         run, answer, elapsed = ask(h, kb, question)
         cits = (answer or {}).get("citations") or []
         print(f"- {question}（{elapsed:.1f}s，检索 {'是' if cits else '否'}，引用 {[c['n'] for c in cits if c['cited']]}）\n  {(answer or {}).get('content', run['status'])}")
+
+    if os.environ.get("EVAL_JUDGE"):
+        from answer_judge import grade
+
+        asyncio.run(grade(rows, DATA["docs"]))
+    call("DELETE", f"/api/knowledge-bases/{kb}")  # 评测数据用完即删（decisions/0026）
 
     out = Path(__file__).parent / "results" / f"answer_eval_{time.strftime('%Y%m%d_%H%M%S')}.json"
     out.parent.mkdir(exist_ok=True)
