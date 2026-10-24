@@ -184,6 +184,8 @@ watch(
 )
 onBeforeUnmount(stopPolling)
 
+// 固定宽度的列合计 540px：窄屏上“文件”列会被挤成 0、操作列被裁掉（阶段 7.8 用手机宽度检查时发现）。
+// 表格设最小宽度 720px（:scroll.x），放不下时在卡片里横向滚动，文件名至少留 180px
 const columns = [
   { title: '文件', dataIndex: 'filename', key: 'filename', ellipsis: true },
   { title: '大小', key: 'size', width: 90 },
@@ -257,7 +259,8 @@ const columns = [
         <a-tabs v-model:active-key="tab" class="tabs">
           <a-tab-pane key="docs" tab="文档">
             <div class="an-card">
-              <a-table :columns="columns" :data-source="docs" row-key="id" size="middle" :pagination="false">
+              <a-table :columns="columns" :data-source="docs" row-key="id" size="middle" :pagination="false"
+                       :scroll="{ x: 720 }">
                 <template #emptyText>
                   <div class="table-empty">
                     <FileTextOutlined class="table-empty-icon" />
@@ -437,8 +440,9 @@ const columns = [
 }
 .head-actions {
   display: flex;
+  flex-wrap: wrap; /* 加了“删除”按钮后窄屏放不下：整体换行，而不是把“部门共享”挤成两行 */
   align-items: center;
-  gap: 16px;
+  gap: 12px 16px;
 }
 .share {
   display: inline-flex;
@@ -446,6 +450,7 @@ const columns = [
   gap: 8px;
   color: var(--an-text-2);
   font-size: 13px;
+  white-space: nowrap;
 }
 .tabs :deep(.ant-tabs-nav) {
   margin-bottom: 16px;

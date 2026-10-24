@@ -177,6 +177,15 @@ body {
 .an-md td {
   border: 1px solid var(--an-border);
   padding: 6px 10px;
+  /* 外层的 overflow-wrap: anywhere（为了断开长网址）会让表格按“每个字符都能断”来算最小宽度，
+     窄屏上列被压成一个字宽、数字竖着排（阶段 7.8 用手机宽度看数据分析的回答时发现）。
+     单元格里恢复正常断行：中文仍可在字间换行，数字和英文单词不拆开，放不下就让表格自己横向滚动 */
+  overflow-wrap: normal;
+}
+/* 第一列通常是行标签（“销售额”“月份”）：中文可以在任意两个字之间断行，窄屏上会被压成一字一行；不换行。
+   第一版给所有单元格设最小宽度，宽屏上 13 列的表也放不下了，改为只管第一列 */
+.an-md tr > :first-child {
+  white-space: nowrap;
 }
 .an-md th {
   background: var(--an-surface-2);
