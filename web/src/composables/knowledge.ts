@@ -26,9 +26,10 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-const TIMING_LABELS: Record<string, string> = { embed: '向量化', vector: '向量检索', fetch: '取原文', rerank: '重排' }
+// vector 这一步阶段 7.5 起是“稠密向量 + 关键词”的混合召回（decisions/0029）；键名沿用后端的计时字段
+const TIMING_LABELS: Record<string, string> = { embed: '向量化', vector: '召回', fetch: '取原文', rerank: '重排' }
 
-/** 检索各步耗时，按固定顺序展示：向量化 12ms · 向量检索 3ms · … */
+/** 检索各步耗时，按固定顺序展示：向量化 12ms · 召回 3ms · … */
 export function formatTimings(timings: Record<string, number>): string {
   return Object.keys(TIMING_LABELS)
     .filter((k) => k in timings)

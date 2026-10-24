@@ -314,7 +314,7 @@ const columns = [
                 <div class="hit-head">
                   <span class="hit-rank">{{ index + 1 }}</span>
                   <span class="hit-file">{{ item.filename }}<template v-if="item.page"> · 第 {{ item.page }} 页</template> · 第 {{ item.seq + 1 }} 块</span>
-                  <a-tag>向量 {{ item.vector_score.toFixed(3) }}</a-tag>
+                  <a-tag title="召回分数：向量与关键词按排名融合后的分数，越大越靠前">召回 {{ item.vector_score.toFixed(3) }}</a-tag>
                   <a-tag v-if="item.rerank_score !== null" color="blue">重排 {{ item.rerank_score.toFixed(2) }}</a-tag>
                 </div>
                 <div class="hit-text">{{ item.text }}</div>

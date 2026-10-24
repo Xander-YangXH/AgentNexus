@@ -7,6 +7,18 @@
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 
+## 2026-10-25 凌晨：自主推进的总结（用户休息期间授权按推荐方案执行）
+全部已推送，每步都有决策记录、dev-log（问题 #162–#181）和测试 / 变异检查 / compose 实测：
+- **6.4 安全收尾**（0025）：登录限流、依赖漏洞例外升级 + CI 扫描、PDF / Word 子进程解析、SECURITY.md。CI 四个任务通过。
+- **7.1 删除知识库与文档**（0026）：数据库事务 + 清理任务发件箱；Qdrant 停机时删除照样成功。
+- **7.2 Agent 交付文件**（0027）：`share_file`、图片预览、沙盒中文字体；修复了 4.2 起就存在的“新对话第一步执行代码写不了文件”（Docker 卷 copy-up）。
+- **7.3 删除对话**（0028）、**7.4 孤儿原件清理**（mypy 评估后暂不引入）、**7.5 混合检索**（0029）。
+- **需要你知道的**：
+  1. 7.5 升级时我按旧文档在 api 容器里运行了重建索引，把本机的向量索引清空了，随后在 worker 里重建恢复（24883 个分块）；脚本已加保护，文档已改。
+  2. 白名单 10-26 起陆续到期（langgraph-checkpoint-postgres、pillow、filelock），CI 的 audit 任务会变红提醒升级。
+  3. 本机演示数据的变化：dev_wang 名下多了“月度销售额分析”对话（README 截图用），两个失败的测试对话一个已删除、一个已归档；测试建的临时知识库都已删除。
+  4. 演示脚本 `docs/demo-script.md` 增加了数据分析、删除与限流两段（可选）。
+
 ## 当前阶段：ROADMAP 阶段 6「打磨、部署与简历包装」——基本完成，只剩演示视频（用户录制）
 - [x] LangGraph 学习：`learning/langgraph/`（StateGraph、checkpoint、interrupt；示例 1 已在用户 Mac 跑通，示例 2–4 依赖 Postgres，待用户本机验证）
 - [x] FastAPI 学习：`learning/fastapi/`（含 `FASTAPI_GUIDE.md`）

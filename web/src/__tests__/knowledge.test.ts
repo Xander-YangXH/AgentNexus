@@ -19,7 +19,7 @@ describe('knowledge helpers', () => {
   it('formats sizes and timings in a fixed order', () => {
     expect(formatSize(512)).toBe('512 B')
     expect(formatSize(3.2 * 1024 * 1024)).toBe('3.2 MB')
-    expect(formatTimings({ rerank: 980.4, embed: 3.2, fetch: 2, vector: 4.6 })).toBe('向量化 3ms · 向量检索 5ms · 取原文 2ms · 重排 980ms')
+    expect(formatTimings({ rerank: 980.4, embed: 3.2, fetch: 2, vector: 4.6 })).toBe('向量化 3ms · 召回 5ms · 取原文 2ms · 重排 980ms')
     expect(formatTimings({ embed: 1, vector: 2, fetch: 3 })).not.toContain('重排')
   })
 

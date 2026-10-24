@@ -13,5 +13,7 @@ class SearchHit:
     seq: int
     page: int | None
     text: str
-    vector_score: float  # 余弦相似度，-1~1
+    # 召回阶段的分数：混合检索（0029）时是 RRF 排名分（越大越靠前），只用稠密向量时是余弦相似度。
+    # 字段名沿用：引用快照里已经存了这个名字
+    vector_score: float
     rerank_score: float | None  # 重排模型的原始分数，只在同一个问题内部可比

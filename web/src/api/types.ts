@@ -173,7 +173,7 @@ export interface SearchHit {
   seq: number
   page: number | null
   text: string
-  vector_score: number // 余弦相似度
+  vector_score: number // 召回分数：混合检索时是 RRF 排名分，只用稠密向量时是余弦相似度（字段名沿用，decisions/0029）
   rerank_score: number | null // 重排模型原始分数，只在同一个问题内部可比
 }
 
