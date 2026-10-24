@@ -59,10 +59,13 @@ backend/
 │   │   ├── tools/              通用工具层：沙盒工具、MCP 工具（经网关）
 │   │   └── skills.py           Skills：Markdown 文件头 + 正文，load_skill 后才启用工具
 │   ├── runtime/                lease.py（租约队列）、dispatcher.py（run 派发、取消、审批、超时）、
-│   │                           jobs.py（入库 / 图谱任务）、cancel_bus.py、janitor.py（checkpoint 清理、审批过期）
-│   ├── services/               用例层：runs、conversations、knowledge、search、graph、artifacts、usage、run_events、purge（删除后的清理）
+│   │                           jobs.py（入库 / 图谱 / 清理任务）、cancel_bus.py、janitor.py（checkpoint 清理、审批过期、孤儿原件）、
+│   │                           heartbeat.py（worker 心跳）
+│   ├── services/               用例层：runs（含费用上限）、conversations、knowledge、search、graph、artifacts、usage、run_events、
+│   │                           purge（删除后的清理）、status（运行状态）
 │   ├── repositories/           数据访问（SQLAlchemy）
-│   ├── knowledge/              解析（PDF / Word 在子进程里，isolation）、分块、向量化、重排、图谱抽取与合并、Neo4j 存储
+│   ├── knowledge/              解析（PDF / Word 在子进程里，isolation）、分块、向量化、关键词稀疏向量（keywords）、重排、
+│   │                           图谱抽取与合并、Neo4j 存储
 │   ├── security/               登录与会话（auth）、登录限流（throttle）、可见性（access）、RLS 身份（principal）
 │   ├── sandbox/                sandbox 服务（app、runner、files）与 worker 侧客户端
 │   ├── mcp_gateway/            MCP 网关（只依赖 mcp / starlette，单独打镜像）
