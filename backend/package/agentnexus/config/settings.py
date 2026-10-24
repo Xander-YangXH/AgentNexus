@@ -28,6 +28,7 @@ class Settings:
     # checkpoint 清理（decisions/0010）：run 结束后保留多久，以及多久检查一次
     checkpoint_retention_hours: float = 24.0
     checkpoint_janitor_interval_seconds: float = 600.0
+    orphan_blob_grace_hours: float = 24.0  # 没有记录引用的原件，超过这么久才删（阶段 7.4）
     # 知识库（阶段 2）：原件存储目录（compose 里挂数据卷）与单个文件大小上限
     blob_root: str = "/data/blobs"
     max_upload_mb: int = 10
@@ -104,6 +105,7 @@ def get_settings() -> Settings:
         llm_fake_stream_delay=float(os.environ.get("LLM_FAKE_STREAM_DELAY", 0)),
         checkpoint_retention_hours=float(os.environ.get("CHECKPOINT_RETENTION_HOURS", 24)),
         checkpoint_janitor_interval_seconds=float(os.environ.get("CHECKPOINT_JANITOR_INTERVAL_SECONDS", 600)),
+        orphan_blob_grace_hours=float(os.environ.get("ORPHAN_BLOB_GRACE_HOURS", 24)),
         blob_root=os.environ.get("BLOB_ROOT", "/data/blobs"),
         max_upload_mb=int(os.environ.get("MAX_UPLOAD_MB", 10)),
         qdrant_url=os.environ.get("QDRANT_URL", "http://localhost:6333"),

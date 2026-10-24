@@ -149,6 +149,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
             sessionmaker, checkpointer, retention=timedelta(hours=settings.checkpoint_retention_hours),
             interval_seconds=settings.checkpoint_janitor_interval_seconds,
             approval_ttl=timedelta(hours=settings.approval_ttl_hours),
+            blobs=blobs, orphan_grace=timedelta(hours=settings.orphan_blob_grace_hours),
         )
 
     lease = {"lease_seconds": settings.job_lease_seconds, "heartbeat_seconds": settings.job_heartbeat_seconds}

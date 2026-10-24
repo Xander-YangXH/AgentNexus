@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 6 基本完成：6.1 前端改版（0024）、6.2 从零部署 + ruff + CI（首次运行全部通过）+ ARCHITECTURE.md、6.3 客服演示数据 + README 截图 + 演示脚本 + 面试资料定稿、6.4 安全收尾（0025：登录限流、依赖漏洞的例外升级与 CI 扫描、子进程解析、SECURITY.md）；之后的补全：7.1 删除知识库与文档（0026：数据库事务 + 清理任务发件箱）、7.2 Agent 交付文件（0027：share_file、修复工作空间挂载权限、沙盒中文字体）、7.3 删除对话（0028）。剩余：演示视频（用户录制，脚本见 docs/demo-script.md）。**
+**阶段 6 基本完成：6.1 前端改版（0024）、6.2 从零部署 + ruff + CI（首次运行全部通过）+ ARCHITECTURE.md、6.3 客服演示数据 + README 截图 + 演示脚本 + 面试资料定稿、6.4 安全收尾（0025：登录限流、依赖漏洞的例外升级与 CI 扫描、子进程解析、SECURITY.md）；之后的补全：7.1 删除知识库与文档（0026：数据库事务 + 清理任务发件箱）、7.2 Agent 交付文件（0027：share_file、修复工作空间挂载权限、沙盒中文字体）、7.3 删除对话（0028）、7.4 孤儿原件清理。剩余：演示视频（用户录制，脚本见 docs/demo-script.md）。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -267,7 +267,7 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 - [x] 约定：每步写 dev-log（选型表 + 问题索引）并同步 interview-prep（AGENTS.md 第 6 条）
 - [x] 集成测试跑真实 Postgres
 - [x] CI（GitHub Actions）：后端（ruff + 集成测试，PostgreSQL / Redis / Neo4j 服务容器）、前端（类型检查 + 单测 + 构建）、镜像构建、依赖漏洞扫描
-- [x] lint：ruff（E / F / B / UP / SIM / ASYNC）；前端 vue-tsc。未做：Python 类型检查（mypy / pyright）
+- [x] lint：ruff（E / F / B / UP / SIM / ASYNC）；前端 vue-tsc。Python 类型检查评估过（mypy 128 个错误，多为第三方库类型），暂不加入 CI
 - [x] 后端依赖锁文件 `backend/requirements.lock`（uv `--exclude-newer`：含间接依赖只取发布满两周的版本，decisions/0016）
 - [x] 日志与可观测性：结构化日志（text/json）、request-id 与 run_id 贯穿（decisions/0011）
 - [x] 安全清单（阶段 6.4，decisions/0025、`SECURITY.md`）：登录限流；依赖扫描（pip-audit 三个锁文件 + 带到期日的白名单、npm audit，CI `audit` 任务）；有漏洞的依赖例外升级；PDF / Word 子进程解析；密钥只在 `.env`；沙盒逃逸面见 0021

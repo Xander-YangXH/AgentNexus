@@ -9,6 +9,13 @@
 
 顺带（decisions/0022）：等待审批超过 approval_ttl 的 run 取消掉（error_code=approval_expired），
 之后它的 checkpoint 按 finished_at 照常进入保留期、再被清理。
+
+顺带（阶段 7.4）：清理孤儿原件——没有任何记录引用、而且超过宽限期的原件文件。来源：
+- 产物先写原件、run 完成时才写元数据（0022）。run 失败、被取消、或被接管的旧执行者写过的原件，没有元数据；
+  share_file（0027）在执行中途就写原件，这种情况更常见了；
+- 上传文档时先写原件、再插记录（0015），插入失败时“尽力删除”也可能没删掉。
+宽限期（默认 24 小时）远大于任何 run 的最长时间（超时 5~15 分钟；调研报告在审批之后才写），
+所以不会删到“正在用、元数据还没写”的文件。
 """
 
 import asyncio
@@ -16,9 +23,15 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.repositories.runs import AgentRunRepository
+from agentnexus.storage.blobs import BlobStore
+from agentnexus.storage.postgres import Artifact, Document
+
+# 原件目录 → 引用它的列
+ORPHAN_SOURCES = (("artifacts", Artifact.blob_key), ("documents", Document.blob_key))
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +46,8 @@ class CheckpointJanitor:
         interval_seconds: float = 600.0,
         batch_size: int = 200,
         approval_ttl: timedelta | None = None,
+        blobs: BlobStore | None = None,
+        orphan_grace: timedelta = timedelta(hours=24),
     ):
         self._sessionmaker = sessionmaker
         self._checkpointer = checkpointer
@@ -40,6 +55,8 @@ class CheckpointJanitor:
         self._interval = interval_seconds
         self._batch_size = batch_size
         self._approval_ttl = approval_ttl
+        self._blobs = blobs
+        self._orphan_grace = orphan_grace
         self._task: asyncio.Task | None = None
 
     async def run_once(self, now: datetime | None = None) -> int:
@@ -50,6 +67,11 @@ class CheckpointJanitor:
                 expired = await AgentRunRepository(session).expire_approvals(now - self._approval_ttl)
             if expired:
                 log.info("cancelled %d run(s) whose approval expired", len(expired))
+        if self._blobs is not None:
+            try:
+                await self.sweep_orphan_blobs(now)
+            except Exception:
+                log.warning("sweeping orphan blobs failed; will retry next round", exc_info=True)  # 不影响下面的清理
         cutoff = now - self._retention
         async with self._sessionmaker() as session:
             candidates = await AgentRunRepository(session).list_checkpoint_purge_candidates(cutoff, self._batch_size)
@@ -65,6 +87,23 @@ class CheckpointJanitor:
                 await AgentRunRepository(session).mark_checkpoint_purged(purged)
             log.info("purged checkpoints of %d finished run(s)", len(purged))
         return len(purged)
+
+    async def sweep_orphan_blobs(self, now: datetime) -> int:
+        """删除没有任何记录引用、且早于宽限期的原件，返回删除的个数。"""
+        removed = 0
+        for prefix, column in ORPHAN_SOURCES:
+            keys = await self._blobs.list_older_than(prefix, now - self._orphan_grace)
+            if not keys:
+                continue
+            async with self._sessionmaker() as session:
+                used = set((await session.scalars(select(column).where(column.in_(keys)))).all())
+            for key in keys:
+                if key not in used:
+                    await self._blobs.delete(key)
+                    removed += 1
+        if removed:
+            log.info("removed %d orphan blob(s)", removed)
+        return removed
 
     async def _loop(self) -> None:
         while True:

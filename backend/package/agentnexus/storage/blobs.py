@@ -8,6 +8,7 @@ import asyncio
 import os
 import re
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -23,6 +24,7 @@ class BlobStore(Protocol):
     async def put(self, key: str, data: bytes) -> None: ...
     async def get(self, key: str) -> bytes: ...
     async def delete(self, key: str) -> None: ...
+    async def list_older_than(self, prefix: str, cutoff: datetime, limit: int = 1000) -> list[str]: ...
 
 
 class LocalBlobStore:
@@ -51,6 +53,23 @@ class LocalBlobStore:
     async def delete(self, key: str) -> None:
         path = self._path(key)
         await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
+
+    async def list_older_than(self, prefix: str, cutoff: datetime, limit: int = 1000) -> list[str]:
+        """prefix 目录下修改时间早于 cutoff 的 key（不含写到一半的临时文件）。用于清理孤儿原件。"""
+        base = self._path(f"{prefix}/x").parent  # 借 _path 校验 prefix
+
+        def scan() -> list[str]:
+            if not base.is_dir():
+                return []
+            out = []
+            for entry in os.scandir(base):
+                if entry.is_file() and not entry.name.startswith(".") and entry.stat().st_mtime < cutoff.timestamp():
+                    out.append(f"{prefix}/{entry.name}")
+                    if len(out) >= limit:
+                        break
+            return out
+
+        return await asyncio.to_thread(scan)
 
 
 def _atomic_write(path: Path, data: bytes) -> None:

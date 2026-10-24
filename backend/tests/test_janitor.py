@@ -12,7 +12,8 @@ from agentnexus.repositories.conversations import ConversationRepository
 from agentnexus.repositories.runs import AgentRunRepository, purge_candidates_stmt
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.services.runs import RunService
-from agentnexus.storage.postgres import AgentRun
+from agentnexus.storage.blobs import BlobNotFound, LocalBlobStore
+from agentnexus.storage.postgres import AgentRun, Artifact
 
 NOW = datetime(2030, 1, 1, tzinfo=UTC)
 RETENTION = timedelta(hours=24)
@@ -113,3 +114,46 @@ async def test_candidate_query_can_use_the_partial_index(sessionmaker):
         await conn.exec_driver_sql("SET LOCAL enable_seqscan = off")  # 表太小时规划器总会选全表扫描，关掉才能看出“能否用索引”
         plan = "\n".join(r[0] for r in (await conn.exec_driver_sql("EXPLAIN " + str(compiled), compiled.params)).all())
     assert "ix_agent_runs_checkpoint_purge_candidates" in plan, plan
+
+
+# ---------- 孤儿原件（阶段 7.4） ----------
+
+async def test_orphan_blobs_past_the_grace_period_are_removed(sessionmaker, user, checkpointer, tmp_path, chunk_index):
+    import os
+    import uuid
+
+    from agentnexus.services.knowledge import KnowledgeService
+    from tests.fakes import FakeEmbedder
+
+    blobs = LocalBlobStore(tmp_path)
+    knowledge = KnowledgeService(sessionmaker, blobs, FakeEmbedder(), chunk_index)
+    kb = await knowledge.create_kb(user.id, f"kb-{uuid.uuid4().hex[:6]}", None)
+    doc = await knowledge.upload(user.id, kb.id, "a.txt", "退货政策".encode())  # 有记录引用的文档原件
+    [run_id] = await _make_runs(sessionmaker, user, checkpointer, 1)
+    async with sessionmaker() as session, session.begin():
+        run = await session.get(AgentRun, run_id)
+        kept = Artifact(id=uuid.uuid4(), user_id=user.id, conversation_id=run.conversation_id, run_id=run_id,
+                        filename="r.md", content_type="text/markdown", size=1, blob_key=f"artifacts/{uuid.uuid4()}")
+        session.add(kept)
+    orphans = [f"artifacts/{uuid.uuid4()}", f"documents/{uuid.uuid4()}"]  # 失败的 run 写的产物、插入失败的上传
+    recent = f"artifacts/{uuid.uuid4()}"
+    for key in [kept.blob_key, *orphans, recent]:
+        await blobs.put(key, b"x")
+    (tmp_path / "artifacts" / ".tmp-half").write_bytes(b"x")  # 写到一半的临时文件不归这里管
+
+    now = datetime.now(UTC) + timedelta(hours=25)  # 上面的文件都“早于宽限期”……
+    os.utime(blobs._path(recent), (now.timestamp() - 3600,) * 2)  # ……除了这个：1 小时前才写
+    janitor = CheckpointJanitor(sessionmaker, checkpointer, retention=RETENTION, blobs=blobs)
+    assert await janitor.sweep_orphan_blobs(now) == 2
+
+    async def exists(key):
+        try:
+            await blobs.get(key)
+            return True
+        except BlobNotFound:
+            return False
+
+    assert [await exists(k) for k in orphans] == [False, False]
+    assert await exists(kept.blob_key) and await exists(doc.blob_key) and await exists(recent)
+    assert (tmp_path / "artifacts" / ".tmp-half").exists()
+
