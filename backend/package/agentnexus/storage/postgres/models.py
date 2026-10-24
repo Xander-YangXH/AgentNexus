@@ -467,6 +467,17 @@ class PurgeJob(LeaseMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WorkerHeartbeat(Base):
+    """worker 进程的心跳（阶段 7.8，decisions/0031）：每 10 秒更新一次，正常退出时删除。
+    运行状态据此统计“在线的 worker”（包括空闲的）；租约只能看到正在执行任务的。"""
+
+    __tablename__ = "worker_heartbeats"
+
+    owner: Mapped[str] = mapped_column(String(64), primary_key=True)  # 与租约持有者标识相同
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # ---------------- 用量（阶段 5，decisions/0023） ----------------
 
 

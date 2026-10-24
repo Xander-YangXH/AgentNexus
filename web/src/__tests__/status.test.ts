@@ -8,6 +8,7 @@ const base: SystemStatus = {
   documents: { pending: 0, processing: 0, failed: 0, oldest_pending_seconds: 0 },
   graph_builds: { pending: 0, running: 0 },
   purge_jobs: { pending: 0, retrying: 0, max_attempts: 0, oldest_seconds: 0 },
+  workers_alive: 2,
   busy_workers: 1,
 }
 
@@ -27,6 +28,12 @@ describe('system status', () => {
     expect(warned).toEqual(['排队中的回复', '24 小时完成 / 失败', '处理失败的文档', '删除后的清理任务'])
     expect(items[0].hint).toBe('最久的已等 7 分钟')
     expect(items.find((i) => i.label === '删除后的清理任务')?.hint).toBe('1 个在重试（最多 4 次）')
+  })
+
+  it('warns when no worker is online', () => {
+    const item = statusItems({ ...base, workers_alive: 0, busy_workers: 0 }).find((i) => i.label === '在线的 worker')
+    expect(item?.warn).toBe(true)
+    expect(statusItems(base).find((i) => i.label === '在线的 worker')?.hint).toBe('其中 1 个正在执行任务')
   })
 
   it('formats durations and missing quantiles', () => {

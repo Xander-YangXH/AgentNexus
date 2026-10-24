@@ -5,7 +5,8 @@
 
 唤醒：订阅 PostgreSQL 的 NOTIFY（提交任务的事务里发出，内容是任务类型），收到后唤醒对应的执行器；
 连接断了就重连，期间靠各执行器的轮询兜底。取消：订阅 Redis 的取消广播（runtime/cancel_bus.py）。
-存活：每 10 秒更新一个文件的修改时间，compose 的健康检查据此判断进程是否卡死。
+存活：每 10 秒更新一个文件的修改时间，compose 的健康检查据此判断进程是否卡死；
+同时往数据库写一次心跳（runtime/heartbeat.py），运行状态据此统计在线的 worker（decisions/0031）。
 """
 
 import asyncio
@@ -19,6 +20,7 @@ import psycopg
 from agentnexus import assembly
 from agentnexus.config import get_settings
 from agentnexus.observability.logging import configure_logging
+from agentnexus.runtime import heartbeat
 from agentnexus.runtime.lease import NOTIFY_CHANNEL
 
 log = logging.getLogger("agentnexus.worker")
@@ -65,6 +67,7 @@ async def main() -> None:
         asyncio.create_task(listen_notifications(settings.database_url, wake)),
         asyncio.create_task(c.cancel_bus.listen(c.run_dispatcher.on_cancel_message)),
         asyncio.create_task(touch_alive()),
+        asyncio.create_task(heartbeat.run(c.sessionmaker, c.run_dispatcher.owner)),
     ]
     log.info("worker started as %s", c.run_dispatcher.owner)
 
@@ -79,6 +82,8 @@ async def main() -> None:
     for t in background:
         t.cancel()
     await asyncio.gather(*background, return_exceptions=True)
+    with contextlib.suppress(Exception):
+        await heartbeat.forget(c.sessionmaker, c.run_dispatcher.owner)  # 正常退出：立刻不算在线
     await c.janitor.stop()
     await c.purge_dispatcher.stop()
     await c.graph_dispatcher.stop()

@@ -30,6 +30,8 @@ export function statusItems(s: SystemStatus): StatusItem[] {
     { label: '处理失败的文档', value: String(documents.failed), warn: documents.failed > 0 },
     { label: '删除后的清理任务', value: String(purge.pending), warn: purge.retrying > 0,
       hint: purge.retrying ? `${purge.retrying} 个在重试（最多 ${purge.max_attempts} 次）` : undefined },
-    { label: '执行中的 worker', value: String(s.busy_workers), warn: false },
+    // 没有在线的 worker 时，排队的任务没人执行：标黄
+    { label: '在线的 worker', value: String(s.workers_alive), warn: s.workers_alive === 0,
+      hint: `其中 ${s.busy_workers} 个正在执行任务` },
   ]
 }

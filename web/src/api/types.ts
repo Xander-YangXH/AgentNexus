@@ -262,5 +262,6 @@ export interface SystemStatus {
   documents: { pending: number; processing: number; failed: number; oldest_pending_seconds: number }
   graph_builds: { pending: number; running: number }
   purge_jobs: { pending: number; retrying: number; max_attempts: number; oldest_seconds: number }
-  busy_workers: number
+  workers_alive: number // 30 秒内有心跳的 worker（包括空闲的）
+  busy_workers: number // 此刻持有租约、正在执行任务的
 }

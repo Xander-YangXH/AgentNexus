@@ -45,7 +45,7 @@ async def test_status_counts_everything_even_for_a_role_that_rls_restricts(org, 
     assert after["documents"]["failed"] - before["documents"]["failed"] == 1
     assert after["purge_jobs"]["retrying"] - before["purge_jobs"]["retrying"] == 1
     assert after["purge_jobs"]["max_attempts"] >= 2 and after["runs"]["oldest_queued_seconds"] >= 0
-    assert set(after) == {"runs", "documents", "graph_builds", "purge_jobs", "busy_workers"}  # 只有计数，没有行
+    assert set(after) == {"runs", "documents", "graph_builds", "purge_jobs", "workers_alive", "busy_workers"}  # 只有计数
 
 
 async def test_admin_status_and_prometheus_endpoint(org, sessionmaker):  # noqa: F811
@@ -74,3 +74,36 @@ def test_prometheus_text_skips_missing_quantiles():
     assert "agentnexus_run_oldest_queued_seconds 12.5" in text
     assert "quantile" not in text  # 24 小时内没有成功的 run：分位数不输出
     assert 'agentnexus_purge_jobs{state="retrying"} 1' in text
+
+
+# ---------- worker 心跳（decisions/0031 补充） ----------
+
+async def test_heartbeats_count_online_workers_and_old_rows_are_pruned(sessionmaker):
+    from sqlalchemy import text, update
+
+    from agentnexus.runtime import heartbeat
+    from agentnexus.storage.postgres import WorkerHeartbeat
+
+    a, b, gone = (f"w-{uuid.uuid4().hex[:8]}" for _ in range(3))
+    before = (await system_status(sessionmaker))["workers_alive"]
+    for owner in (a, b, gone):
+        await heartbeat.beat(sessionmaker, owner)
+    await heartbeat.beat(sessionmaker, a)  # 重复心跳只更新时间，不新增行
+    assert (await system_status(sessionmaker))["workers_alive"] - before == 3
+
+    async with sessionmaker() as s, s.begin():  # a、b 一分钟没心跳（卡死或断网）；gone 两小时前就没了（崩溃）
+        await s.execute(update(WorkerHeartbeat).where(WorkerHeartbeat.owner.in_([a, b]))
+                        .values(last_seen_at=func.now() - text("interval '1 minute'")))
+        await s.execute(update(WorkerHeartbeat).where(WorkerHeartbeat.owner == gone)
+                        .values(last_seen_at=func.now() - text("interval '2 hours'")))
+    assert (await system_status(sessionmaker))["workers_alive"] == before
+    await heartbeat.beat(sessionmaker, a)  # a 恢复：再次心跳就回到在线；顺手清掉超过一小时的行
+    assert (await system_status(sessionmaker))["workers_alive"] - before == 1
+    async with sessionmaker() as s:
+        owners = set((await s.scalars(select(WorkerHeartbeat.owner).where(
+            WorkerHeartbeat.owner.in_([a, b, gone])))).all())
+    assert owners == {a, b}
+
+    await heartbeat.forget(sessionmaker, a)  # 正常退出：立刻不算在线
+    assert (await system_status(sessionmaker))["workers_alive"] == before
+    await heartbeat.forget(sessionmaker, b)

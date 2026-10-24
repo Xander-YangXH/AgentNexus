@@ -29,6 +29,7 @@ from agentnexus.storage.postgres.models import (
     User,
     UserSession,
     Visibility,
+    WorkerHeartbeat,
 )
 from agentnexus.storage.postgres.session import make_engine, make_sessionmaker
 
@@ -63,6 +64,7 @@ __all__ = [
     "User",
     "UserSession",
     "Visibility",
+    "WorkerHeartbeat",
     "make_engine",
     "make_sessionmaker",
 ]

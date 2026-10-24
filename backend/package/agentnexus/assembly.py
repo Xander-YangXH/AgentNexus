@@ -30,7 +30,7 @@ from agentnexus.knowledge.graph.store import Neo4jGraphStore
 from agentnexus.knowledge.rerank import FastReranker
 from agentnexus.models import build_chat_model
 from agentnexus.runtime.cancel_bus import RedisCancelBus
-from agentnexus.runtime.dispatcher import RunDispatcher
+from agentnexus.runtime.dispatcher import RunDispatcher, default_owner
 from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.runtime.janitor import CheckpointJanitor
 from agentnexus.sandbox.client import SandboxClient
@@ -154,24 +154,27 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         )
 
     lease = {"lease_seconds": settings.job_lease_seconds, "heartbeat_seconds": settings.job_heartbeat_seconds}
+    # 整个进程用同一个租约持有者标识（decisions/0031 补充）：运行状态按它数“执行中的 worker”，也用它写进程心跳。
+    # 第一版每个执行器各自生成，一个 worker 同时处理 run 和文档会被数成两个。租约的正确性靠版本号，不靠这个标识
+    owner = default_owner()
     runs = RunDispatcher(
         sessionmaker, handler, concurrency=settings.worker_concurrency, run_timeout=settings.run_timeout_seconds,
         sweep_interval=settings.sweep_interval_seconds, max_attempts=settings.run_max_attempts, cancel_bus=cancel_bus,
         run_timeouts={"research": settings.research_timeout_seconds},
         events=RunEventPublisher(publish_redis, maxlen=settings.event_stream_maxlen,
                                  ttl_seconds=settings.event_stream_ttl_seconds),
-        **lease,
+        owner=owner, **lease,
     )
-    ingest = JobDispatcher(knowledge, name="ingest", concurrency=settings.ingest_concurrency,
+    ingest = JobDispatcher(knowledge, name="ingest", concurrency=settings.ingest_concurrency, owner=owner,
                            sweep_interval=settings.sweep_interval_seconds, heartbeat_seconds=settings.job_heartbeat_seconds)
     # 一次只跑一个构建：每个构建内部已经并发调用模型
     graph_jobs = JobDispatcher(graph, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
-                               heartbeat_seconds=settings.job_heartbeat_seconds)
+                               heartbeat_seconds=settings.job_heartbeat_seconds, owner=owner)
     # 删除后的清理（decisions/0026）：只删派生副本，很快；一个执行槽就够
     purge = PurgeService(sessionmaker, index, blobs, graph_store, lease_seconds=settings.job_lease_seconds,
                          sandbox=sandbox, checkpointer=checkpointer)
     purge_jobs = JobDispatcher(purge, name="purge", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
-                               heartbeat_seconds=settings.job_heartbeat_seconds)
+                               heartbeat_seconds=settings.job_heartbeat_seconds, owner=owner)
     return Components(settings, sessionmaker, knowledge, artifacts, usage_service, search, graph, runs, ingest, graph_jobs,
                       purge_jobs, cancel_bus, janitor, stack)
 

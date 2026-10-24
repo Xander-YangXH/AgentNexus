@@ -32,6 +32,8 @@ def prometheus(status: dict) -> str:
         ("agentnexus_purge_jobs", "Cleanup jobs after deletions",
          [({"state": "pending"}, purge["pending"]), ({"state": "retrying"}, purge["retrying"])]),
         ("agentnexus_purge_job_max_attempts", "Most attempts of a pending cleanup job", [({}, purge["max_attempts"])]),
+        ("agentnexus_workers_alive", "Worker processes with a heartbeat in the last 30 seconds",
+         [({}, status.get("workers_alive"))]),
         ("agentnexus_busy_workers", "Worker processes holding a lease right now", [({}, status["busy_workers"])]),
     ]
     lines = []
