@@ -38,6 +38,7 @@ from agentnexus.services.artifacts import ArtifactService
 from agentnexus.services.usage import UsageRecorder, UsageService
 from agentnexus.services.graph import GraphService, Prices
 from agentnexus.services.knowledge import KnowledgeService
+from agentnexus.services.purge import PurgeService
 from agentnexus.services.search import SearchService
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.checkpoint import open_pool
@@ -57,6 +58,7 @@ class Components:
     run_dispatcher: RunDispatcher
     ingest_dispatcher: JobDispatcher
     graph_dispatcher: JobDispatcher
+    purge_dispatcher: JobDispatcher
     cancel_bus: RedisCancelBus
     janitor: CheckpointJanitor | None
     _stack: contextlib.AsyncExitStack
@@ -158,7 +160,12 @@ async def build(settings: Settings, *, worker: bool) -> Components:
     # 一次只跑一个构建：每个构建内部已经并发调用模型
     graph_jobs = JobDispatcher(graph, name="graph", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
                                heartbeat_seconds=settings.job_heartbeat_seconds)
-    return Components(settings, sessionmaker, knowledge, artifacts, usage_service, search, graph, runs, ingest, graph_jobs, cancel_bus, janitor, stack)
+    # 删除后的清理（decisions/0026）：只删派生副本，很快；一个执行槽就够
+    purge = PurgeService(sessionmaker, index, blobs, graph_store, lease_seconds=settings.job_lease_seconds)
+    purge_jobs = JobDispatcher(purge, name="purge", concurrency=1, sweep_interval=settings.sweep_interval_seconds,
+                               heartbeat_seconds=settings.job_heartbeat_seconds)
+    return Components(settings, sessionmaker, knowledge, artifacts, usage_service, search, graph, runs, ingest, graph_jobs,
+                      purge_jobs, cancel_bus, janitor, stack)
 
 
 async def _tools(settings: Settings, stack: contextlib.AsyncExitStack) -> dict:

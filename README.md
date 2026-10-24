@@ -102,5 +102,6 @@ AgentNexus/
 - [x] 阶段 4：多智能体、工具与扩展生态（独立 worker + PostgreSQL 租约队列，走读见 docs/guides/worker-leases.md；沙盒执行代码、MCP 网关 + 出口代理、Skills，走读见 docs/guides/tools-sandbox.md；深度调研：计划审批 + 并行子 Agent + 可下载报告，崩溃后只重做未完成的子任务，走读见 docs/guides/multi-agent-research.md）
 - [x] 阶段 5：多租户权限与 Dashboard（会话登录、部门共享、应用层 + PostgreSQL RLS 双重隔离、用量看板，走读见 docs/guides/auth-tenancy.md）
 - [ ] 阶段 6：打磨、部署与简历包装（已完成：6.1 前端设计系统与改版，走读见 docs/guides/frontend-design.md；6.2 从零部署实测、ruff、CI；6.3 演示数据与截图；6.4 安全收尾，见 [SECURITY.md](SECURITY.md)。剩余：演示视频）
+- [x] 补全 7.1：删除知识库与文档（数据库事务 + 清理任务发件箱，派生存储故障时删除照样成功，见 docs/decisions/0026）
 
 详见 [ROADMAP.md](ROADMAP.md)。

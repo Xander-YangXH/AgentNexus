@@ -123,6 +123,13 @@ class ChunkIndex:
             wait=True,
         )
 
+    async def delete_knowledge_base(self, kb_id: uuid.UUID) -> None:
+        await self.client.delete(
+            self.alias,
+            points_selector=models.FilterSelector(filter=_match("knowledge_base_id", kb_id)),
+            wait=True,
+        )
+
     async def delete_points(self, ids: Sequence[uuid.UUID]) -> None:
         if ids:
             await self.client.delete(self.alias, points_selector=models.PointIdsList(points=[str(i) for i in ids]), wait=True)

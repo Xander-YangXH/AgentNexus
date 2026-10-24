@@ -162,6 +162,9 @@ export const api = {
   listDocuments: (kbId: string) => request<KnowledgeDocument[]>('GET', `/api/knowledge-bases/${kbId}/documents`),
   uploadDocument: (kbId: string, file: File) => upload<KnowledgeDocument>(`/api/knowledge-bases/${kbId}/documents`, file),
   reprocessDocument: (docId: string) => request<KnowledgeDocument>('POST', `/api/documents/${docId}/reprocess`),
+  // 删除（decisions/0026）：数据库里立即删除，向量、原件、图数据库由后台清理
+  deleteKnowledgeBase: (kbId: string) => request<null>('DELETE', `/api/knowledge-bases/${kbId}`),
+  deleteDocument: (docId: string) => request<null>('DELETE', `/api/documents/${docId}`),
   listChunks: (docId: string) => request<Chunk[]>('GET', `/api/documents/${docId}/chunks`),
   graphEstimate: (kbId: string) => request<GraphEstimate>('GET', `/api/knowledge-bases/${kbId}/graph/estimate`),
   createGraphBuild: (kbId: string) => request<GraphBuild>('POST', `/api/knowledge-bases/${kbId}/graph/builds`),

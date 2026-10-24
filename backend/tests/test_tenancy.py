@@ -20,6 +20,7 @@ from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.usage import UsageService, usage_insert
 from agentnexus.storage.blobs import LocalBlobStore
 from agentnexus.storage.postgres import (
+    PurgeJob,
     Conversation,
     Department,
     Document,
@@ -174,6 +175,33 @@ async def test_conversations_stay_private_but_can_use_shared_knowledge(api):
     assert r.status_code == 404
     # 正常使用：bob 在自己的对话里发消息
     assert (await c.post(f"/api/conversations/{mine}/messages", json={"content": "你好"}, headers=bob)).status_code == 202
+
+
+async def test_only_the_owner_can_delete_and_deletion_reaches_other_members_links(api, sessionmaker):
+    """删除（decisions/0026）：共享给部门的成员只读、不能删；所有者删除后，成员对话里对它的关联一起消失，对话本身不受影响。
+    api 角色下也成立：级联删除由外键完成，不受 RLS 限制（否则 alice 删不掉 bob 对话里的关联）。"""
+    c, org, _ = api
+    alice, bob, carol = _h(org, "alice"), _h(org, "bob"), _h(org, "carol")
+    shared = org["shared"]
+    doc = (await c.post(f"/api/knowledge-bases/{shared}/documents", files={"file": ("a.txt", "退货政策".encode())},
+                        headers=alice)).json()["id"]
+    mine = (await c.post("/api/conversations", json={}, headers=bob)).json()["id"]
+    await c.put(f"/api/conversations/{mine}/knowledge-bases", json={"knowledge_base_ids": [str(shared)]}, headers=bob)
+
+    for who, path, expected in [(bob, f"/api/documents/{doc}", 403), (carol, f"/api/documents/{doc}", 404),
+                                (bob, f"/api/knowledge-bases/{shared}", 403), (carol, f"/api/knowledge-bases/{shared}", 404)]:
+        r = await c.delete(path, headers=who)
+        assert r.status_code == expected, (path, r.status_code, r.text)
+
+    assert (await c.delete(f"/api/documents/{doc}", headers=alice)).status_code == 204
+    assert (await c.get(f"/api/documents/{doc}", headers=alice)).status_code == 404
+    assert (await c.delete(f"/api/knowledge-bases/{shared}", headers=alice)).status_code == 204
+    assert (await c.get(f"/api/knowledge-bases/{shared}", headers=alice)).status_code == 404
+    assert (await c.get(f"/api/conversations/{mine}/knowledge-bases", headers=bob)).json()["knowledge_base_ids"] == []
+    assert (await c.get(f"/api/conversations/{mine}/messages", headers=bob)).status_code == 200
+    async with sessionmaker() as s:  # 两条清理任务等 worker 处理
+        kinds = (await s.scalars(select(PurgeJob.kind).where(PurgeJob.knowledge_base_id == shared))).all()
+    assert sorted(kinds) == ["document", "knowledge_base"]
 
 
 async def test_usage_scopes_by_role(api):

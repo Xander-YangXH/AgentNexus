@@ -65,6 +65,20 @@ async def get_document(document_id: uuid.UUID, user_id: CurrentUser, svc: Knowle
     return await svc.get_document(user_id, document_id)
 
 
+@router.delete("/knowledge-bases/{kb_id}", status_code=204)
+async def delete_knowledge_base(kb_id: uuid.UUID, user_id: CurrentUser,
+                                svc: KnowledgeService = Depends(get_knowledge_service)):
+    """删除知识库及其全部文档、图谱（只有所有者；图谱构建进行中时 409）。向量、原件、图数据库由后台清理（decisions/0026）。"""
+    await svc.delete_kb(user_id, kb_id)
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+async def delete_document(document_id: uuid.UUID, user_id: CurrentUser,
+                          svc: KnowledgeService = Depends(get_knowledge_service)):
+    """删除文档（只有知识库所有者；图谱构建进行中时 409）。图谱里只出自这篇文档的实体和关系一并删除。"""
+    await svc.delete_document(user_id, document_id)
+
+
 @router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
 async def reprocess_document(
     document_id: uuid.UUID,

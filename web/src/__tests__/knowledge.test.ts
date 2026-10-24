@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { KnowledgeDocument } from '../api/types'
-import { formatSize, formatTimings, needsPolling, plainSnippet } from '../composables/knowledge'
+import { deleteKbWarning, formatSize, formatTimings, needsPolling, plainSnippet } from '../composables/knowledge'
 import { describeDocumentError, describeRequestError } from '../utils/errors'
 
 const doc = (status: KnowledgeDocument['status']): KnowledgeDocument => ({
@@ -49,5 +49,18 @@ describe('plainSnippet', () => {
   it('drops markdown heading markers and blank lines from citation snippets', () => {
     expect(plainSnippet('# 售后政策\n\n## 退货政策\n\n签收后 7 天内可以退货。')).toBe('售后政策\n退货政策\n签收后 7 天内可以退货。')
     expect(plainSnippet('价格 #1 不是标题')).toBe('价格 #1 不是标题')
+  })
+})
+
+describe('delete knowledge base warning', () => {
+  it('says what goes with it and what stays', () => {
+    const text = deleteKbWarning({ visibility: 'private' }, 3)
+    expect(text).toContain('3 个文档')
+    expect(text).toContain('引用片段会保留')
+    expect(text).not.toContain('同事')
+  })
+
+  it("warns that shared knowledge bases disappear from colleagues' conversations", () => {
+    expect(deleteKbWarning({ visibility: 'department' }, 0)).toContain('同事对话里对它的关联也会移除')
   })
 })

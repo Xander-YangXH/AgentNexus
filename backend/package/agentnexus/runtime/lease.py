@@ -41,6 +41,7 @@ class LeaseQueue:
         lease_seconds: float = 30.0,
         on_claim: dict | None = None,
         notify_kind: str | None = None,
+        not_before: Any = None,
     ):
         self.sessionmaker = sessionmaker
         self.model = model
@@ -49,6 +50,7 @@ class LeaseQueue:
         self.lease_seconds = lease_seconds
         self.on_claim = on_claim or {}  # 认领时顺带设置的字段，例如 started_at
         self.notify_kind = notify_kind  # 放弃租约时发的通知类型（run / ingest / graph）
+        self.not_before = not_before  # 可选的“最早执行时间”列：失败后退避重试的任务，到时间之前不认领
 
     def _lease_until(self):
         return func.now() + text(f"interval '{float(self.lease_seconds)} seconds'")
@@ -57,7 +59,10 @@ class LeaseQueue:
         m = self.model
         # 租约为空也按过期处理：升级前就在执行中的旧记录（没有租约字段）会被接管
         expired = or_(m.lease_expires_at.is_(None), m.lease_expires_at < func.now())
-        return or_(m.status == self.pending, (m.status == self.running) & expired)
+        pending = m.status == self.pending
+        if self.not_before is not None:
+            pending = pending & or_(self.not_before.is_(None), self.not_before <= func.now())
+        return or_(pending, (m.status == self.running) & expired)
 
     async def claim_next(self, owner: str) -> Claimed | None:
         m = self.model

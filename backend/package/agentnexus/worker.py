@@ -54,10 +54,12 @@ async def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
     c = await assembly.build(settings, worker=True)
-    wake = {"run": c.run_dispatcher.enqueue, "ingest": c.ingest_dispatcher.enqueue, "graph": c.graph_dispatcher.enqueue}
+    wake = {"run": c.run_dispatcher.enqueue, "ingest": c.ingest_dispatcher.enqueue, "graph": c.graph_dispatcher.enqueue,
+            "purge": c.purge_dispatcher.enqueue}
     await c.run_dispatcher.start()
     await c.ingest_dispatcher.start()
     await c.graph_dispatcher.start()
+    await c.purge_dispatcher.start()
     c.janitor.start()
     background = [
         asyncio.create_task(listen_notifications(settings.database_url, wake)),
@@ -78,6 +80,7 @@ async def main() -> None:
         t.cancel()
     await asyncio.gather(*background, return_exceptions=True)
     await c.janitor.stop()
+    await c.purge_dispatcher.stop()
     await c.graph_dispatcher.stop()
     await c.ingest_dispatcher.stop()
     await c.run_dispatcher.stop()

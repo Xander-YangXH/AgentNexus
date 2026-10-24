@@ -27,6 +27,7 @@ from agentnexus.services.errors import (
     GraphBuildInProgress,
     GraphBuildTooLarge,
     KnowledgeBaseEmpty,
+    KnowledgeBaseNotFound,
 )
 from agentnexus.security import access
 from agentnexus.services.usage import usage_insert
@@ -130,6 +131,8 @@ class GraphService:
         except IntegrityError as exc:
             if "uq_kg_builds_one_active_per_kb" in str(exc.orig):
                 raise GraphBuildInProgress(str(kb_id)) from exc
+            if "kg_builds_knowledge_base_id_fkey" in str(exc.orig):
+                raise KnowledgeBaseNotFound(str(kb_id)) from exc  # 恰好同时被删除（decisions/0026）
             raise
 
     async def list_builds(self, user_id: uuid.UUID, kb_id: uuid.UUID, limit: int = 10) -> list[GraphBuild]:

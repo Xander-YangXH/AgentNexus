@@ -4,6 +4,7 @@
 import {
   BookOutlined,
   CloudUploadOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   PlusOutlined,
   ShareAltOutlined,
@@ -13,7 +14,7 @@ import { message } from 'ant-design-vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api, HttpError } from '../api/http'
 import type { Chunk, KnowledgeBase, KnowledgeDocument, SearchResult } from '../api/types'
-import { formatSize, formatTimings, needsPolling, STATUS_TAG } from '../composables/knowledge'
+import { deleteKbWarning, formatSize, formatTimings, needsPolling, STATUS_TAG } from '../composables/knowledge'
 import GraphPanel from './GraphPanel.vue'
 import { describeDocumentError, describeRequestError } from '../utils/errors'
 
@@ -123,6 +124,29 @@ async function reprocess(doc: KnowledgeDocument) {
   }
 }
 
+async function removeDoc(doc: KnowledgeDocument) {
+  try {
+    await api.deleteDocument(doc.id)
+    if (chunksOf.value?.id === doc.id) chunksOf.value = null
+    message.success(`已删除 ${doc.filename}`)
+    await loadDocs()
+  } catch (e) {
+    showError(e)
+  }
+}
+
+async function removeKb() {
+  if (!current.value) return
+  const name = current.value.name
+  try {
+    await api.deleteKnowledgeBase(current.value.id)
+    message.success(`已删除知识库「${name}」`)
+    await loadKbs()
+  } catch (e) {
+    showError(e)
+  }
+}
+
 async function openChunks(doc: KnowledgeDocument) {
   chunksOf.value = doc
   chunks.value = []
@@ -165,7 +189,7 @@ const columns = [
   { title: '大小', key: 'size', width: 90 },
   { title: '状态', key: 'status', width: 220 },
   { title: '分块', dataIndex: 'chunk_count', key: 'chunks', width: 70 },
-  { title: '', key: 'actions', width: 110 },
+  { title: '', key: 'actions', width: 160 },
 ]
 </script>
 
@@ -213,6 +237,17 @@ const columns = [
               </span>
             </a-tooltip>
             <a-tag v-else color="blue"><TeamOutlined /> 只读</a-tag>
+            <a-popconfirm
+              v-if="!readonly"
+              :title="`删除知识库「${current.name}」？`"
+              :description="deleteKbWarning(current, docs.length)"
+              ok-text="删除"
+              cancel-text="取消"
+              :ok-button-props="{ danger: true }"
+              @confirm="removeKb"
+            >
+              <a-button danger><DeleteOutlined /> 删除</a-button>
+            </a-popconfirm>
             <a-upload v-if="!readonly" :before-upload="onFile" :show-upload-list="false" accept=".txt,.md,.markdown,.pdf,.docx">
               <a-button type="primary" :loading="uploading"><CloudUploadOutlined /> 上传文档</a-button>
             </a-upload>
@@ -243,6 +278,17 @@ const columns = [
                   <template v-else-if="column.key === 'actions'">
                     <a-button v-if="record.status === 'ready'" size="small" type="link" @click="openChunks(record)">查看分块</a-button>
                     <a-button v-if="record.status === 'failed' && !readonly" size="small" type="link" @click="reprocess(record)">重新处理</a-button>
+                    <a-popconfirm
+                      v-if="!readonly"
+                      :title="`删除 ${record.filename}？`"
+                      description="分块、向量和图谱里只出自这篇文档的内容会一起删除，无法恢复。"
+                      ok-text="删除"
+                      cancel-text="取消"
+                      :ok-button-props="{ danger: true }"
+                      @confirm="removeDoc(record as KnowledgeDocument)"
+                    >
+                      <a-button size="small" type="link" danger>删除</a-button>
+                    </a-popconfirm>
                   </template>
                 </template>
               </a-table>

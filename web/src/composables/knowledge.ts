@@ -1,4 +1,4 @@
-import type { Citation, DocumentStatus, KnowledgeDocument } from '../api/types'
+import type { Citation, DocumentStatus, KnowledgeBase, KnowledgeDocument } from '../api/types'
 
 /** 还有文档在排队或处理中：需要继续轮询状态 */
 export function needsPolling(docs: KnowledgeDocument[]): boolean {
@@ -10,6 +10,14 @@ export const STATUS_TAG: Record<DocumentStatus, { color: string; label: string }
   processing: { color: 'processing', label: '处理中' },
   ready: { color: 'success', label: '可检索' },
   failed: { color: 'error', label: '失败' },
+}
+
+/** 删除知识库前的确认文案（decisions/0026）：说清楚会一起删掉什么、什么不受影响 */
+export function deleteKbWarning(kb: Pick<KnowledgeBase, 'visibility'>, docCount: number): string {
+  const parts = [`${docCount} 个文档连同分块、向量和知识图谱会一起删除，无法恢复。`]
+  if (kb.visibility === 'department') parts.push('它已共享给本部门，同事对话里对它的关联也会移除。')
+  parts.push('已有回答里的引用片段会保留。')
+  return parts.join('')
 }
 
 export function formatSize(bytes: number): string {

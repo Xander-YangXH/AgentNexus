@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import PurePosixPath
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -27,14 +27,24 @@ from agentnexus.services.errors import (
     DocumentNotRetryable,
     EmptyFile,
     FileTooLarge,
+    GraphBuildInProgress,
     KnowledgeBaseExists,
     KnowledgeBaseNotFound,
     NoDepartment,
     UnsupportedFileType,
 )
 from agentnexus.security import access
+from agentnexus.services.purge import graph_build_active, prune_graph
 from agentnexus.storage.blobs import BlobStore
-from agentnexus.storage.postgres import Document, DocumentChunk, DocumentStatus, KnowledgeBase, Visibility
+from agentnexus.storage.postgres import (
+    Document,
+    DocumentChunk,
+    DocumentStatus,
+    KnowledgeBase,
+    PurgeJob,
+    PurgeKind,
+    Visibility,
+)
 from agentnexus.storage.vectors import ChunkIndex, ChunkPoint
 
 log = logging.getLogger(__name__)
@@ -110,6 +120,32 @@ class KnowledgeService:
             await session.flush()
             return kb
 
+    async def delete_kb(self, user_id: uuid.UUID, kb_id: uuid.UUID) -> None:
+        """删除知识库（只有所有者）。PostgreSQL 里的数据在这个事务里删掉，派生副本由清理任务删（decisions/0026）。
+
+        级联删掉：分块、图谱（实体、关系、出处、抽取缓存、构建记录）、对话与它的关联（包括同部门成员的对话）。
+        对话里已有回答的引用是快照，保留：那是用户当时看到的回答的一部分。
+        """
+        async with self.sessionmaker() as session, session.begin():
+            await self._lock_writable_kb(session, user_id, kb_id)
+            blob_keys = list((await session.scalars(
+                delete(Document).where(Document.knowledge_base_id == kb_id).returning(Document.blob_key))).all())
+            await session.execute(delete(KnowledgeBase).where(KnowledgeBase.id == kb_id))
+            session.add(PurgeJob(kind=PurgeKind.KNOWLEDGE_BASE, knowledge_base_id=kb_id, blob_keys=blob_keys))
+            await notify_jobs(session, "purge")
+
+    async def _lock_writable_kb(self, session, user_id: uuid.UUID, kb_id: uuid.UUID) -> None:
+        """删除前：校验是所有者，锁住知识库这一行，并确认没有进行中的图谱构建。
+
+        行锁让“删除”和“新建图谱构建”串行：构建记录对知识库有外键，插入时要拿这一行的共享锁，
+        会等删除事务结束；反过来，已经提交的构建会在这里被看到。构建进行中不允许删除：它会用删除前读到的分块
+        写出出处，并在结束时重写 Neo4j。
+        """
+        await access.writable_kb(session, user_id, kb_id)
+        await session.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == kb_id).with_for_update())
+        if await graph_build_active(session, kb_id):
+            raise GraphBuildInProgress(str(kb_id))
+
     # ---------- 文档 ----------
 
     async def upload(self, user_id: uuid.UUID, kb_id: uuid.UUID, filename: str, data: bytes) -> Document:
@@ -175,6 +211,21 @@ class KnowledgeService:
         async with self.sessionmaker() as session:
             return await ChunkRepository(session).list_by_document(document_id)
 
+    async def delete_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> None:
+        """删除文档（只有知识库所有者）。处理中的也可以删：入库的写回都带租约版本，行没了就写不进去，
+        worker 会丢弃自己写的点（decisions/0020）；它的心跳也会发现租约没了而停止。"""
+        doc = await self.get_document(user_id, document_id, write=True)
+        async with self.sessionmaker() as session, session.begin():
+            await self._lock_writable_kb(session, user_id, doc.knowledge_base_id)
+            blob_key = await session.scalar(
+                delete(Document).where(Document.id == document_id).returning(Document.blob_key))
+            if blob_key is None:
+                raise DocumentNotFound(str(document_id))  # 同时有另一个删除请求先完成了
+            await prune_graph(session, doc.knowledge_base_id)
+            session.add(PurgeJob(kind=PurgeKind.DOCUMENT, knowledge_base_id=doc.knowledge_base_id,
+                                 document_id=document_id, blob_keys=[blob_key]))
+            await notify_jobs(session, "purge")
+
     async def reprocess(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         """失败的文档重新排队（例如处理时 Qdrant 暂时不可用）。只允许 failed -> pending。"""
         await self.get_document(user_id, document_id, write=True)
@@ -203,6 +254,9 @@ class KnowledgeService:
         """
         async with self.sessionmaker() as session:
             doc = await DocumentRepository(session).get(job.id)
+        if doc is None:  # 认领之后、开始处理之前被删除了（decisions/0026）
+            log.info("document %s was deleted before processing started", job.id)
+            return False
         started = time.perf_counter()
         outcome, chunk_count = await self._execute(doc, job)
         # 每个文档一条带结局、耗时、分块数的日志（与 run 结束时的日志一致），大文件慢在哪里一眼可见。

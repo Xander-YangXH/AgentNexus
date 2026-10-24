@@ -425,6 +425,44 @@ class GraphMention(Base):
     relation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kg_relations.id", ondelete="CASCADE"), index=True)
 
 
+# ---------------- 删除后的清理（阶段 7.1，decisions/0026） ----------------
+
+
+class PurgeKind(enum.StrEnum):
+    DOCUMENT = "document"
+    KNOWLEDGE_BASE = "knowledge_base"
+
+
+class PurgeStatus(enum.StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+
+
+class PurgeJob(LeaseMixin, Base):
+    """删除的“发件箱”：删除 PostgreSQL 里的数据时，在同一事务里插入一条清理任务，由 worker 清理派生副本
+    （Qdrant 的点、原件、Neo4j 的图）。事务提交 = 数据已删除且清理一定会发生；清理失败就退避重试，成功后删掉这一行。
+
+    知识库 / 文档的行已经删了，所以不加外键；清理需要的信息（原件的 key）记在这里。
+    """
+
+    __tablename__ = "purge_jobs"
+    __table_args__ = (
+        CheckConstraint(_in_list("kind", PurgeKind), name="ck_purge_jobs_kind"),
+        CheckConstraint(_in_list("status", PurgeStatus), name="ck_purge_jobs_status"),
+        Index("ix_purge_jobs_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String(16))
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # 删除单篇文档时
+    blob_keys: Mapped[list] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16), default=PurgeStatus.PENDING, server_default=PurgeStatus.PENDING.value)
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 失败后退避：这之前不认领
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # ---------------- 用量（阶段 5，decisions/0023） ----------------
 
 
