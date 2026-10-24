@@ -127,7 +127,8 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         tools = await _tools(settings, stack, artifacts, sandbox)
         agent = ChatbotAgent(
             ChatbotContext(model=chat_model, knowledge_search=knowledge_search,
-                           prefetch=settings.knowledge_prefetch, usage=usage, **tools),
+                           prefetch=settings.knowledge_prefetch, prefetch_followup=settings.knowledge_prefetch_followup,
+                           usage=usage, **tools),
             checkpointer=checkpointer,
         )
         # 深度调研（decisions/0022）：计划用结构化输出（关闭思考的模型），子 Agent 与汇总用聊天模型

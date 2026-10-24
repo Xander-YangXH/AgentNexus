@@ -108,5 +108,6 @@ AgentNexus/
 - [x] 补全 7.2：Agent 把沙盒里画的图、算的表作为附件交给用户（见 docs/decisions/0027）
 - [x] 补全 7.3：删除对话（文件、工作空间、checkpoint 一并清理，用量统计保留，见 docs/decisions/0028）
 - [x] 补全 7.5：混合检索（稠密向量 + 关键词，大语料下精确词查询的候选召回 0.70 → 1.00，见 docs/decisions/0029）
+- [x] 补全 7.6：追问的预检索（两路检索交替合并，追问命中 0.87 → 1.00、换话题不被带偏，见 docs/decisions/0030）
 
 详见 [ROADMAP.md](ROADMAP.md)。

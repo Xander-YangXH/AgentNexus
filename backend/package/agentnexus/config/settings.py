@@ -49,6 +49,7 @@ class Settings:
     llm_price_cached_input: float = 0.006
     llm_price_output: float = 1.2
     knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
+    knowledge_prefetch_followup: bool = True  # 追问时预检索两路并交替合并（decisions/0030）
     knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
     # 解析不可信文件（decisions/0025）：PDF / Word 在子进程里解析，超时或超过内存上限就终止、文档标为失败
     parse_timeout_seconds: float = 60.0
@@ -128,6 +129,8 @@ def get_settings() -> Settings:
         llm_price_cached_input=float(os.environ.get("LLM_PRICE_CACHED_INPUT", 0.006)),
         llm_price_output=float(os.environ.get("LLM_PRICE_OUTPUT", 1.2)),
         knowledge_prefetch=os.environ.get("KNOWLEDGE_PREFETCH", "true").lower() not in ("0", "false", "no", "off"),
+        knowledge_prefetch_followup=os.environ.get("KNOWLEDGE_PREFETCH_FOLLOWUP", "true").lower()
+        not in ("0", "false", "no", "off"),
         sandbox_url=os.environ.get("SANDBOX_URL") or None,
         sandbox_token=os.environ.get("SANDBOX_TOKEN") or None,
         sandbox_exec_timeout=float(os.environ.get("SANDBOX_EXEC_TIMEOUT", 30)),

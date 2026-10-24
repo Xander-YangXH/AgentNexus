@@ -286,6 +286,48 @@ async def test_prefetch_counts_as_a_round_and_the_model_can_still_search_again()
     assert [(c["n"], c["cited"]) for c in reply.citations] == [(1, False), (2, True)]
 
 
+def _followup_ctx(events=None):
+    history = [ChatMessage("user", "积分怎么用"), ChatMessage("assistant", "100 积分抵 1 元 [1]"), ChatMessage("user", "多久过期")]
+    return RunContext(run_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=history, events=events or Events(),
+                      user_id=USER, knowledge_base_ids=(KB,))
+
+
+async def test_a_follow_up_is_prefetched_both_alone_and_with_the_previous_question():
+    """追问（decisions/0030）：两路检索，结果交替合并、去重，条数不变；编号按合并后的顺序。"""
+    import dataclasses
+
+    again = dataclasses.replace(_hit(1), rerank_score=0.1)  # 两路都检索到同一片段：保留第一路（用户原话）的那份
+    search = RecordingSearch(results=[[_hit(1), _hit(2), _hit(3), _hit(4)], [_hit(5), again, _hit(6), _hit(7)]])
+    model = ScriptedModel(script=[AIMessage(content="一年 [2]")])
+    reply = await ChatbotAgent(ChatbotContext(model=model, knowledge_search=search, prefetch=True)).run(_followup_ctx())
+    assert [q for _, _, q in search.calls] == ["多久过期", "积分怎么用 多久过期"]
+    # 交替：这一句第 1、拼接第 1、这一句第 2、（拼接第 2 与已有重复）、这一句第 3
+    assert [c["chunk_id"] for c in reply.citations] == [str(uuid.UUID(int=n)) for n in (1, 5, 2, 3)]
+    assert reply.citations[0]["rerank_score"] == 1.0
+    seen = model._calls[0][0]
+    assert seen[-2].tool_calls[0]["args"] == {"query": "多久过期"}  # 模型看到的仍是用户的原话
+
+
+async def test_the_first_question_and_model_initiated_searches_use_one_query():
+    search = RecordingSearch(results=[[_hit(1)], [_hit(2)], [_hit(3)]])
+    model = ScriptedModel(script=[_call("积分有效期", 1), AIMessage(content="一年 [3]")])
+    await ChatbotAgent(ChatbotContext(model=model, knowledge_search=search, prefetch=True)).run(_followup_ctx())
+    # 预检索两路；模型自己发起的检索写的是完整的检索词，只查一路
+    assert [q for _, _, q in search.calls] == ["多久过期", "积分怎么用 多久过期", "积分有效期"]
+    first = RecordingSearch()
+    await ChatbotAgent(ChatbotContext(model=ScriptedModel(script=[AIMessage(content="好")]), knowledge_search=first,
+                                      prefetch=True)).run(_ctx())
+    assert len(first.calls) == 1  # 第一个问题没有“上一个问题”
+
+
+async def test_follow_up_prefetch_can_be_turned_off():
+    search = RecordingSearch()
+    model = ScriptedModel(script=[AIMessage(content="好")])
+    await ChatbotAgent(ChatbotContext(model=model, knowledge_search=search, prefetch=True,
+                                      prefetch_followup=False)).run(_followup_ctx())
+    assert [q for _, _, q in search.calls] == ["多久过期"]
+
+
 async def test_no_prefetch_without_linked_knowledge_bases():
     search = RecordingSearch()
     model = ScriptedModel(script=[AIMessage(content="你好")])

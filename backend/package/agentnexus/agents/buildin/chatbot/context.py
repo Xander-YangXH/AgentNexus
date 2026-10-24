@@ -20,6 +20,8 @@ class ChatbotContext(BaseContext):
     knowledge_prompt: str = KNOWLEDGE_PROMPT
     max_tool_rounds: int = 3  # 一次回答最多检索几轮（含预检索），防止模型反复检索、成本失控
     prefetch: bool = False  # 调用模型前先用用户原话检索一次（graph.py 的 prefetch；部署默认值见 settings）
+    # 追问时预检索两路：这一句、上一个问题 + 这一句，结果交替合并（decisions/0030）
+    prefetch_followup: bool = True
     prefetch_prompt: str = PREFETCH_PROMPT
     # 通用工具（decisions/0021）：沙盒、MCP 等。只有被已加载的技能列出的工具才会提供给模型
     tool_sources: Sequence[ToolSource] = ()

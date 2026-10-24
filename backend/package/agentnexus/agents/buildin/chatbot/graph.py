@@ -1,3 +1,4 @@
+import itertools
 import logging
 import uuid
 
@@ -82,7 +83,25 @@ def build_graph(context: ChatbotContext, checkpointer=None):
         reply = await model.ainvoke([SystemMessage(prompt), *state["messages"]])
         return {"messages": [reply]}
 
-    async def run_calls(tool_calls, state: ChatState, config: RunnableConfig, *, over_limit: bool):
+    async def search_hits(user_id, kb_ids, query: str, previous: str | None):
+        """预检索遇到追问时检索两路（decisions/0030）：这一句、上一个问题 + 这一句，各自重排后交替合并、去重，条数不变。
+
+        实验（eval/eval_followups.py）：只用这一句时，追问（“多久过期”“那定制的呢”）在大语料上有 13% 的正确答案
+        不在交给模型的前 4 个里；总是拼接上一句能补上，但换话题时会把检索带偏（第一名从 0.8 掉到 0.2）。
+        两路交替合并在追问、换话题、大小语料四种情况下都是 1.00。代价：追问时多一次检索和重排。
+        """
+        hits = await context.knowledge_search(user_id, kb_ids, query)
+        if not previous:
+            return hits
+        joined = await context.knowledge_search(user_id, kb_ids, f"{previous} {query}"[:MAX_QUERY_CHARS])
+        merged: dict = {}
+        for hit in itertools.chain.from_iterable(itertools.zip_longest(hits, joined)):
+            if hit is not None and hit.chunk_id not in merged:
+                merged[hit.chunk_id] = hit
+        return list(merged.values())[:max(len(hits), len(joined))]
+
+    async def run_calls(tool_calls, state: ChatState, config: RunnableConfig, *, over_limit: bool,
+                        previous: str | None = None):
         """执行一组工具调用，返回（工具结果消息, 新增的引用, 新加载的技能, 新交付的文件）。模型发起的调用和预检索共用这一段。"""
         known = {c["chunk_id"]: c["n"] for c in state.get("citations", [])}  # 同一片段多次检索到时沿用原编号
         next_n = len(known) + 1
@@ -133,7 +152,7 @@ def build_graph(context: ChatbotContext, checkpointer=None):
                 continue
             try:
                 user_id = uuid.UUID(config["configurable"]["user_id"])
-                hits = await context.knowledge_search(user_id, _kb_ids(config), query)
+                hits = await search_hits(user_id, _kb_ids(config), query, previous)
             except Exception:
                 # 检索失败不让整个回答失败：告诉模型检索不可用，由它如实告知用户（提示词要求不编造）
                 log.warning("knowledge_search failed", exc_info=True)
@@ -171,7 +190,12 @@ def build_graph(context: ChatbotContext, checkpointer=None):
         if not query:
             return None
         call = {"name": KNOWLEDGE_SEARCH, "args": {"query": query}, "id": f"prefetch_{uuid.uuid4().hex[:12]}", "type": "tool_call"}
-        replies, new_citations, _, _ = await run_calls([call], state, config, over_limit=False)
+        previous = None
+        if context.prefetch_followup:  # 追问：带上上一个问题再查一路（decisions/0030）
+            earlier = [m for m in state["messages"][:-1] if isinstance(m, HumanMessage)]
+            if earlier:
+                previous = message_text(earlier[-1]).strip()[:MAX_QUERY_CHARS] or None
+        replies, new_citations, _, _ = await run_calls([call], state, config, over_limit=False, previous=previous)
         return {"messages": [AIMessage(content="", tool_calls=[call]), *replies], "citations": new_citations}
 
     def route(state: ChatState):
