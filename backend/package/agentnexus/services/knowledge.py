@@ -234,7 +234,7 @@ class KnowledgeService:
         own_points = [r.id for r in rows]
         try:
             await self.index.upsert(
-                [ChunkPoint(r.id, doc.knowledge_base_id, document_id, v) for r, v in zip(rows, vectors)]
+                [ChunkPoint(r.id, doc.knowledge_base_id, document_id, v) for r, v in zip(rows, vectors, strict=True)]
             )
         except Exception as exc:
             log.warning("indexing document %s failed", document_id, exc_info=True)

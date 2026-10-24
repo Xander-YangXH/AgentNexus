@@ -10,7 +10,7 @@
 import logging
 import operator
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -104,7 +104,7 @@ def build_graph(context, checkpointer=None):
         report = message_text(reply).strip()
         attachment = None
         if context.save_artifact is not None and report:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+            stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
             attachment = await context.save_artifact(f"调研报告-{stamp}.md", "text/markdown; charset=utf-8",
                                                      report.encode())
         return {"report": report, "attachment": attachment, "usage": [_usage(reply)]}

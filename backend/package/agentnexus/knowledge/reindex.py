@@ -66,7 +66,7 @@ async def _fill(sessionmaker, embedder: Embedder, index: ChunkIndex, collection:
             return total
         vectors = await asyncio.to_thread(embedder.embed_documents, [r.text for r in rows])
         await index.upsert(
-            [ChunkPoint(r.id, r.knowledge_base_id, r.document_id, v) for r, v in zip(rows, vectors)],
+            [ChunkPoint(r.id, r.knowledge_base_id, r.document_id, v) for r, v in zip(rows, vectors, strict=True)],
             collection=collection,
         )
         total += len(rows)

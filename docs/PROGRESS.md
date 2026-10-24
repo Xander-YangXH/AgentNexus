@@ -5,7 +5,7 @@
 
 ## 1. 当前位置
 
-**阶段 6 进行中：6.1 前端设计系统与界面改版已完成（0024：token 驱动的浅色 / 深色主题、全局导航、阅读列、Agent 工作时间线）。阶段 1~5 已完成。下一步：从零部署实测、ARCHITECTURE.md、CI 与 lint、README 截图。**
+**阶段 6 进行中：6.1 前端改版（0024）、6.2 从零部署实测 + ruff + CI + ARCHITECTURE.md 已完成。下一步 6.3：客服场景演示数据、README 截图、面试资产定稿；演示视频需要用户录制。**
 
 当前能做到的：创建用户 → 建对话 → 发消息，消息和 `queued` 的 run 同事务落库，随后被派发、抢占，由 LangGraph 聊天图执行（历史取自 messages 表，checkpoint 按 run 存放），助手回复落库，历史可查，用户间数据隔离；超时、异常、关停、重启都有收尾。
 当前还能通过 `GET /api/runs/{id}/events` 实时收到逐段回复（SSE，可断线续传）。
@@ -27,9 +27,9 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 | M3 知识图谱 | 7 | 0 | 8 | 87% |
 | M4 多智能体/工具/沙盒/worker | 11 | 0 | 11 | 100% |
 | M5 多租户与 Dashboard | 6 | 0 | 6 | 100% |
-| M6 打磨与包装 | 2 | 0 | 7 | 28% |
-| 贯穿：质量与文档 | 4 | 0 | 8 | 50% |
-| **合计** | **107** | 2 | **119** | **90%** |
+| M6 打磨与包装 | 4 | 0 | 7 | 57% |
+| 贯穿：质量与文档 | 6 | 0 | 8 | 75% |
+| **合计** | **111** | 2 | **119** | **93%** |
 
 > 任务数不等于工作量：M4 的单项远重于 M0。
 
@@ -250,8 +250,8 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 ### M6 打磨、部署与简历包装（阶段 6）
 
 - [x] 前端设计系统与界面改版（decisions/0024）：设计 token（浅色 / 深色）、全局导航栏、对话阅读列与工具时间线、引用卡片、各页面统一结构、手机宽度适配、Nginx 缓存策略
-- [ ] 完整 `docker-compose.yml` 一键起全部服务；从零 `git clone` + `up` 实测
-- [ ] `ARCHITECTURE.md`：鸟瞰、代码地图、核心链路、不变量（本文件 §2 是素材）
+- [x] 完整 `docker-compose.yml` 一键起全部服务；从零 `git clone` + `up` 实测（2026-10-24：模板 `.env` 原样使用，12 个服务健康，假模型端到端全部通过）
+- [x] `ARCHITECTURE.md`：鸟瞰与进程拓扑、代码地图、核心链路、数据分布、9 条架构不变量
 - [ ] 客服工单场景包端到端 + Agent 并行任务场景
 - [ ] README 截图、3–5 分钟演示视频
 - [ ] 面试资产定稿：各模块问答、排错故事、量化数据
@@ -261,8 +261,8 @@ Agent 可以加载技能后在沙盒里执行 Python（pandas、matplotlib）、
 
 - [x] 约定：每步写 dev-log（选型表 + 问题索引）并同步 interview-prep（AGENTS.md 第 6 条）
 - [x] 集成测试跑真实 Postgres
-- [ ] CI（GitHub Actions）：起 Postgres 服务跑测试 + 构建镜像
-- [ ] lint / 格式化 / 类型检查（ruff、mypy 或 pyright）
+- [x] CI（GitHub Actions）：后端（ruff + 集成测试，PostgreSQL / Redis / Neo4j 服务容器）、前端（类型检查 + 单测 + 构建）、镜像构建
+- [x] lint：ruff（E / F / B / UP / SIM / ASYNC）；前端 vue-tsc。未做：Python 类型检查（mypy / pyright）
 - [x] 后端依赖锁文件 `backend/requirements.lock`（uv `--exclude-newer`：含间接依赖只取发布满两周的版本，decisions/0016）
 - [x] 日志与可观测性：结构化日志（text/json）、request-id 与 run_id 贯穿（decisions/0011）
 - [ ] 安全清单：密钥管理、依赖扫描、沙盒逃逸面

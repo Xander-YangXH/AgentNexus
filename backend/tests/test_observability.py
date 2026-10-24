@@ -177,7 +177,7 @@ async def test_run_lifecycle_is_logged_with_outcome_and_duration(sessionmaker, u
 
     async with sessionmaker() as session, session.begin():
         conv = await ConversationRepository(session).create(user.id)
-    run = await RunService(sessionmaker).submit(user.id, conv.id, "q")
+    await RunService(sessionmaker).submit(user.id, conv.id, "q")
     d = RunDispatcher(sessionmaker, boom, sweep_interval=0.1)
     with caplog.at_level(logging.INFO, logger="agentnexus.runtime.dispatcher"):
         await d.start()

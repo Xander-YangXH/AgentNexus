@@ -6,7 +6,6 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from agentnexus.repositories.conversations import ConversationRepository
 from agentnexus.services.runs import RunService, auto_title
 from server.deps import get_dispatcher, get_sessionmaker
 from server.main import create_app

@@ -6,6 +6,7 @@ Pub/Sub 不保存历史，正适合这种“只对此刻在线的进程有意义
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import Callable
@@ -35,10 +36,8 @@ class RedisCancelBus:
                     await pubsub.subscribe(CHANNEL)
                     async for message in pubsub.listen():
                         if message.get("type") == "message":
-                            try:
+                            with contextlib.suppress(ValueError):  # 格式不对的消息直接忽略
                                 on_cancel(uuid.UUID(message["data"]))
-                            except ValueError:
-                                pass
             except asyncio.CancelledError:
                 raise
             except Exception:

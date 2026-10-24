@@ -32,7 +32,7 @@ def make_pdf(pages: list[str]) -> bytes:
 
 
 def test_text_utf8_with_bom_and_gbk():
-    assert parse("a.txt", "﻿退货政策".encode("utf-8")) == [Section("退货政策")]
+    assert parse("a.txt", "﻿退货政策".encode()) == [Section("退货政策")]
     assert parse("a.md", "退货政策".encode("gbk")) == [Section("退货政策")]  # Windows 上常见的 GBK 文件
 
 

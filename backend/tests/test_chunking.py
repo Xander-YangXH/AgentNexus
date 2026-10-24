@@ -1,5 +1,6 @@
 """分块（阶段 2.1）：不超限、不在句中切断、有重叠、不丢内容。"""
 
+import itertools
 import random
 
 from agentnexus.knowledge.chunking import chunk_sections, split_sentences
@@ -38,7 +39,7 @@ def test_limits_boundaries_overlap_and_coverage():
         assert c.token_count <= 150  # 不超过硬上限（超过会被模型截断）
         assert c.text.endswith("。")  # 不在句子中间切断
     with_overlap = 0
-    for a, b in zip(chunks, chunks[1:]):
+    for a, b in itertools.pairwise(chunks):
         shared = [s for s in split_sentences(b.text) if s in split_sentences(a.text)]
         # 重叠只取整句：上一块最后一句不超过重叠上限时必须有重叠；超过时宁可不重叠，也不带半句话
         if counter.count(split_sentences(a.text)[-1]) <= 30:

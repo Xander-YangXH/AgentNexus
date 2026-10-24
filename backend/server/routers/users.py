@@ -82,5 +82,5 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, admin: AdminPrincipa
     fields = body.model_dump(exclude_unset=True)
     return await auth.update_user(
         user_id, role=fields.get("role"), disabled=fields.get("disabled"), password=fields.get("password"),
-        department_id=fields["department_id"] if "department_id" in fields else dataclasses.MISSING,
+        department_id=fields.get("department_id", dataclasses.MISSING),
     )

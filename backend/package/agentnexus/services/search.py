@@ -74,7 +74,7 @@ class SearchService:
         if rerank and hits:
             with _timer(timings, "rerank"):
                 scores = await asyncio.to_thread(self.reranker.score, query, [h.text for h in hits])
-            hits = [dataclasses.replace(h, rerank_score=s) for h, s in zip(hits, scores)]
+            hits = [dataclasses.replace(h, rerank_score=s) for h, s in zip(hits, scores, strict=True)]
             hits.sort(key=lambda h: h.rerank_score, reverse=True)
         return SearchResult(hits=hits[:top_k], reranked=rerank, timings_ms=timings)
 

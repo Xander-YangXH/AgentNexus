@@ -297,7 +297,7 @@ def test_real_embedding_ranks_the_relevant_chunk_first(real_embedder):
     docs = ["签收后 7 天内可以无理由退货，定制商品除外。", "会员积分每消费 1 元累计 1 分。", "发票可以在订单详情页申请电子发票。"]
     vecs = real_embedder.embed_documents(docs)
     q = real_embedder.embed_query("买的东西不想要了怎么办")
-    scores = [sum(a * b for a, b in zip(q, v)) for v in vecs]
+    scores = [sum(a * b for a, b in zip(q, v, strict=True)) for v in vecs]
     assert scores.index(max(scores)) == 0
 
 

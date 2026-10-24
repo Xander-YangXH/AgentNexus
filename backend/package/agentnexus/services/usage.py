@@ -120,7 +120,9 @@ class UsageService:
                         .join(User, User.id == UsageEvent.user_id).group_by(User.id, User.name)
                         .order_by(func.sum(UsageEvent.input_tokens + UsageEvent.output_tokens).desc()).limit(20))
                 by_user = (await session.execute(stmt)).mappings().all()
-        row = lambda r: {**dict(r), "cost_usd": self._cost(r["input_tokens"], r["cached_tokens"], r["output_tokens"])}
+        def row(r) -> dict:
+            return {**dict(r), "cost_usd": self._cost(r["input_tokens"], r["cached_tokens"], r["output_tokens"])}
+
         return {
             "scope": scope, "days": days,
             "series": [{**row(r), "day": r["day"].isoformat()} for r in series],

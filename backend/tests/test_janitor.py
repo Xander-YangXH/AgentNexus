@@ -1,7 +1,6 @@
 """checkpoint 清理（decisions/0010）。"""
 
 import asyncio
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update

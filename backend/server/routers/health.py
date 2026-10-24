@@ -57,7 +57,7 @@ async def ready() -> dict:
     results = await asyncio.gather(*checks.values(), return_exceptions=True)
     status = {
         name: "ok" if not isinstance(res, BaseException) else f"error: {type(res).__name__}"
-        for name, res in zip(checks, results)
+        for name, res in zip(checks, results, strict=True)
     }
     if any(v != "ok" for v in status.values()):
         raise HTTPException(status_code=503, detail=status)

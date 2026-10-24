@@ -3,7 +3,7 @@
 这是两个世界的边界：数据库不认识 LangChain 类型，图也不认识我们的表。
 """
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 
 from agentnexus.agents.types import ChatMessage
 

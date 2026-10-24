@@ -7,7 +7,7 @@ from agentnexus.repositories.conversations import ConversationRepository, Messag
 from agentnexus.repositories.runs import AgentRunRepository
 from agentnexus.services.errors import ConversationNotFound, RunConflict
 from agentnexus.services.runs import RunService
-from agentnexus.storage.postgres import MessageRole, RunStatus, User
+from agentnexus.storage.postgres import MessageRole, RunStatus
 
 
 async def _new_conversation(sessionmaker, user):

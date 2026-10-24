@@ -2,3 +2,5 @@
 pytest>=8.0
 pytest-asyncio>=0.24
 httpx
+# 代码检查（阶段 6.2，配置见 ruff.toml）
+ruff==0.17.0

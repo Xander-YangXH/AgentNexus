@@ -89,7 +89,7 @@ def build_graph(context: ChatbotContext, checkpointer=None):
         tools, skills = await toolbox() if context.tool_sources or context.skills else ({}, {})
         allowed = set(enabled(state, skills))
         for call in tool_calls:
-            def reply(text, **kw):
+            def reply(text, call=call, **kw):  # 显式绑定本轮的 call（只在本轮内调用，绑定是为了不依赖闭包的晚绑定）
                 return ToolMessage(text, tool_call_id=call["id"], name=call["name"], **kw)
 
             if over_limit:

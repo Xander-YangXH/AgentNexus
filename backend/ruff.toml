@@ -1,0 +1,24 @@
+# 代码检查（阶段 6.2）。只做 lint、不强制格式化：已有代码按约 120 列的习惯书写（中文注释较长），
+# 一次性格式化会产生几百处与功能无关的改动，评审时淹没真正的变更。
+line-length = 120
+target-version = "py312"
+extend-exclude = ["eval"]  # 选型实验脚本：一次性运行、保留原样作为记录
+
+[lint]
+# E/F：基础错误；B：常见陷阱（可变默认值、循环变量闭包……）；UP：新语法；SIM：可简化写法；ASYNC：异步代码里的阻塞调用
+select = ["E", "F", "B", "UP", "SIM", "ASYNC"]
+ignore = [
+  "E501",      # 行长度：只做约定，不强制（见上）
+  "ASYNC109",  # 参数名叫 timeout：这里的 timeout 是业务参数（如沙盒执行时长），不是 asyncio 超时的替代品
+]
+
+[lint.flake8-bugbear]
+# FastAPI 的依赖声明写在参数默认值里，是框架的约定，不是“可变默认值”
+# 冻结的 dataclass（Limits、Prices）做默认值也是安全的：实例不可变
+extend-immutable-calls = [
+  "fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Cookie", "fastapi.File", "fastapi.Form",
+  "agentnexus.sandbox.runner.Limits", "agentnexus.services.graph.Prices",
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["ASYNC110", "E731"]  # 测试里轮询等待状态、用 lambda 写简短的辅助函数都可以接受

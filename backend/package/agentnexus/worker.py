@@ -46,7 +46,7 @@ async def listen_notifications(database_url: str, wake: dict) -> None:
 
 async def touch_alive() -> None:
     while True:
-        ALIVE_FILE.touch()
+        await asyncio.to_thread(ALIVE_FILE.touch)  # 文件操作放线程里：不在事件循环里做阻塞调用（即使很快）
         await asyncio.sleep(10)
 
 
@@ -83,7 +83,7 @@ async def main() -> None:
     await c.run_dispatcher.stop()
     await assembly.close(c)
     with contextlib.suppress(FileNotFoundError):
-        ALIVE_FILE.unlink()
+        await asyncio.to_thread(ALIVE_FILE.unlink)
 
 
 if __name__ == "__main__":

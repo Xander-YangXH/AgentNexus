@@ -6,22 +6,25 @@ AgentNexus 是一个「中台」型 Agent 平台：核心能力（Agent 编排�
 
 设计目标覆盖 RAG 知识库、知识图谱、LangGraph 多智能体编排、可扩展工具协议、沙盒工具执行、多租户权限、运行监控看板这几类能力；每一项技术选型的推导过程见 [docs/interview-prep.md](docs/interview-prep.md)，基础设施规模按 solo 项目的体量做了取舍，具体见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
 
-## 技术栈（目标状态）
+## 技术栈
 
 | 层 | 选型 |
 |---|---|
 | 前端 | Vue 3 + Vite + Ant Design Vue |
 | 后端 API | FastAPI |
-| Agent 编排 | LangGraph + LangChain |
+| Agent 编排 | LangGraph（checkpoint 续做、interrupt 审批、Send 并行子 Agent）+ LangChain 模型适配 |
 | 向量检索 | Qdrant |
-| 关系型存储 | PostgreSQL |
-| 缓存 / 队列 | Redis + ARQ |
+| 关系型存储 | PostgreSQL（事实来源；行级安全做第二道隔离）|
+| 任务队列 | PostgreSQL 租约队列（SKIP LOCKED + 心跳 + fencing token，实验后替代 ARQ）|
+| 实时事件 | Redis Streams + SSE（断线续传）|
+| 登录 | 服务端会话 + HttpOnly Cookie，argon2id |
 | 对象存储 | 本地数据卷（`BlobStore` 接口，可换 MinIO / S3） |
 | 知识图谱 | Neo4j（派生存储，PostgreSQL 为事实来源）+ cytoscape.js |
 | 文档解析 | pypdf / python-docx |
-| Embedding | bge-small-zh-v1.5（fastembed / ONNX，本地运行） |
+| Embedding / 重排 | bge-small-zh-v1.5、bge-reranker-v2-m3（fastembed / ONNX，本地运行） |
+| 模型 | DeepSeek（Anthropic 兼容接口）；默认假模型，无需密钥即可跑通 |
 | 工具沙盒 | 独立 sandbox 服务（唯一持有 Docker socket）+ 加固的一次性容器；MCP 网关 + Squid 出口代理 |
-| 部署 | Docker Compose |
+| 部署 | Docker Compose（12 个服务，一键启动）；GitHub Actions CI |
 
 ## 快速开始
 
@@ -36,6 +39,7 @@ docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli creat
 
 ## 文档索引
 
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构：进程拓扑、代码地图、核心链路、架构不变量
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
 - [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md) — 基础设施与能力深度的取舍及理由
 - `docs/decisions/` — 关键架构决策记录（每次重大取舍写一条，含背景/决定/后果/验证）
@@ -51,28 +55,25 @@ docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli creat
 - [docs/dev-log.md](docs/dev-log.md) — 开发日志：每一步的设计思路、取舍与踩坑记录
 - `docs/interview-prep.md` — 面试拷打准备文档，解释每个模块的设计原因和业务逻辑
 - `docs/learning-notes/` — 按主题记录的学习笔记（含本地私有的问答记录，未纳入版本管理）
-- `ARCHITECTURE.md` — 随开发推进逐步补全（边界、目录职责、核心链路、不变量）
 
 ## 目录结构
+
+完整的代码地图、进程拓扑、核心链路和架构不变量见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ```
 AgentNexus/
 ├── backend/
 │   ├── server/                  # FastAPI 入口 + 路由层（薄）
-│   └── package/agentnexus/      # 业务逻辑包（厚）
-│       ├── agents/              # LangGraph 智能体、middleware、toolkits
-│       ├── knowledge/           # 文档解析、分块、向量检索、图谱抽取
-│       ├── workspace/           # 用户工作区 / 沙盒文件路径管理
-│       ├── services/            # 用例层
-│       ├── repositories/        # 持久化访问层
-│       ├── storage/             # postgres / 原件存储 / 向量索引（qdrant）等连接管理
-│       ├── models/              # 模型供应商适配
-│       └── config/              # 系统 / 用户配置
-├── web/                         # Vue3 前端
-├── docker/                      # 各服务 Dockerfile
-├── docs/
-├── scripts/
-└── docker-compose.yml           # 阶段 0：postgres + redis + api，后续逐步叠加
+│   ├── package/agentnexus/      # 业务逻辑（厚）：agents、runtime、services、knowledge、security、sandbox、mcp_gateway……
+│   ├── migrations/              # Alembic 迁移（只往前加）
+│   ├── skills/                  # Agent 技能文件
+│   ├── tests/                   # 集成测试（真实 PostgreSQL / Redis / Neo4j / Docker）
+│   └── eval/                    # 选型实验与评测脚本
+├── web/                         # Vue 3 + Vite + Ant Design Vue 前端
+├── docker/                      # 各镜像 Dockerfile、Nginx、Squid 配置
+├── docs/                        # 决策记录、走读、开发日志、面试准备
+├── .github/workflows/ci.yml     # CI：lint + 测试 + 构建
+└── docker-compose.yml           # 一键启动全部服务
 ```
 
 ## 当前进度

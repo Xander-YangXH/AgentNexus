@@ -6,6 +6,7 @@
 """
 
 import dataclasses
+import itertools
 import re
 import unicodedata
 from typing import Literal, Protocol
@@ -146,6 +147,6 @@ class FakeGraphExtractor:
         ext = Extraction(
             entities=[Entity(name=n, type="概念术语", description=f"出现在《{title}》中") for n in names],
             relations=[Relation(source=a, target=b, relation="相关", description="在同一段中相邻出现")
-                       for a, b in zip(names, names[1:])],
+                       for a, b in itertools.pairwise(names)],
         )
         return ExtractResult(payload=_clean(ext))

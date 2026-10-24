@@ -16,7 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import PrivateAttr
 
 from agentnexus.agents.buildin.research import ResearchAgent, ResearchContext
-from agentnexus.agents.buildin.research.planner import FakePlanner, PlanResult
+from agentnexus.agents.buildin.research.planner import FakePlanner
 from agentnexus.agents.buildin.research.prompt import SUBAGENT_PROMPT, WRITER_PROMPT
 from agentnexus.agents.tools import AgentTool, StaticTools
 from agentnexus.agents.types import AgentReply, ApprovalRequired, ChatMessage, RunContext
