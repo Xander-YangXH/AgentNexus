@@ -49,6 +49,9 @@ class SandboxClient:
         r = await self._http.get(f"/workspaces/{self._ws(workspace_id)}/file/raw", params={"path": path})
         return self._check(r).content
 
+    async def delete_workspace(self, workspace_id: str) -> None:
+        self._check(await self._http.delete(f"/workspaces/{self._ws(workspace_id)}"))
+
     async def write_file(self, workspace_id: str, path: str, content: str) -> int:
         body = {"path": path, "content": content}
         return (await self._call("PUT", f"/workspaces/{self._ws(workspace_id)}/file", json=body))["bytes"]

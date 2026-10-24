@@ -106,5 +106,6 @@ AgentNexus/
 - [ ] 阶段 6：打磨、部署与简历包装（已完成：6.1 前端设计系统与改版，走读见 docs/guides/frontend-design.md；6.2 从零部署实测、ruff、CI；6.3 演示数据与截图；6.4 安全收尾，见 [SECURITY.md](SECURITY.md)。剩余：演示视频）
 - [x] 补全 7.1：删除知识库与文档（数据库事务 + 清理任务发件箱，派生存储故障时删除照样成功，见 docs/decisions/0026）
 - [x] 补全 7.2：Agent 把沙盒里画的图、算的表作为附件交给用户（见 docs/decisions/0027）
+- [x] 补全 7.3：删除对话（文件、工作空间、checkpoint 一并清理，用量统计保留，见 docs/decisions/0028）
 
 详见 [ROADMAP.md](ROADMAP.md)。

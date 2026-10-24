@@ -10,6 +10,7 @@ worker 里跑着受模型输出影响的逻辑，所以 worker 不能拿 socket�
 - GET  /workspaces/{id}/file?path=…                  → 文本内容
 - GET  /workspaces/{id}/file/raw?path=…              → 原始字节（交给用户下载的文件，最多 5MB）
 - PUT  /workspaces/{id}/file  {path, content}         → 写入
+- DELETE /workspaces/{id}                             → 删除整个工作空间（对话被删除时，幂等）
 文件路径不放进 URL 的路径部分：HTTP 客户端会把 URL 里的 .. 规范化掉，“../../<别的对话>/files/x”
 会变成访问另一个工作空间（第一版就是这样，测试发现）。放在查询参数 / 请求体里，原样到达这里再校验。
 启动：uvicorn agentnexus.sandbox.app:app（compose 的 sandbox 服务）
@@ -95,6 +96,11 @@ def create_app(sandbox: DockerSandbox, token: str, *, concurrency: int = 4) -> F
         except files.PathError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         return Response(data, media_type="application/octet-stream")
+
+    @api.delete("/workspaces/{workspace_id}", status_code=204)
+    async def delete_workspace(workspace_id: str):
+        path = workspace(workspace_id)
+        await asyncio.to_thread(files.remove_workspace, path)
 
     @api.put("/workspaces/{workspace_id}/file")
     async def write_file(workspace_id: str, body: WriteRequest):

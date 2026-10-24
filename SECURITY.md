@@ -43,6 +43,7 @@ AgentNexus 是一个求职用的个人项目，按“企业内部部署”的威
 ### 删除数据（[decisions/0026](docs/decisions/0026-deletion-and-purge.md)）
 - 知识库所有者可以删除文档或整个知识库。数据库里的文档、分块、图谱、抽取缓存在一个事务里删除，提交后所有读取路径都看不到。
 - 同一事务里写入一条清理任务：worker 删除 Qdrant 的点、原件、Neo4j 里的图，失败退避重试直到完成。实测停掉 Qdrant 时删除照样成功，恢复后 7 秒内清理完。
+- 对话可以删除（[decisions/0028](docs/decisions/0028-delete-conversations.md)）：消息、运行记录、产物立即删除；产物原件、沙盒工作空间、LangGraph checkpoint 由清理任务删除。用量明细（只有 token 数和费用）保留，用于计费与统计。
 
 ### 代码执行（[decisions/0021](docs/decisions/0021-tools-sandbox-mcp.md)）
 - 只有 sandbox 服务持有 Docker socket（持有 socket 等于宿主机 root），api 和 worker 都没有，调用要带令牌。

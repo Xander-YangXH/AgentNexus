@@ -12,6 +12,8 @@ Qdrant 的点、原件文件、Neo4j 的图是派生副本。删除分两步：
 要么静默留下残余（Qdrant 里没人引用的点还会占掉检索的候选名额）。发件箱让“删除成功”只取决于数据库事务，
 “清理一定会发生”由任务保证。实验（eval/deletion_exp/scale.py）：10 万个分块的知识库在事务里删除约 1.2 秒，
 所以第 1 步同步做是可以接受的。
+
+删除对话（阶段 7.3，decisions/0028）走同一套：派生副本是产物原件、沙盒工作空间、LangGraph checkpoint。
 """
 
 import logging
@@ -74,15 +76,21 @@ async def prune_graph(session: AsyncSession, kb_id: uuid.UUID) -> None:
 
 
 class PurgeService:
-    """执行清理任务（worker 里）。"""
+    """执行清理任务（worker 里）。
+
+    sandbox、checkpointer 只在 worker 里有（assembly 在 worker 分支里设置）：对话的清理任务需要它们，
+    缺了就失败、退避重试，不会“当作清理完了”。
+    """
 
     def __init__(self, sessionmaker: async_sessionmaker, index: ChunkIndex, blobs: BlobStore,
                  graph_store: Neo4jGraphStore, *, lease_seconds: float = 30.0, retry_base_seconds: float = 5.0,
-                 retry_max_seconds: float = 600.0):
+                 retry_max_seconds: float = 600.0, sandbox=None, checkpointer=None):
         self.sessionmaker = sessionmaker
         self.index = index
         self.blobs = blobs
         self.graph_store = graph_store
+        self.sandbox = sandbox  # SandboxClient；没有部署沙盒时为 None（也就不会有工作空间）
+        self.checkpointer = checkpointer
         self.retry_base = retry_base_seconds
         self.retry_max = retry_max_seconds
         self.queue = LeaseQueue(sessionmaker, PurgeJob, pending=PurgeStatus.PENDING, running=PurgeStatus.RUNNING,
@@ -102,7 +110,8 @@ class PurgeService:
             # 退避重试：5 秒、10 秒、20 秒……最多 10 分钟。不设次数上限：删除必须最终完成
             delay = min(self.retry_base * 2 ** max(job.attempts - 1, 0), self.retry_max)
             log.warning("purge %s of %s failed (attempt %d), retrying in %.0fs", task.kind,
-                        task.document_id or task.knowledge_base_id, job.attempts, delay, exc_info=True)
+                        task.document_id or task.knowledge_base_id or task.conversation_id, job.attempts, delay,
+                        exc_info=True)
             async with self.sessionmaker() as session, session.begin():
                 await session.execute(update(PurgeJob).where(self.queue.fenced(job)).values(
                     status=PurgeStatus.PENDING, lease_expires_at=None,
@@ -110,11 +119,15 @@ class PurgeService:
             return True
         async with self.sessionmaker() as session, session.begin():
             await session.execute(delete(PurgeJob).where(self.queue.fenced(job)))
-        log.info("purged %s %s (%d file(s))", task.kind, task.document_id or task.knowledge_base_id, len(task.blob_keys))
+        log.info("purged %s %s (%d file(s))", task.kind,
+                 task.document_id or task.knowledge_base_id or task.conversation_id, len(task.blob_keys))
         return True
 
     async def _purge(self, task: PurgeJob) -> None:
         # 每一步都幂等：重试时从头再做一遍也没问题
+        if task.kind == PurgeKind.CONVERSATION:
+            await self._purge_conversation(task)
+            return
         if task.kind == PurgeKind.DOCUMENT:
             await self.index.delete_document(task.document_id)
         else:
@@ -122,6 +135,17 @@ class PurgeService:
         for key in task.blob_keys:
             await self.blobs.delete(key)
         await self._sync_graph(task.knowledge_base_id)
+
+    async def _purge_conversation(self, task: PurgeJob) -> None:
+        for key in task.blob_keys:  # 产物原件（调研报告、交付的图表）
+            await self.blobs.delete(key)
+        if task.run_ids:
+            if self.checkpointer is None:
+                raise RuntimeError("checkpointer is not available in this process")
+            for run_id in task.run_ids:
+                await self.checkpointer.adelete_thread(run_id)  # thread_id 就是 run_id（0006）；幂等
+        if self.sandbox is not None:
+            await self.sandbox.delete_workspace(str(task.conversation_id))
 
     async def _sync_graph(self, kb_id: uuid.UUID) -> None:
         """按 PostgreSQL 重写 Neo4j 里这个知识库的图（知识库已删除则整体删掉）。"""

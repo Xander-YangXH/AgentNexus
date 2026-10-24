@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeDocumentError, describeLoginError } from '../utils/errors'
+import { describeDocumentError, describeLoginError, describeRequestError } from '../utils/errors'
 
 describe('login errors', () => {
   it('does not tell whether the user exists', () => {
@@ -24,3 +24,10 @@ describe('document errors', () => {
     expect(describeDocumentError('something_new')).toBe(describeDocumentError('internal'))
   })
 })
+
+describe('request errors', () => {
+  it('explains why a conversation cannot be deleted while a reply is in progress', () => {
+    expect(describeRequestError('run_conflict')).toContain('请先停止')
+  })
+})
+

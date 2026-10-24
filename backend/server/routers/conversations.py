@@ -59,6 +59,15 @@ async def update_conversation(
     return await svc.update(user_id, conversation_id, **kwargs)
 
 
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: uuid.UUID, user_id: CurrentUser, svc: ConversationService = Depends(get_conversation_service)
+):
+    """删除对话（decisions/0028）：消息、运行记录、产物立即删除；产物原件、沙盒工作空间、checkpoint 由后台清理。
+    有进行中的 run 时 409（先停止）。"""
+    await svc.delete(user_id, conversation_id)
+
+
 @router.get("/conversations/{conversation_id}/knowledge-bases", response_model=ConversationKnowledgeBases)
 async def get_conversation_knowledge_bases(
     conversation_id: uuid.UUID, user_id: CurrentUser, svc: ConversationService = Depends(get_conversation_service)

@@ -1,5 +1,6 @@
 """工作目录里的文件读写（由 sandbox 服务直接操作，不起容器）。路径必须落在工作空间内。"""
 
+import shutil
 from pathlib import Path
 
 MAX_FILE_BYTES = 1024 * 1024  # 读写单个文件的上限
@@ -51,6 +52,12 @@ def read_bytes(workspace: Path, relative: str, max_bytes: int) -> bytes:
     if target.stat().st_size > max_bytes:
         raise PathError(f"file larger than {max_bytes} bytes")
     return target.read_bytes()
+
+
+def remove_workspace(workspace: Path) -> None:
+    """删除整个工作空间（对话被删除时，decisions/0028）。不存在也算成功：清理任务会重试。"""
+    if workspace.exists():
+        shutil.rmtree(workspace)
 
 
 def write_text(workspace: Path, relative: str, content: str) -> int:

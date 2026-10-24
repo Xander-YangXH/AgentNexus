@@ -204,6 +204,16 @@ async def test_only_the_owner_can_delete_and_deletion_reaches_other_members_link
     assert sorted(kinds) == ["document", "knowledge_base"]
 
 
+async def test_only_the_owner_can_delete_a_conversation(api):
+    c, org, _ = api
+    alice, bob = _h(org, "alice"), _h(org, "bob")
+    conv = org["conv"]
+    assert (await c.delete(f"/api/conversations/{conv}", headers=bob)).status_code == 404
+    assert (await c.delete(f"/api/conversations/{conv}", headers=alice)).status_code == 204
+    assert (await c.get(f"/api/conversations/{conv}/messages", headers=alice)).status_code == 404
+    assert (await c.delete(f"/api/conversations/{conv}", headers=alice)).status_code == 404
+
+
 async def test_usage_scopes_by_role(api):
     c, org, _ = api
     get = lambda who, **q: c.get("/api/usage/summary", params=q, headers=_h(org, who))

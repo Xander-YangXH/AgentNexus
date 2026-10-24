@@ -9,12 +9,24 @@ import pytest_asyncio
 from sqlalchemy import func, select, update
 
 from agentnexus.knowledge.graph.extraction import FakeGraphExtractor
-from agentnexus.services.errors import DocumentNotFound, GraphBuildInProgress, KnowledgeBaseNotFound
+from agentnexus.services.conversations import ConversationService
+from agentnexus.services.errors import (
+    ConversationNotFound,
+    DocumentNotFound,
+    GraphBuildInProgress,
+    KnowledgeBaseNotFound,
+    RunConflict,
+)
+from agentnexus.services.usage import usage_insert
 from agentnexus.services.graph import GraphService
 from agentnexus.services.knowledge import KnowledgeService
 from agentnexus.services.purge import PurgeService
 from agentnexus.storage.blobs import BlobNotFound, LocalBlobStore
 from agentnexus.storage.postgres import (
+    AgentRun,
+    Artifact,
+    Conversation,
+    ConversationKnowledgeBase,
     Document,
     DocumentChunk,
     GraphEntity,
@@ -22,8 +34,12 @@ from agentnexus.storage.postgres import (
     GraphMention,
     GraphRelation,
     KnowledgeBase,
+    Message,
     PurgeJob,
     PurgeStatus,
+    RunStatus,
+    UsageEvent,
+    UsageKind,
 )
 from agentnexus.storage.vectors import ChunkIndex
 from tests.fakes import FakeEmbedder
@@ -275,3 +291,96 @@ async def test_purge_is_idempotent(env, user, sessionmaker):
 async def _get(sessionmaker, job_id):
     async with sessionmaker() as s:
         return await s.get(PurgeJob, job_id)
+
+
+# ---------- 对话（阶段 7.3，decisions/0028） ----------
+
+class FakeCheckpointer:
+    def __init__(self):
+        self.deleted = []
+
+    async def adelete_thread(self, thread_id):
+        self.deleted.append(thread_id)
+
+
+class FakeSandbox:
+    def __init__(self):
+        self.deleted = []
+
+    async def delete_workspace(self, workspace_id):
+        self.deleted.append(workspace_id)
+
+
+async def _conversation(sessionmaker, user, kb_id, blobs, *, status=RunStatus.SUCCEEDED):
+    """一个用过的对话：两条消息、两次 run（一次的 checkpoint 已被清理）、一个产物、关联一个知识库、一条用量。"""
+    async with sessionmaker() as s, s.begin():
+        conv = Conversation(user_id=user.id, title="要删除的对话")
+        s.add(conv)
+        await s.flush()
+        q, a = Message(conversation_id=conv.id, role="user", content="问题"), Message(conversation_id=conv.id, role="assistant", content="回答")
+        s.add_all([q, a])
+        await s.flush()
+        old = AgentRun(conversation_id=conv.id, input_message_id=q.id, status=RunStatus.SUCCEEDED,
+                       checkpoint_purged_at=func.now())
+        run = AgentRun(conversation_id=conv.id, input_message_id=q.id, output_message_id=a.id, status=status)
+        s.add_all([old, run])
+        await s.flush()
+        artifact = Artifact(id=uuid.uuid4(), user_id=user.id, conversation_id=conv.id, run_id=run.id, filename="chart.png",
+                            content_type="image/png", size=3, blob_key=f"artifacts/{uuid.uuid4()}")
+        s.add(artifact)
+        s.add(ConversationKnowledgeBase(conversation_id=conv.id, knowledge_base_id=kb_id))
+        await s.execute(usage_insert(user.id, UsageKind.LLM, "chat", run_id=run.id, input_tokens=100, output_tokens=10))
+    await blobs.put(artifact.blob_key, b"png")
+    return conv, run, artifact
+
+
+async def test_deleting_a_conversation_removes_its_data_and_queues_cleanup(env, user, sessionmaker):
+    knowledge, purge, kb, _ = env
+    conv, run, artifact = await _conversation(sessionmaker, user, kb.id, knowledge.blobs)
+    convs = ConversationService(sessionmaker)
+
+    await convs.delete(user.id, conv.id)
+    with pytest.raises(ConversationNotFound):
+        await convs.messages(user.id, conv.id)
+    async with sessionmaker() as s:
+        for model in (Message, AgentRun, Artifact, ConversationKnowledgeBase):
+            assert await s.scalar(select(func.count()).select_from(model).where(model.conversation_id == conv.id)) == 0
+        # 用量明细保留：只有数字、没有内容，删除对话不改变已经发生的费用
+        assert await s.scalar(select(func.count()).where(UsageEvent.run_id == run.id)) == 1
+        job = await s.scalar(select(PurgeJob).where(PurgeJob.conversation_id == conv.id))
+    assert (job.kind, job.blob_keys, job.run_ids) == ("conversation", [artifact.blob_key], [str(run.id)])  # 已清理的 checkpoint 不再列出
+    assert await knowledge.get_kb(user.id, kb.id)  # 关联的知识库本身不受影响
+
+    purge.checkpointer, purge.sandbox = FakeCheckpointer(), FakeSandbox()
+    assert await purge.process(job.id)
+    assert purge.checkpointer.deleted == [str(run.id)] and purge.sandbox.deleted == [str(conv.id)]
+    assert not await _blob_exists(knowledge.blobs, artifact.blob_key)
+    async with sessionmaker() as s:
+        assert await s.get(PurgeJob, job.id) is None
+
+
+async def test_conversation_cleanup_waits_for_the_worker_parts(env, user, sessionmaker):
+    """api 进程里没有 checkpointer：这类任务失败、退避重试，不会被当成“清理完了”。"""
+    knowledge, purge, kb, _ = env
+    conv, run, _ = await _conversation(sessionmaker, user, kb.id, knowledge.blobs)
+    await ConversationService(sessionmaker).delete(user.id, conv.id)
+    async with sessionmaker() as s:
+        job = await s.scalar(select(PurgeJob).where(PurgeJob.conversation_id == conv.id))
+    assert await purge.process(job.id)  # purge.checkpointer 为 None
+    async with sessionmaker() as s:
+        job = await s.get(PurgeJob, job.id)
+    assert job.status == PurgeStatus.PENDING and "checkpointer" in job.last_error
+
+
+async def test_a_conversation_with_an_active_run_or_of_someone_else_cannot_be_deleted(env, user, sessionmaker):
+    knowledge, _, kb, _ = env
+    convs = ConversationService(sessionmaker)
+    for status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.AWAITING_APPROVAL):
+        conv, _, _ = await _conversation(sessionmaker, user, kb.id, knowledge.blobs, status=status)
+        with pytest.raises(RunConflict):
+            await convs.delete(user.id, conv.id)
+    with pytest.raises(ConversationNotFound):
+        await convs.delete(uuid.uuid4(), conv.id)  # 不是自己的与不存在一样
+    async with sessionmaker() as s:
+        assert await s.get(Conversation, conv.id) is not None
+

@@ -139,6 +139,8 @@ export const api = {
     request<KnowledgeBase>('PATCH', `/api/knowledge-bases/${kbId}`, { visibility }),
   listConversations: (archived = false) =>
     request<Conversation[]>('GET', `/api/conversations${archived ? '?archived=true' : ''}`),
+  // 删除对话（decisions/0028）：消息、运行记录、产物立即删除；文件、工作空间、checkpoint 由后台清理
+  deleteConversation: (cid: string) => request<null>('DELETE', `/api/conversations/${cid}`),
   updateConversation: (cid: string, patch: { title?: string | null; archived?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${cid}`, patch),
   createConversation: (title: string | null, agent: AgentKind = 'chat') =>

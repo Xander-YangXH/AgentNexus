@@ -42,6 +42,7 @@ export function describeDocumentError(code: string | null | undefined): string {
 // 知识库接口的 4xx 错误码 → 用户能看懂的提示（后端 message 是英文，给开发者看的）
 const REQUEST_COPY: Record<string, string> = {
   document_exists: '这个知识库里已经有内容完全相同的文件',
+  run_conflict: '这个对话还有进行中的回复（生成中或等待审批），请先停止或等它结束',
   file_too_large: '文件太大（默认上限 10MB）',
   unsupported_file_type: '只支持 .txt .md .pdf .docx',
   empty_file: '文件是空的',

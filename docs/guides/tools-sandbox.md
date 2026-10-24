@@ -89,6 +89,5 @@ tool.started python_exec  import pandas as pd, matplotlib ← 修正图的标签
 10. 新对话第一步执行代码写不了文件，根因是什么？为什么本机测试和 4.2 的验证都没发现？
 
 ## 8. 已知局限
-- 删除对话时不清理工作空间。
 - 网关暂时只接了 fetch，不支持需要密钥的 MCP 服务。
 - sandbox 服务仍然持有 socket：它本身的漏洞仍是高风险点。它很小、不处理模型的自由文本（只接收代码字符串和路径），但更强的隔离（gVisor、Firecracker 等）留待以后评估。

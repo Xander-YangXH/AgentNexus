@@ -431,6 +431,7 @@ class GraphMention(Base):
 class PurgeKind(enum.StrEnum):
     DOCUMENT = "document"
     KNOWLEDGE_BASE = "knowledge_base"
+    CONVERSATION = "conversation"  # 阶段 7.3（decisions/0028）
 
 
 class PurgeStatus(enum.StrEnum):
@@ -454,9 +455,12 @@ class PurgeJob(LeaseMixin, Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     kind: Mapped[str] = mapped_column(String(16))
-    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # 删除单篇文档时
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # 删除对话时：删它的沙盒工作空间
     blob_keys: Mapped[list] = mapped_column(JSONB)
+    # 删除对话时：还没被清理的 checkpoint（thread_id = run_id）
+    run_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     status: Mapped[str] = mapped_column(String(16), default=PurgeStatus.PENDING, server_default=PurgeStatus.PENDING.value)
     not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 失败后退避：这之前不认领
     last_error: Mapped[str | None] = mapped_column(Text)

@@ -122,7 +122,7 @@ docs/                           decisions（ADR）、guides（走读）、dev-lo
 8. **迁移只往前加**；新表要等 migrate 服务执行 `storage/roles.py` 后 api / worker 才有权限。
 9. **前端不保存业务状态**：流式、审批、接管的状态在纯函数状态机里，终态以接口返回的数据库状态为准；样式只用设计 token。
 10. **安全检查出错时拒绝，不放行**：登录限流计不了数返回 503；不可信文件的解析在子进程里，超时或超内存就判失败。
-11. **删除走发件箱**：删除数据库里的事实数据时，在同一事务里写清理任务（`purge_jobs`），派生副本（Qdrant、原件、Neo4j）由 worker 清理；不要在请求里直接删派生存储。
+11. **删除走发件箱**：删除数据库里的事实数据时，在同一事务里写清理任务（`purge_jobs`），派生副本（Qdrant、原件、Neo4j、沙盒工作空间、checkpoint）由 worker 清理；不要在请求里直接删派生存储。
 
 ## 6. 横切关注点
 - **认证**：服务端会话（会话表存令牌哈希）+ HttpOnly / SameSite=Lax Cookie；写请求校验 Origin。密码 argon2id，在线程池里计算。登录限流按“账号 + IP”和按 IP 计数（Redis），客户端 IP 取 Nginx 覆盖的 `X-Real-IP`。威胁模型与已知局限见 `SECURITY.md`。

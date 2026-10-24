@@ -71,6 +71,19 @@ export function useChat() {
     await loadConversations() // 归档后从当前列表消失 / 恢复后回到未归档列表
   }
 
+  async function deleteConversation(cid: string) {
+    await api.deleteConversation(cid)
+    if (conversationId.value === cid) {
+      stopStream()
+      conversationId.value = null
+      conversation.value = null
+      messages.value = []
+      runs.value = []
+      pending.value = null
+    }
+    await loadConversations()
+  }
+
   function replaceConversation(c: Conversation) {
     conversations.value = conversations.value.map((x) => (x.id === c.id ? c : x))
     if (conversationId.value === c.id) conversation.value = c
@@ -279,6 +292,7 @@ export function useChat() {
     toggleArchivedView,
     rename,
     setArchived,
+    deleteConversation,
     messages,
     knowledgeBases,
     conversationKbIds,

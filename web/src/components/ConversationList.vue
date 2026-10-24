@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 对话列表（decisions/0024）：按最近活动分组（今天 / 昨天 / 最近 7 天 / 更早），可搜索；调研对话带图标
 import { EllipsisOutlined, ExperimentOutlined, MessageOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { Modal } from 'ant-design-vue'
 import { computed, ref } from 'vue'
 import type { AgentKind, Conversation } from '../api/types'
 import { conversationLabel, groupByRecency, matches } from '../composables/conversations'
@@ -11,6 +12,7 @@ const emit = defineEmits<{
   create: [agent: AgentKind]
   rename: [id: string, title: string | null]
   archive: [id: string, archived: boolean]
+  delete: [id: string]
   toggleArchived: [value: boolean]
 }>()
 
@@ -32,7 +34,20 @@ function confirmRename() {
 
 function onAction(c: Conversation, key: string) {
   if (key === 'rename') startRename(c)
+  else if (key === 'delete') confirmDelete(c)
   else emit('archive', c.id, key === 'archive')
+}
+
+// 删除不可恢复（decisions/0028），所以要确认；只想收起来用“归档”
+function confirmDelete(c: Conversation) {
+  Modal.confirm({
+    title: `删除「${conversationLabel(c)}」？`,
+    content: '消息、生成的文件和调研报告会一起删除，无法恢复。只是不想看到它，可以用“归档”。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: () => emit('delete', c.id),
+  })
 }
 </script>
 
@@ -77,6 +92,7 @@ function onAction(c: Conversation, key: string) {
                 <a-menu-item key="rename">重命名</a-menu-item>
                 <a-menu-item v-if="!c.archived_at" key="archive">归档</a-menu-item>
                 <a-menu-item v-else key="unarchive">恢复</a-menu-item>
+                <a-menu-item key="delete" danger>删除</a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>

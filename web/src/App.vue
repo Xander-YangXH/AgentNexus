@@ -10,7 +10,7 @@ import KnowledgePanel from './components/KnowledgePanel.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import NavRail, { type View } from './components/NavRail.vue'
 import { useChat } from './composables/useChat'
-import { describeLoginError } from './utils/errors'
+import { describeLoginError, describeRequestError } from './utils/errors'
 import { antdTheme } from './theme/tokens'
 import { provideTheme } from './theme/useTheme'
 
@@ -43,7 +43,7 @@ onUnauthorized(() => {
   }
 })
 
-const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
+const describe = (e: unknown) => (e instanceof HttpError ? (describeRequestError(e.code) ?? e.describe()) : String(e))
 
 function run(action: Promise<unknown>) {
   action.catch((e) => message.error(describe(e)))
@@ -101,6 +101,7 @@ onMounted(() =>
             @create="createConversation"
             @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
             @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
+            @delete="(id: string) => run(chat.deleteConversation(id))"
             @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
           />
         </aside>
@@ -114,6 +115,7 @@ onMounted(() =>
             @create="createConversation"
             @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
             @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
+            @delete="(id: string) => run(chat.deleteConversation(id))"
             @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
           />
         </a-drawer>

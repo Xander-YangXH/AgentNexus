@@ -101,6 +101,21 @@ async def test_raw_bytes_for_files_shared_with_the_user(sandbox):
         await client.read_bytes(_ws(), "chart.png")  # 别的对话的工作空间里没有这个文件
 
 
+async def test_deleting_a_workspace_removes_only_that_workspace(sandbox):
+    """删除对话时清理它的工作空间（decisions/0028）：幂等，别的对话不受影响。"""
+    client, _, root = sandbox
+    a, b = _ws(), _ws()
+    await client.write_file(a, "data/x.csv", "1")
+    await client.execute(a, "open('chart.png', 'wb').write(b'png')")  # 沙盒里 nobody 写的文件也要删得掉
+    await client.write_file(b, "keep.txt", "2")
+    await client.delete_workspace(a)
+    assert not (root / a).exists()
+    await client.delete_workspace(a)  # 再删一次：重试的清理任务不会失败
+    assert await client.read_file(b, "keep.txt") == "2"
+    with pytest.raises(ValueError):
+        await client.delete_workspace("../" + b)  # 客户端先校验必须是 UUID
+
+
 async def test_path_and_workspace_validation(sandbox):
     client, _, root = sandbox
     ws = _ws()
