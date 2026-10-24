@@ -23,7 +23,7 @@ AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上�
 | 前端 | Vue 3 + Vite + Ant Design Vue |
 | 后端 API | FastAPI |
 | Agent 编排 | LangGraph（checkpoint 续做、interrupt 审批、Send 并行子 Agent）+ LangChain 模型适配 |
-| 向量检索 | Qdrant |
+| 检索 | Qdrant：稠密向量 + 关键词稀疏向量，服务端 RRF 融合，再重排 |
 | 关系型存储 | PostgreSQL（事实来源；行级安全做第二道隔离）|
 | 任务队列 | PostgreSQL 租约队列（SKIP LOCKED + 心跳 + fencing token，实验后替代 ARQ）|
 | 实时事件 | Redis Streams + SSE（断线续传）|
@@ -107,5 +107,6 @@ AgentNexus/
 - [x] 补全 7.1：删除知识库与文档（数据库事务 + 清理任务发件箱，派生存储故障时删除照样成功，见 docs/decisions/0026）
 - [x] 补全 7.2：Agent 把沙盒里画的图、算的表作为附件交给用户（见 docs/decisions/0027）
 - [x] 补全 7.3：删除对话（文件、工作空间、checkpoint 一并清理，用量统计保留，见 docs/decisions/0028）
+- [x] 补全 7.5：混合检索（稠密向量 + 关键词，大语料下精确词查询的候选召回 0.70 → 1.00，见 docs/decisions/0029）
 
 详见 [ROADMAP.md](ROADMAP.md)。

@@ -49,7 +49,7 @@
 - 二分切长句时只对不超过“上限 × 6”个字符的前缀计数，避免每切一段都把剩下的几 MB 重新分词，否则耗时会随长度平方增长。
 
 ### 7. 重建索引：新集合 + 原子切换别名 + 补录
-- 命令：`docker compose exec api python -m agentnexus.knowledge.reindex`。
+- 命令：`docker compose exec worker python -m agentnexus.knowledge.reindex`（阶段 5 起必须在 worker 里运行：api 的数据库角色受 RLS 约束；见 0029 的踩坑记录）。
 - 用途：换模型，或 Qdrant 数据丢失、与数据库不一致。
 - 步骤：
   1. 建新集合；

@@ -1,7 +1,11 @@
 """从 PostgreSQL 重建 Qdrant 索引（decisions/0016）。
 
-什么时候用：换了 embedding 模型（维度或语义变了）、Qdrant 数据丢了或怀疑和数据库不一致。
-用法（在 api 容器里）：docker compose exec api python -m agentnexus.knowledge.reindex
+什么时候用：换了 embedding 模型（维度或语义变了）、Qdrant 数据丢了或怀疑和数据库不一致、
+旧集合没有关键词向量（阶段 7.5 的混合检索，decisions/0029）。
+用法（在 worker 容器里）：docker compose exec worker python -m agentnexus.knowledge.reindex
+不能在 api 容器里运行：api 的数据库角色受行级安全约束（0023），没有“当前用户”时一行分块也看不到。
+阶段 7.5 实测踩过：在 api 里运行，建出一个空集合、切换别名、删掉了旧索引。现在有两道保护：
+启动时检查数据库角色能否绕过行级安全；新索引为空而旧索引有数据时不切换。
 
 做法：建一个新集合 → 把所有 ready 文档的分块重新向量化写进去 → 原子地把别名切到新集合 → 删旧集合。
 切换前检索一直用旧集合，不中断。重建期间新完成的文档写进的是旧集合，所以切换后按“完成时间不早于开始时间”
@@ -27,6 +31,21 @@ log = logging.getLogger(__name__)
 BATCH = 256
 
 
+class EmptyRebuild(RuntimeError):
+    """新索引是空的、旧索引却有数据：不切换。"""
+
+
+async def check_role(sessionmaker: async_sessionmaker) -> None:
+    """当前数据库角色必须能看到所有知识库的分块：超级用户、BYPASSRLS，或者表的所有者。"""
+    async with sessionmaker() as session:
+        ok = await session.scalar(text(
+            "SELECT r.rolsuper OR r.rolbypassrls OR c.relowner = r.oid "
+            "FROM pg_roles r, pg_class c WHERE r.rolname = current_user AND c.relname = 'document_chunks'"))
+    if not ok:
+        raise SystemExit("this database role is subject to row-level security and cannot see all chunks; "
+                         "run the reindex in the worker container")
+
+
 async def rebuild(sessionmaker: async_sessionmaker, embedder: Embedder, index: ChunkIndex) -> int:
     """返回写入的点数。"""
     async with sessionmaker() as session:
@@ -34,6 +53,12 @@ async def rebuild(sessionmaker: async_sessionmaker, embedder: Embedder, index: C
     new = await index.create_collection()
     try:
         n = await _fill(sessionmaker, embedder, index, new, since=None)
+        current = await index.current_collection()
+        existing = (await index.client.count(current, exact=True)).count if current else 0
+        if n == 0 and existing > 0:
+            # 数据库里一个分块都没读到，而现有索引里有数据：多半是看不到数据（角色、连错库），不能拿空索引替换
+            raise EmptyRebuild(f"read 0 chunks from the database but the current index has {existing} points; "
+                               "refusing to replace it (run this in the worker container)")
     except BaseException:
         await index.drop(new)  # 没切换之前失败：删掉半成品，旧索引不受影响
         raise
@@ -66,7 +91,7 @@ async def _fill(sessionmaker, embedder: Embedder, index: ChunkIndex, collection:
             return total
         vectors = await asyncio.to_thread(embedder.embed_documents, [r.text for r in rows])
         await index.upsert(
-            [ChunkPoint(r.id, r.knowledge_base_id, r.document_id, v) for r, v in zip(rows, vectors, strict=True)],
+            [ChunkPoint(r.id, r.knowledge_base_id, r.document_id, v, r.text) for r, v in zip(rows, vectors, strict=True)],
             collection=collection,
         )
         total += len(rows)
@@ -88,7 +113,9 @@ async def _main() -> None:
     embedder = FastEmbedder(settings.embedding_model)
     qdrant = AsyncQdrantClient(url=settings.qdrant_url, timeout=60)
     try:
-        n = await rebuild(make_sessionmaker(engine), embedder, ChunkIndex(qdrant, settings.qdrant_collection, embedder.dim))
+        sessionmaker = make_sessionmaker(engine)
+        await check_role(sessionmaker)
+        n = await rebuild(sessionmaker, embedder, ChunkIndex(qdrant, settings.qdrant_collection, embedder.dim))
         print(f"reindexed {n} chunk(s) into alias {settings.qdrant_collection!r}")
     finally:
         await qdrant.close()

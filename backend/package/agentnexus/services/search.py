@@ -68,7 +68,9 @@ class SearchService:
         with _timer(timings, "embed"):
             vector = await asyncio.to_thread(self.embedder.embed_query, query)
         with _timer(timings, "vector"):
-            scored = await self.index.search(vector, kb_ids, limit=max(top_k, self.candidates) if rerank else top_k)
+            # 混合检索（decisions/0029）：稠密向量 + 关键词，在 Qdrant 里按排名融合
+            scored = await self.index.search(vector, kb_ids, limit=max(top_k, self.candidates) if rerank else top_k,
+                                             text=query)
         with _timer(timings, "fetch"):
             hits = await self._fetch(scored, kb_ids)
         if rerank and hits:

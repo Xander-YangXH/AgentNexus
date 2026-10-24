@@ -79,9 +79,9 @@ async def test_candidate_count_depends_on_rerank(kb_env, user, monkeypatch):
     limits = []
     original = ChunkIndex.search
 
-    async def spy(self, vector, kb_ids, *, limit):
+    async def spy(self, vector, kb_ids, *, limit, text=None):
         limits.append(limit)
-        return await original(self, vector, kb_ids, limit=limit)
+        return await original(self, vector, kb_ids, limit=limit, text=text)
 
     monkeypatch.setattr(ChunkIndex, "search", spy)
     await _search(knowledge, KeywordReranker("x"), candidates=8).search(user.id, [kb.id], "退货", top_k=2)
