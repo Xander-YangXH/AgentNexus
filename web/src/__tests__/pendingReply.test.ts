@@ -131,6 +131,37 @@ describe('research approval and progress (decisions/0022)', () => {
   })
 })
 
+describe('tool steps timeline (decisions/0024)', () => {
+  const started = (name: string, detail: string, subtask?: number) =>
+    ({ type: 'tool.started', data: { name, query: '', detail, subtask }, id: null }) as RunEvent
+  const finished = (name: string, ok: boolean, subtask?: number) =>
+    ({ type: 'tool.finished', data: { name, hits: 0, ok, subtask }, id: null }) as RunEvent
+
+  it('records each call in order and marks it done or failed', () => {
+    let p = applyRunEvent(newPending('r', 0), started('load_skill', 'data-analysis'))
+    p = applyRunEvent(p, finished('load_skill', true))
+    p = applyRunEvent(p, started('python_exec', 'import pandas'))
+    p = applyRunEvent(p, finished('python_exec', false))
+    expect(p.steps.map((s) => [s.name, s.detail, s.status])).toEqual([
+      ['load_skill', 'data-analysis', 'done'],
+      ['python_exec', 'import pandas', 'failed'],
+    ])
+  })
+
+  it('matches finished events to the right parallel subtask', () => {
+    let p = applyRunEvent(newPending('r', 0), started('fetch', 'https://a', 0))
+    p = applyRunEvent(p, started('fetch', 'https://b', 1))
+    p = applyRunEvent(p, finished('fetch', true, 1))
+    expect(p.steps.map((s) => [s.detail, s.status])).toEqual([['https://a', 'running'], ['https://b', 'done']])
+  })
+
+  it('clears the steps when another worker takes over', () => {
+    let p = applyRunEvent(newPending('r', 0), started('fetch', 'x'))
+    p = applyRunEvent(p, { type: 'run.resumed', data: { attempt: 2 }, id: null })
+    expect(p.steps).toEqual([])
+  })
+})
+
 describe('takeover (run.resumed)', () => {
   it('clears the partial text and ignores late events from the previous attempt', () => {
     let p = applyRunEvent(newPending('r', 0), tok('第一次执行的半截'))

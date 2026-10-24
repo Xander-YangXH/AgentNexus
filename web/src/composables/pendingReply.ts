@@ -28,6 +28,15 @@ import type { ResearchPlanRequest, RunEvent } from '../api/types'
 
 export type PendingStatus = 'waiting' | 'streaming' | 'awaiting' | 'completed' | 'failed' | 'cancelled'
 
+/** 一次工具调用（decisions/0024：界面上画成时间线，让“Agent 正在做什么”看得见） */
+export interface ToolStep {
+  name: string
+  label: string // 进行中的说法，如“正在执行代码”
+  detail: string // 参数摘要：检索词、网址、代码第一行……
+  status: 'running' | 'done' | 'failed'
+  subtask?: number // 调研：属于第几个子任务
+}
+
 export interface SubtaskProgress {
   title: string
   status: 'started' | 'finished' | 'failed'
@@ -44,12 +53,13 @@ export interface PendingReply {
   approval: ResearchPlanRequest | null // 等待审批的内容
   resumeFrom: string | null // 审批事件的 id：答复后从它之后重新订阅
   subtasks: SubtaskProgress[] // 调研子任务进度，按 index
+  steps: ToolStep[] // 本次回答的工具调用，按发生顺序
 }
 
 export function newPending(runId: string, now: number = Date.now()): PendingReply {
   return {
     runId, status: 'waiting', text: '', errorCode: null, startedAt: now, activity: null, attempt: 1,
-    approval: null, resumeFrom: null, subtasks: [],
+    approval: null, resumeFrom: null, subtasks: [], steps: [],
   }
 }
 
@@ -68,9 +78,26 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   fetch: ['正在抓取网页', '网页已获取'],
 }
 
+export function toolLabel(name: string): string {
+  return TOOL_LABELS[name]?.[0] ?? `正在调用 ${name}`
+}
+
 export function toolActivity(name: string, detail: string): string {
-  const label = TOOL_LABELS[name]?.[0] ?? `正在调用 ${name}`
+  const label = toolLabel(name)
   return detail ? `${label}：${detail}` : label
+}
+
+/** tool.finished 不带调用 id：按“同名、同子任务、还在进行中”的最后一个匹配（并行的同名调用顺序无关紧要，都会被结束） */
+function finishStep(steps: ToolStep[], name: string, subtask: number | undefined, ok: boolean): ToolStep[] {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i]
+    if (s.status === 'running' && s.name === name && s.subtask === subtask) {
+      const next = [...steps]
+      next[i] = { ...s, status: ok ? 'done' : 'failed' }
+      return next
+    }
+  }
+  return steps
 }
 
 function toolDone(name: string, hits: number, ok: boolean): string {
@@ -93,7 +120,7 @@ export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
   switch (e.type) {
     case 'run.resumed':
       if (e.data.attempt <= p.attempt) return p
-      return { ...p, status: 'waiting', text: '', attempt: e.data.attempt, activity: '执行中断，已由其他进程接着生成' }
+      return { ...p, status: 'waiting', text: '', attempt: e.data.attempt, steps: [], activity: '执行中断，已由其他进程接着生成' }
     case 'run.started':
       // 审批后的继续执行：回到等待输出
       return p.status === 'awaiting' ? { ...p, status: 'waiting', approval: null, activity: '已确认计划，开始执行' } : p
@@ -112,10 +139,15 @@ export function applyRunEvent(p: PendingReply, e: RunEvent): PendingReply {
       // 旧版后端只有 query，没有 detail
       const label = toolActivity(e.data.name, e.data.detail ?? e.data.query)
       const prefix = e.data.subtask !== undefined ? `子任务 ${e.data.subtask + 1} ` : ''
-      return { ...p, status: 'waiting', text: '', activity: prefix + label }
+      const step: ToolStep = {
+        name: e.data.name, label: toolLabel(e.data.name), detail: e.data.detail ?? e.data.query ?? '',
+        status: 'running', subtask: e.data.subtask,
+      }
+      return { ...p, status: 'waiting', text: '', activity: prefix + label, steps: [...p.steps, step] }
     }
     case 'tool.finished':
-      return { ...p, activity: toolDone(e.data.name, e.data.hits, e.data.ok) }
+      return { ...p, activity: toolDone(e.data.name, e.data.hits, e.data.ok),
+               steps: finishStep(p.steps, e.data.name, e.data.subtask, e.data.ok) }
     case 'run.completed':
       return { ...p, status: 'completed' }
     case 'run.failed':

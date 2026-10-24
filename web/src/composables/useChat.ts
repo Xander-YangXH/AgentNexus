@@ -50,6 +50,9 @@ export function useChat() {
 
   async function loadConversations() {
     conversations.value = await api.listConversations(showArchived.value)
+    // 当前对话的对象也要换成新的：第一条消息会自动成为标题，不同步的话顶部标题栏一直显示“新对话”（改版后发现）
+    const fresh = conversations.value.find((c) => c.id === conversationId.value)
+    if (fresh) conversation.value = fresh
   }
 
   async function toggleArchivedView(value: boolean) {
@@ -217,7 +220,9 @@ export function useChat() {
     error.value = null
     try {
       await api.answerApproval(p.runId, approved, feedback)
-      pending.value = { ...p, status: 'waiting', approval: null, activity: approved ? '已确认计划，等待执行' : '正在按意见修改计划' }
+      // 计时从答复时重新算：否则“已等待 N 秒”包含了用户看计划、思考的时间（改版后在浏览器里发现）
+      pending.value = { ...p, status: 'waiting', approval: null, startedAt: Date.now(),
+                        activity: approved ? '已确认计划，等待执行' : '正在按意见修改计划' }
       follow(p.runId, cid, p.startedAt, true)
     } catch (e) {
       error.value = e instanceof HttpError && e.status === 409 ? '这个计划已经处理过了（可能已取消或过期）' : `提交失败：${e instanceof HttpError ? e.describe() : String(e)}`

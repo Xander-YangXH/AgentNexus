@@ -1,0 +1,195 @@
+/*
+ * 全局样式（decisions/0024）。颜色一律用 theme/tokens.ts 写到 :root 的 CSS 变量，不写死。
+ * 这里只放：基础排版、Markdown 内容样式、几个全站通用的页面结构类。组件自己的样式写在组件里（scoped）。
+ */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--an-bg);
+  color: var(--an-text);
+  font-family: var(--an-font);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--an-primary-soft);
+}
+
+/* 细滚动条：长对话列表、消息区里默认滚动条太抢眼 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--an-border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 页面结构：标题区 + 内容卡片 ---------- */
+
+.an-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 28px 32px 40px;
+}
+.an-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.an-page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.an-page-subtitle {
+  margin: 4px 0 0;
+  color: var(--an-text-2);
+  font-size: 13px;
+}
+.an-card {
+  background: var(--an-surface);
+  border: 1px solid var(--an-border);
+  border-radius: 12px;
+  box-shadow: var(--an-shadow);
+}
+.an-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--an-border);
+  font-weight: 600;
+}
+.an-card-body {
+  padding: 16px 18px;
+}
+.an-muted {
+  color: var(--an-text-2);
+}
+.an-hint {
+  color: var(--an-text-3);
+  font-size: 12px;
+}
+
+/* ---------- Markdown 内容（助手回复、报告） ---------- */
+
+.an-md {
+  overflow-wrap: anywhere;
+  line-height: 1.75;
+}
+.an-md > :first-child {
+  margin-top: 0;
+}
+.an-md > :last-child {
+  margin-bottom: 0;
+}
+.an-md p {
+  margin: 0 0 12px;
+}
+.an-md h1,
+.an-md h2,
+.an-md h3,
+.an-md h4 {
+  margin: 20px 0 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.an-md h1 {
+  font-size: 20px;
+}
+.an-md h2 {
+  font-size: 17px;
+}
+.an-md h3,
+.an-md h4 {
+  font-size: 15px;
+}
+.an-md ul,
+.an-md ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+.an-md li + li {
+  margin-top: 4px;
+}
+.an-md a {
+  color: var(--an-primary);
+}
+.an-md code {
+  font-family: var(--an-mono);
+  font-size: 0.9em;
+  background: var(--an-surface-2);
+  border: 1px solid var(--an-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.an-md pre {
+  background: var(--an-code-bg);
+  color: var(--an-code-text);
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+.an-md pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+.an-md blockquote {
+  margin: 0 0 12px;
+  padding: 2px 14px;
+  border-left: 3px solid var(--an-border-strong);
+  color: var(--an-text-2);
+}
+.an-md table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  display: block;
+  overflow-x: auto;
+}
+.an-md th,
+.an-md td {
+  border: 1px solid var(--an-border);
+  padding: 6px 10px;
+}
+.an-md th {
+  background: var(--an-surface-2);
+  font-weight: 600;
+}
+.an-md hr {
+  border: 0;
+  border-top: 1px solid var(--an-border);
+  margin: 16px 0;
+}
+
+@media (max-width: 720px) {
+  .an-page {
+    padding: 20px 16px 32px;
+  }
+}

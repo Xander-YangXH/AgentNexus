@@ -7,6 +7,8 @@ import { api, HttpError } from '../api/http'
 import type { EntityDetail, GraphBuild, GraphData, GraphEstimate, GraphNode } from '../api/types'
 import { buildSummary, ENTITY_TYPES, formatUsd, isBuildActive, mergeGraph, typeColor } from '../composables/graph'
 import { describeGraphBuildError, describeRequestError } from '../utils/errors'
+import { PALETTES } from '../theme/tokens'
+import { useTheme } from '../theme/useTheme'
 
 // readonly：部门共享给我的知识库（decisions/0023），只能浏览，不能预估和构建（会花所有者的钱）
 const props = defineProps<{ kbId: string; readonly?: boolean }>()
@@ -160,30 +162,39 @@ async function findPath(target: { id: string; name: string }) {
   }
 }
 
+// 画布在 canvas 里绘制，读不到 CSS 变量：颜色直接取当前模式的 token，切换浅色 / 深色时重设样式（decisions/0024）
+const { mode } = useTheme()
+function graphStyle() {
+  const p = PALETTES[mode.value]
+  return [
+    {
+      selector: 'node',
+      style: {
+        'background-color': 'data(color)', label: 'data(label)', width: 'data(size)', height: 'data(size)',
+        'font-size': 11, 'text-valign': 'bottom', 'text-margin-y': 4, color: p.text,
+        'text-outline-color': p.surface, 'text-outline-width': 2,
+      },
+    },
+    {
+      selector: 'edge',
+      style: {
+        width: 1.2, 'line-color': p.borderStrong, 'target-arrow-color': p.borderStrong, 'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier', label: 'data(label)', 'font-size': 9, color: p.text3, 'text-rotation': 'autorotate',
+      },
+    },
+    { selector: '.dim', style: { opacity: 0.15 } },
+    { selector: 'node.focus', style: { 'border-width': 3, 'border-color': p.primary } },
+    { selector: '.path', style: { 'line-color': p.danger, 'target-arrow-color': p.danger, 'border-width': 3, 'border-color': p.danger, width: 3 } },
+  ] as cytoscape.StylesheetJson
+}
+watch(mode, () => cy?.style(graphStyle()))
+
 onMounted(() => {
   cy = cytoscape({
     container: container.value,
     minZoom: 0.2,
     maxZoom: 3,
-    style: [
-      {
-        selector: 'node',
-        style: {
-          'background-color': 'data(color)', label: 'data(label)', width: 'data(size)', height: 'data(size)',
-          'font-size': 11, 'text-valign': 'bottom', 'text-margin-y': 4, color: '#333',
-        },
-      },
-      {
-        selector: 'edge',
-        style: {
-          width: 1.2, 'line-color': '#c9c9c9', 'target-arrow-color': '#c9c9c9', 'target-arrow-shape': 'triangle',
-          'curve-style': 'bezier', label: 'data(label)', 'font-size': 9, color: '#888', 'text-rotation': 'autorotate',
-        },
-      },
-      { selector: '.dim', style: { opacity: 0.15 } },
-      { selector: 'node.focus', style: { 'border-width': 3, 'border-color': '#000' } },
-      { selector: '.path', style: { 'line-color': '#f5222d', 'target-arrow-color': '#f5222d', 'border-width': 3, 'border-color': '#f5222d', width: 3 } },
-    ],
+    style: graphStyle(),
   })
   cy.on('tap', 'node', (evt) => {
     const id = evt.target.id()
@@ -309,16 +320,16 @@ onBeforeUnmount(() => {
 .estimate,
 .build-status {
   font-size: 12px;
-  color: #555;
+  color: var(--an-text-2);
 }
 .error {
-  color: #cf1322;
+  color: var(--an-danger);
 }
 .legend {
   display: flex;
   gap: 10px;
   font-size: 12px;
-  color: #666;
+  color: var(--an-text-2);
   flex-wrap: wrap;
 }
 .legend i {
@@ -346,7 +357,8 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0; /* 允许收缩：cytoscape 给内部 canvas 设了固定宽度，不加这行详情栏会被挤成 0 宽（实测踩到） */
   height: 560px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--an-border);
+  background: var(--an-surface);
   border-radius: 8px;
 }
 .empty {
@@ -363,10 +375,10 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .desc {
-  color: #333;
+  color: var(--an-text);
 }
 .meta {
-  color: #888;
+  color: var(--an-text-3);
   font-size: 12px;
 }
 .actions {
@@ -378,11 +390,11 @@ onBeforeUnmount(() => {
   margin-bottom: 6px;
 }
 .rel-desc {
-  color: #888;
+  color: var(--an-text-3);
   font-size: 12px;
 }
 .mention {
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--an-border);
   padding: 6px 0;
 }
 .mention-text {

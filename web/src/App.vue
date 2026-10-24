@@ -1,30 +1,38 @@
 <script setup lang="ts">
+// 应用外壳（decisions/0024）：全局导航栏 + 页面。主题（浅色 / 深色）由 token 驱动，同时作用于组件库和我们自己的样式
 import { message } from 'ant-design-vue'
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { HttpError, onUnauthorized } from './api/http'
 import type { AgentKind, Attachment } from './api/types'
 import ChatPanel from './components/ChatPanel.vue'
 import ConversationList from './components/ConversationList.vue'
 import KnowledgePanel from './components/KnowledgePanel.vue'
 import LoginPanel from './components/LoginPanel.vue'
+import NavRail, { type View } from './components/NavRail.vue'
 import { useChat } from './composables/useChat'
-import { ROLE_LABEL } from './composables/usage'
+import { antdTheme } from './theme/tokens'
+import { provideTheme } from './theme/useTheme'
 
 // 用量看板和管理页按需加载：ECharts 只在打开“用量”时下载
 const UsagePanel = defineAsyncComponent(() => import('./components/UsagePanel.vue'))
 const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
 
+const { mode } = provideTheme()
+const themeConfig = computed(() => antdTheme(mode.value))
+
 const chat = useChat()
-const view = ref<'chat' | 'knowledge' | 'usage' | 'admin'>('chat')
-const views = computed(() => [
-  { value: 'chat', label: '对话' },
-  { value: 'knowledge', label: '知识库' },
-  { value: 'usage', label: '用量' },
-  ...(chat.me.value?.role === 'admin' ? [{ value: 'admin', label: '管理' }] : []),
-])
+const view = ref<View>('chat')
 const loginError = ref<string | null>(null)
 const loggingIn = ref(false)
 const ready = ref(false) // 首次检查会话之前不显示登录页，避免已登录的用户看到一闪而过的登录框
+
+// 窄窗口（< 960px）：对话列表收进抽屉，内容区占满
+const width = ref(window.innerWidth)
+const onResize = () => (width.value = window.innerWidth)
+const narrow = computed(() => width.value < 960)
+const drawerOpen = ref(false)
+onMounted(() => window.addEventListener('resize', onResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
 // 任何接口返回 401（会话过期、被禁用、在别处退出）：回到登录页
 onUnauthorized(() => {
@@ -33,6 +41,12 @@ onUnauthorized(() => {
     message.warning('登录已失效，请重新登录')
   }
 })
+
+const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
+
+function run(action: Promise<unknown>) {
+  action.catch((e) => message.error(describe(e)))
+}
 
 async function doLogin(name: string, password: string) {
   loggingIn.value = true
@@ -46,12 +60,21 @@ async function doLogin(name: string, password: string) {
     loggingIn.value = false
   }
 }
-// 从知识库页面切回对话时刷新知识库列表（可能刚新建了知识库）
+
+function selectConversation(id: string) {
+  drawerOpen.value = false
+  run(chat.selectConversation(id))
+}
+
+function createConversation(agent: AgentKind) {
+  drawerOpen.value = false
+  run(chat.newConversation(agent))
+}
+
+// 从知识库页面切回对话时刷新知识库列表（可能刚新建或共享了知识库）
 watch(view, (v) => {
   if (v === 'chat' && chat.userId.value) run(chat.loadKnowledgeBases())
 })
-
-const describe = (e: unknown) => (e instanceof HttpError ? e.describe() : String(e))
 
 onMounted(() =>
   chat
@@ -59,111 +82,122 @@ onMounted(() =>
     .catch((e) => message.error(`加载失败：${describe(e)}`))
     .finally(() => (ready.value = true)),
 )
-
-function run(action: Promise<unknown>) {
-  action.catch((e) => message.error(describe(e)))
-}
 </script>
 
 <template>
-  <LoginPanel v-if="ready && !chat.me.value" :error="loginError" :loading="loggingIn" @login="doLogin" />
-  <a-layout v-else-if="chat.me.value" class="layout">
-    <a-layout-sider width="280" theme="light" class="sider">
-      <div class="brand">AgentNexus</div>
-      <div class="me">
-        <span>
-          <b>{{ chat.me.value.name }}</b>
-          <span class="me-meta">{{ ROLE_LABEL[chat.me.value.role] }}<template v-if="chat.me.value.department_name"> · {{ chat.me.value.department_name }}</template></span>
-        </span>
-        <a-button size="small" type="link" @click="run(chat.logout())">退出</a-button>
-      </div>
-      <a-segmented v-model:value="view" block class="views" :options="views" />
-      <ConversationList
-        v-if="chat.userId.value && view === 'chat'"
-        :conversations="chat.conversations.value"
-        :active-id="chat.conversationId.value"
-        :show-archived="chat.showArchived.value"
-        @select="(id: string) => run(chat.selectConversation(id))"
-        @create="(agent: AgentKind) => run(chat.newConversation(agent))"
-        @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
-        @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
-        @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
-      />
-    </a-layout-sider>
-    <a-layout-content class="content">
-      <KnowledgePanel v-if="chat.userId.value && view === 'knowledge'" :user-id="chat.userId.value" />
-      <UsagePanel v-else-if="view === 'usage'" :me="chat.me.value" />
-      <AdminPanel v-else-if="view === 'admin'" />
-      <ChatPanel
-        v-else-if="chat.conversationId.value"
-        :messages="chat.messages.value"
-        :notices="chat.notices.value"
-        :pending="chat.pending.value"
-        :error="chat.error.value"
-        :busy="chat.busy.value"
-        :has-more="chat.hasMore.value"
-        :archived="!!chat.conversation.value?.archived_at"
-        :agent="chat.conversation.value?.agent ?? 'chat'"
-        @send="(text: string) => run(chat.send(text))"
-        @stop="run(chat.stop())"
-        @retry="(runId: string) => run(chat.retry(runId))"
-        @approve="(approved: boolean, feedback?: string) => run(chat.answerApproval(approved, feedback))"
-        @download="(a: Attachment) => run(chat.download(a))"
-        @load-older="run(chat.loadOlder())"
-        @unarchive="run(chat.setArchived(chat.conversationId.value!, false))"
-        :knowledge-bases="chat.knowledgeBases.value"
-        :kb-ids="chat.conversationKbIds.value"
-        @set-kbs="(ids: string[]) => run(chat.setConversationKbs(ids))"
-      />
-      <a-empty v-else class="empty" description="新建或选择一个对话" />
-    </a-layout-content>
-  </a-layout>
+  <a-config-provider :theme="themeConfig">
+    <LoginPanel v-if="ready && !chat.me.value" :error="loginError" :loading="loggingIn" @login="doLogin" />
+    <div v-else-if="chat.me.value" class="shell">
+      <NavRail :view="view" :me="chat.me.value" @navigate="(v: View) => (view = v)" @logout="run(chat.logout())" />
+
+      <template v-if="view === 'chat'">
+        <aside v-if="!narrow" class="sidebar">
+          <ConversationList
+            :conversations="chat.conversations.value"
+            :active-id="chat.conversationId.value"
+            :show-archived="chat.showArchived.value"
+            @select="selectConversation"
+            @create="createConversation"
+            @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
+            @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
+            @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
+          />
+        </aside>
+        <a-drawer v-else :open="drawerOpen" placement="left" :width="300" :closable="false" :body-style="{ padding: 0 }"
+                  @close="drawerOpen = false">
+          <ConversationList
+            :conversations="chat.conversations.value"
+            :active-id="chat.conversationId.value"
+            :show-archived="chat.showArchived.value"
+            @select="selectConversation"
+            @create="createConversation"
+            @rename="(id: string, title: string | null) => run(chat.rename(id, title))"
+            @archive="(id: string, archived: boolean) => run(chat.setArchived(id, archived))"
+            @toggle-archived="(v: boolean) => run(chat.toggleArchivedView(v))"
+          />
+        </a-drawer>
+      </template>
+
+      <main class="main">
+        <KnowledgePanel v-if="view === 'knowledge'" :user-id="chat.me.value.id" />
+        <UsagePanel v-else-if="view === 'usage'" :me="chat.me.value" />
+        <AdminPanel v-else-if="view === 'admin'" />
+        <ChatPanel
+          v-else-if="chat.conversationId.value"
+          :title="chat.conversation.value?.title ?? null"
+          :agent="chat.conversation.value?.agent ?? 'chat'"
+          :messages="chat.messages.value"
+          :notices="chat.notices.value"
+          :pending="chat.pending.value"
+          :error="chat.error.value"
+          :busy="chat.busy.value"
+          :has-more="chat.hasMore.value"
+          :archived="!!chat.conversation.value?.archived_at"
+          :knowledge-bases="chat.knowledgeBases.value"
+          :kb-ids="chat.conversationKbIds.value"
+          :user-id="chat.me.value.id"
+          :show-menu="narrow"
+          @menu="drawerOpen = true"
+          @send="(text: string) => run(chat.send(text))"
+          @stop="run(chat.stop())"
+          @retry="(runId: string) => run(chat.retry(runId))"
+          @approve="(approved: boolean, feedback?: string) => run(chat.answerApproval(approved, feedback))"
+          @download="(a: Attachment) => run(chat.download(a))"
+          @load-older="run(chat.loadOlder())"
+          @unarchive="run(chat.setArchived(chat.conversationId.value!, false))"
+          @set-kbs="(ids: string[]) => run(chat.setConversationKbs(ids))"
+        />
+        <div v-else class="welcome">
+          <a-button v-if="narrow" class="welcome-menu" @click="drawerOpen = true">对话列表</a-button>
+          <h2>开始一段对话</h2>
+          <p class="an-muted">普通对话可以关联知识库、使用代码沙盒和网页抓取；深度调研会先给出计划，确认后并行调研并生成报告。</p>
+          <div class="welcome-actions">
+            <a-button type="primary" size="large" @click="createConversation('chat')">新对话</a-button>
+            <a-button size="large" @click="createConversation('research')">深度调研</a-button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </a-config-provider>
 </template>
 
-<style>
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-}
-</style>
-
 <style scoped>
-.layout {
-  height: 100%;
-}
-.sider {
-  border-right: 1px solid #f0f0f0;
-  padding: 16px;
-  overflow-y: auto;
-}
-.views {
-  margin-bottom: 16px;
-}
-.me {
+.shell {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  height: 100%;
+  background: var(--an-bg);
 }
-.me-meta {
-  margin-left: 6px;
-  color: #888;
-  font-size: 12px;
+.sidebar {
+  width: 280px;
+  flex: none;
+  border-right: 1px solid var(--an-border);
+  background: var(--an-surface);
 }
-.brand {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-.content {
+.main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  background: #fff;
+  background: var(--an-bg);
 }
-.empty {
+.welcome {
   margin: auto;
+  max-width: 520px;
+  padding: 24px;
+  text-align: center;
+}
+.welcome h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+.welcome-menu {
+  margin-bottom: 24px;
 }
 </style>

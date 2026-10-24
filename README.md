@@ -42,6 +42,7 @@ docker compose exec -e PW='<管理员密码>' api python -m agentnexus.cli creat
 - [docs/guides/message-lifecycle.md](docs/guides/message-lifecycle.md) — 学习导读：一条消息从发送到流式显示的完整旅程（代码位置、设计理由、故障表现、自测题）
 - [docs/guides/worker-leases.md](docs/guides/worker-leases.md) — 学习导读：独立 worker 与租约（认领、心跳、fencing、续做、跨进程取消、崩溃接管实测）
 - [docs/guides/knowledge-graph.md](docs/guides/knowledge-graph.md) — 学习导读：知识图谱的抽取、合并、存储分工、失败与恢复、自测题
+- [docs/guides/frontend-design.md](docs/guides/frontend-design.md) — 学习导读：前端设计系统（token 如何驱动组件库、CSS 变量与图表，Agent 工作的可视化，改版踩坑）
 - [docs/guides/auth-tenancy.md](docs/guides/auth-tenancy.md) — 学习导读：登录、部门隔离与用量（会话 vs JWT、CSRF、RLS 的价值与陷阱、用量采集、自测题）
 - [docs/guides/multi-agent-research.md](docs/guides/multi-agent-research.md) — 学习导读：深度调研（Send 并行与崩溃续做、interrupt 审批的陷阱、等待审批放弃租约、报告产物、自测题）
 - [docs/guides/tools-sandbox.md](docs/guides/tools-sandbox.md) — 学习导读：工具、沙盒与 MCP（威胁模型、socket 风险、SSRF 与出口代理、Skills、自测题）
@@ -82,6 +83,6 @@ AgentNexus/
 - [x] 阶段 3：知识图谱（LLM 结构化抽取 + 缓存与费用预估 → 合并 → PostgreSQL 事实来源 + Neo4j 派生存储 → 图谱浏览与溯源；走读见 docs/guides/knowledge-graph.md）
 - [x] 阶段 4：多智能体、工具与扩展生态（独立 worker + PostgreSQL 租约队列，走读见 docs/guides/worker-leases.md；沙盒执行代码、MCP 网关 + 出口代理、Skills，走读见 docs/guides/tools-sandbox.md；深度调研：计划审批 + 并行子 Agent + 可下载报告，崩溃后只重做未完成的子任务，走读见 docs/guides/multi-agent-research.md）
 - [x] 阶段 5：多租户权限与 Dashboard（会话登录、部门共享、应用层 + PostgreSQL RLS 双重隔离、用量看板，走读见 docs/guides/auth-tenancy.md）
-- [ ] 阶段 6：打磨、部署与简历包装
+- [ ] 阶段 6：打磨、部署与简历包装（6.1 已完成：前端设计系统与改版，浅色 / 深色主题，走读见 docs/guides/frontend-design.md）
 
 详见 [ROADMAP.md](ROADMAP.md)。

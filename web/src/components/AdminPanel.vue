@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 管理员（decisions/0023）：部门、用户（创建、改角色 / 部门、禁用、重置密码）。禁用和重置密码会让该用户的会话立刻失效
+// 管理员（decisions/0023、0024 改版）：部门、用户（创建、改角色 / 部门、禁用、重置密码）。禁用和重置密码会让该用户的会话立刻失效
+import { PlusOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, HttpError } from '../api/http'
 import type { Department, Role, User } from '../api/types'
 import { ROLE_LABEL } from '../composables/usage'
@@ -14,7 +15,8 @@ const resetting = ref<User | null>(null)
 const newPassword = ref('')
 
 const roleOptions = (Object.keys(ROLE_LABEL) as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))
-const deptOptions = () => departments.value.map((d) => ({ value: d.id, label: d.name }))
+const deptOptions = computed(() => departments.value.map((d) => ({ value: d.id, label: d.name })))
+const memberCount = (deptId: string) => users.value.filter((u) => u.department_id === deptId).length
 
 function fail(e: unknown) {
   message.error(e instanceof HttpError ? e.describe() : String(e))
@@ -67,78 +69,143 @@ onMounted(() => load().catch(fail))
 const columns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
   { title: '角色', key: 'role', width: 150 },
-  { title: '部门', key: 'department', width: 180 },
+  { title: '部门', key: 'department', width: 190 },
   { title: '状态', key: 'status', width: 90 },
-  { title: '', key: 'actions', width: 180 },
+  { title: '', key: 'actions', width: 170 },
 ]
 </script>
 
 <template>
-  <div class="admin">
-    <h3>部门</h3>
-    <div class="row">
-      <a-tag v-for="d in departments" :key="d.id">{{ d.name }}</a-tag>
-      <a-input-search v-model:value="newDept" placeholder="新部门名称" enter-button="新建" style="width: 240px" @search="createDept" />
+  <div class="an-page">
+    <header class="an-page-header">
+      <div>
+        <h1 class="an-page-title">管理</h1>
+        <p class="an-page-subtitle">部门决定知识库能共享给谁；角色决定能看哪些用量。禁用或重置密码会让该用户立即退出登录</p>
+      </div>
+    </header>
+
+    <div class="top">
+      <div class="an-card">
+        <div class="an-card-header"><span><TeamOutlined /> 部门</span></div>
+        <div class="an-card-body">
+          <div class="depts">
+            <div v-for="d in departments" :key="d.id" class="dept">
+              <span>{{ d.name }}</span>
+              <span class="an-hint">{{ memberCount(d.id) }} 人</span>
+            </div>
+            <div v-if="!departments.length" class="an-hint">还没有部门</div>
+          </div>
+          <div class="row">
+            <a-input v-model:value="newDept" placeholder="新部门名称" @press-enter="createDept" />
+            <a-button :disabled="!newDept.trim()" @click="createDept"><PlusOutlined /> 新建</a-button>
+          </div>
+        </div>
+      </div>
+
+      <div class="an-card">
+        <div class="an-card-header"><span><UserAddOutlined /> 新建用户</span></div>
+        <div class="an-card-body form">
+          <a-input v-model:value="draft.name" placeholder="用户名" />
+          <a-input-password v-model:value="draft.password" placeholder="初始密码（至少 8 位）" />
+          <a-select v-model:value="draft.role" :options="roleOptions" />
+          <a-select v-model:value="draft.department_id" :options="deptOptions" placeholder="部门（可选）" allow-clear />
+          <a-button type="primary" :disabled="!draft.name.trim() || draft.password.length < 8" @click="createUser">创建</a-button>
+        </div>
+      </div>
     </div>
 
-    <h3>新建用户</h3>
-    <div class="row">
-      <a-input v-model:value="draft.name" placeholder="用户名" style="width: 160px" />
-      <a-input-password v-model:value="draft.password" placeholder="初始密码（至少 8 位）" style="width: 200px" />
-      <a-select v-model:value="draft.role" :options="roleOptions" style="width: 130px" />
-      <a-select v-model:value="draft.department_id" :options="deptOptions()" placeholder="部门" allow-clear style="width: 160px" />
-      <a-button type="primary" :disabled="!draft.name.trim() || draft.password.length < 8" @click="createUser">创建</a-button>
+    <div class="an-card">
+      <div class="an-card-header">用户 <span class="an-hint">{{ users.length }} 人</span></div>
+      <a-table :columns="columns" :data-source="users" row-key="id" size="middle"
+               :pagination="users.length > 20 ? { pageSize: 20, showSizeChanger: false } : false">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'">
+            <span class="user"><span class="initial">{{ record.name.slice(0, 1).toUpperCase() }}</span>{{ record.name }}</span>
+          </template>
+          <template v-else-if="column.key === 'role'">
+            <a-select :value="record.role" :options="roleOptions" size="small" style="width: 130px"
+                      @change="(v: unknown) => update(record, { role: v as Role })" />
+          </template>
+          <template v-else-if="column.key === 'department'">
+            <a-select :value="record.department_id ?? undefined" :options="deptOptions" size="small" allow-clear
+                      placeholder="无" style="width: 170px"
+                      @change="(v: unknown) => update(record, { department_id: (v as string | undefined) ?? null })" />
+          </template>
+          <template v-else-if="column.key === 'status'">
+            <a-badge :status="record.disabled_at ? 'error' : 'success'" :text="record.disabled_at ? '已禁用' : '正常'" />
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <a-button size="small" type="link" @click="update(record, { disabled: !record.disabled_at })">
+              {{ record.disabled_at ? '启用' : '禁用' }}
+            </a-button>
+            <a-button size="small" type="link" @click="resetting = record">重置密码</a-button>
+          </template>
+        </template>
+      </a-table>
     </div>
-
-    <h3>用户</h3>
-    <a-table :columns="columns" :data-source="users" row-key="id" size="small" :pagination="false">
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'role'">
-          <a-select :value="record.role" :options="roleOptions" size="small" style="width: 120px"
-                    @change="(v: unknown) => update(record, { role: v as Role })" />
-        </template>
-        <template v-else-if="column.key === 'department'">
-          <a-select :value="record.department_id ?? undefined" :options="deptOptions()" size="small" allow-clear
-                    placeholder="无" style="width: 160px"
-                    @change="(v: unknown) => update(record, { department_id: (v as string | undefined) ?? null })" />
-        </template>
-        <template v-else-if="column.key === 'status'">
-          <a-tag :color="record.disabled_at ? 'red' : 'green'">{{ record.disabled_at ? '已禁用' : '正常' }}</a-tag>
-        </template>
-        <template v-else-if="column.key === 'actions'">
-          <a-button size="small" type="link" @click="update(record, { disabled: !record.disabled_at })">
-            {{ record.disabled_at ? '启用' : '禁用' }}
-          </a-button>
-          <a-button size="small" type="link" @click="resetting = record">重置密码</a-button>
-        </template>
-      </template>
-    </a-table>
 
     <a-modal :open="!!resetting" :title="`重置 ${resetting?.name} 的密码`" ok-text="重置" cancel-text="取消"
              :ok-button-props="{ disabled: newPassword.length < 8 }" @ok="confirmReset" @cancel="resetting = null">
       <a-input-password v-model:value="newPassword" placeholder="新密码（至少 8 位）" />
-      <div class="hint">重置后，该用户已登录的会话会立刻失效。</div>
+      <div class="an-hint hint">重置后，该用户已登录的会话会立刻失效。</div>
     </a-modal>
   </div>
 </template>
 
 <style scoped>
-.admin {
-  padding: 20px 24px;
-  overflow-y: auto;
-  height: 100%;
-  box-sizing: border-box;
+.top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.depts {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.dept {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--an-surface-2);
 }
 .row {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+}
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.form > :last-child {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.user {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 16px;
+  gap: 10px;
+}
+.initial {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--an-primary-soft);
+  color: var(--an-primary-text);
 }
 .hint {
   margin-top: 8px;
-  color: #888;
-  font-size: 12px;
+}
+@media (max-width: 960px) {
+  .top {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
