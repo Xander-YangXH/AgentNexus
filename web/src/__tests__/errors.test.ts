@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeDocumentError, describeLoginError, describeRequestError } from '../utils/errors'
+import { describeDocumentError, describeLoginError, describeQuota, describeRequestError } from '../utils/errors'
 
 describe('login errors', () => {
   it('does not tell whether the user exists', () => {
@@ -28,6 +28,13 @@ describe('document errors', () => {
 describe('request errors', () => {
   it('explains why a conversation cannot be deleted while a reply is in progress', () => {
     expect(describeRequestError('run_conflict')).toContain('请先停止')
+  })
+})
+
+describe('quota', () => {
+  it('says the personal daily limit was reached and shows the limit', () => {
+    expect(describeQuota({ used_usd: 1.02, limit_usd: 1 })).toBe('最近 24 小时的模型用量已达个人上限（上限 $1），请稍后再试或联系管理员')
+    expect(describeQuota()).toBe('最近 24 小时的模型用量已达个人上限，请稍后再试或联系管理员')
   })
 })
 

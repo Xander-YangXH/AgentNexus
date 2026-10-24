@@ -8,6 +8,7 @@ from agentnexus.config import get_settings
 from agentnexus.events.redis_stream import RunEventReader, make_reader_client
 from agentnexus.observability.logging import configure_logging
 from agentnexus.services.run_events import RunEventStreamer
+from agentnexus.services.runs import Budget
 from agentnexus.security.auth import AuthService
 from agentnexus.security.principal import install_rls_identity
 from agentnexus.security.throttle import LoginThrottle
@@ -30,6 +31,8 @@ async def lifespan(app: FastAPI):
     app.state.auth_service = AuthService(c.sessionmaker, session_ttl=timedelta(hours=settings.session_ttl_hours))
     app.state.cookie_secure = settings.cookie_secure
     app.state.trust_proxy_headers = settings.trust_proxy_headers
+    app.state.run_budget = Budget(settings.user_daily_budget_usd, settings.llm_price_input,
+                                  settings.llm_price_cached_input, settings.llm_price_output)
     app.state.login_throttle = LoginThrottle.from_url(
         settings.redis_url, pair_limit=settings.login_pair_limit, ip_limit=settings.login_ip_limit,
         window_seconds=settings.login_window_seconds,
@@ -73,6 +76,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     install_rls_identity()
     app.state.cookie_secure = False  # 生产 lifespan 里按配置覆盖
     app.state.trust_proxy_headers = False
+    app.state.run_budget = None
     app.add_middleware(CsrfMiddleware)
     # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式（最后添加 = 最外层：CSRF 拒绝的请求也有日志）
     app.add_middleware(RequestContextMiddleware)

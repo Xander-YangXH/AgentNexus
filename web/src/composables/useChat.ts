@@ -5,6 +5,7 @@ import type { AgentKind, Attachment, Conversation, KnowledgeBase, Me, Message, R
 import { applyRunEvent, isActive, newPending, type PendingReply } from './pendingReply'
 import { mergeMessages } from './messagePages'
 import { computeNotices } from './runNotices'
+import { describeQuota } from '../utils/errors'
 
 export function useChat() {
   // 当前登录用户（decisions/0023）。null = 未登录，显示登录页
@@ -178,7 +179,8 @@ export function useChat() {
       await Promise.all([reload(cid), loadConversations()])
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
-      error.value =
+      if (e instanceof HttpError && e.code === 'quota_exceeded') error.value = describeQuota(e.body?.details)
+      else error.value =
         e instanceof HttpError && e.status === 409 ? '上一条回复还在生成中，请稍候' : `发送失败：${e instanceof HttpError ? e.describe() : String(e)}`
     } finally {
       sending.value = false
@@ -276,7 +278,8 @@ export function useChat() {
       await reload(cid)
       follow(run.id, cid, Date.parse(run.created_at))
     } catch (e) {
-      error.value = e instanceof HttpError && e.status === 409 ? '这条消息现在不能重试' : `重试失败：${e instanceof HttpError ? e.describe() : String(e)}`
+      if (e instanceof HttpError && e.code === 'quota_exceeded') error.value = describeQuota(e.body?.details)
+      else error.value = e instanceof HttpError && e.status === 409 ? '这条消息现在不能重试' : `重试失败：${e instanceof HttpError ? e.describe() : String(e)}`
     }
   }
 

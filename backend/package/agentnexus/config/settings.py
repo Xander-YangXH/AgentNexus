@@ -48,6 +48,8 @@ class Settings:
     llm_price_input: float = 0.3
     llm_price_cached_input: float = 0.006
     llm_price_output: float = 1.2
+    # 每个用户最近 24 小时的模型费用上限（美元，decisions/0032）；0 表示不限，管理员不受限
+    user_daily_budget_usd: float = 1.0
     knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
     knowledge_prefetch_followup: bool = True  # 追问时预检索两路并交替合并（decisions/0030）
     knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
@@ -128,6 +130,7 @@ def get_settings() -> Settings:
         llm_price_input=float(os.environ.get("LLM_PRICE_INPUT", 0.3)),
         llm_price_cached_input=float(os.environ.get("LLM_PRICE_CACHED_INPUT", 0.006)),
         llm_price_output=float(os.environ.get("LLM_PRICE_OUTPUT", 1.2)),
+        user_daily_budget_usd=float(os.environ.get("USER_DAILY_BUDGET_USD", 1.0)),
         knowledge_prefetch=os.environ.get("KNOWLEDGE_PREFETCH", "true").lower() not in ("0", "false", "no", "off"),
         knowledge_prefetch_followup=os.environ.get("KNOWLEDGE_PREFETCH_FOLLOWUP", "true").lower()
         not in ("0", "false", "no", "off"),

@@ -30,6 +30,15 @@ class KnowledgeBaseReadOnly(Exception):
     """知识库对当前用户可见但只读（部门共享），只有所有者能修改。"""
 
 
+class QuotaExceeded(Exception):
+    """用户最近 24 小时的模型费用达到上限（decisions/0032）。"""
+
+    def __init__(self, used_usd: float, limit_usd: float):
+        super().__init__(f"used ${used_usd:.4f} of ${limit_usd:.2f} in the last 24 hours")
+        self.used_usd = used_usd
+        self.limit_usd = limit_usd
+
+
 class RunAlreadyFinished(Exception):
     """run 已经成功或失败，不能再取消。"""
 

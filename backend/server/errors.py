@@ -17,6 +17,7 @@ from agentnexus.security.throttle import LoginThrottleUnavailable, TooManyLoginA
 
 from agentnexus.services.errors import (
     DocumentExists,
+    QuotaExceeded,
     DocumentNotFound,
     DocumentNotRetryable,
     EntityNotFound,
@@ -131,12 +132,18 @@ def install_error_handlers(app: FastAPI) -> None:
         return error_response(request, 409, "graph_build_too_large", "too many chunks to extract in one build",
                               {"extract_count": exc.extract_count, "limit": exc.limit})
 
+    async def quota_exceeded(request: Request, exc: QuotaExceeded):
+        # 给出已用和上限，前端提示“今天的用量已达上限”（decisions/0032）
+        return error_response(request, 429, "quota_exceeded", "daily model budget reached",
+                              {"used_usd": round(exc.used_usd, 4), "limit_usd": exc.limit_usd})
+
     async def too_many_login_attempts(request: Request, exc: TooManyLoginAttempts):
         # Retry-After 是标准头；details 里也给一份，前端直接显示“X 分钟后再试”
         return error_response(request, 429, "too_many_login_attempts", "too many login attempts",
                               {"retry_after": exc.retry_after}, headers={"Retry-After": str(exc.retry_after)})
 
     app.add_exception_handler(TooManyLoginAttempts, too_many_login_attempts)
+    app.add_exception_handler(QuotaExceeded, quota_exceeded)
     app.add_exception_handler(GraphBuildTooLarge, graph_build_too_large)
     app.add_exception_handler(DocumentExists, document_exists)
     app.add_exception_handler(StarletteHTTPException, http_error)

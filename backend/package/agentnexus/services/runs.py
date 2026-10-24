@@ -1,3 +1,4 @@
+import dataclasses
 import uuid
 
 from sqlalchemy.exc import IntegrityError
@@ -8,11 +9,12 @@ from agentnexus.repositories.conversations import ConversationRepository, Messag
 from agentnexus.repositories.runs import AgentRunRepository
 from agentnexus.runtime.failures import ErrorCode
 from agentnexus.runtime.lease import notify_jobs
-from sqlalchemy import func
+from sqlalchemy import func, select, text
 
 from agentnexus.services.errors import (
     ConversationArchived,
     ConversationNotFound,
+    QuotaExceeded,
     RunConflict,
     RunNotAwaitingApproval,
     RunNotFound,
@@ -20,7 +22,7 @@ from agentnexus.services.errors import (
 )
 from agentnexus.security import access
 from agentnexus.services.usage import usage_insert
-from agentnexus.storage.postgres import AgentRun, Artifact, MessageRole, RunStatus, UsageKind
+from agentnexus.storage.postgres import AgentRun, Artifact, MessageRole, Role, RunStatus, UsageEvent, UsageKind, User
 
 
 AUTO_TITLE_MAX = 30
@@ -35,11 +37,42 @@ def auto_title(content: str) -> str | None:
     return first_line if len(first_line) <= AUTO_TITLE_MAX else first_line[:AUTO_TITLE_MAX] + "…"
 
 
+@dataclasses.dataclass(frozen=True)
+class Budget:
+    """每个用户最近 24 小时的模型费用上限（decisions/0032）。价格是每百万 token 的美元数，与用量看板一致。"""
+
+    daily_usd: float  # 0 表示不限
+    price_input: float
+    price_cached: float
+    price_output: float
+
+
 class RunService:
     """每个方法一个事务，边界清晰：成功即全部提交，失败即全部回滚。"""
 
-    def __init__(self, sessionmaker: async_sessionmaker):
+    def __init__(self, sessionmaker: async_sessionmaker, budget: Budget | None = None):
         self.sessionmaker = sessionmaker
+        self.budget = budget
+
+    async def _check_budget(self, session, user_id: uuid.UUID) -> None:
+        """发起新的回答前检查：最近 24 小时的模型费用到了上限就拒绝（429）。管理员不限。
+
+        用费用而不是 token 数：缓存命中的输入便宜约 50 倍，按 token 数会把正常的多轮对话算得很贵。
+        只在“发消息、重试”时检查，不在执行中途打断（例如已经批准的调研计划）；图谱构建有自己的预估和确认（0019），
+        它的费用计入用量、会让之后的提问更早到上限，但构建本身不受这里限制。
+        """
+        b = self.budget
+        if b is None or b.daily_usd <= 0:
+            return
+        if await session.scalar(select(User.role).where(User.id == user_id)) == Role.ADMIN:
+            return
+        e = UsageEvent
+        cost = ((e.input_tokens - e.cached_tokens) * b.price_input + e.cached_tokens * b.price_cached
+                + e.output_tokens * b.price_output) / 1_000_000
+        used = await session.scalar(select(func.coalesce(func.sum(cost), 0)).where(
+            e.user_id == user_id, e.kind == UsageKind.LLM, e.created_at > func.now() - text("interval '24 hours'")))
+        if used >= b.daily_usd:
+            raise QuotaExceeded(float(used), b.daily_usd)
 
     async def submit(self, user_id: uuid.UUID, conversation_id: uuid.UUID, content: str) -> AgentRun:
         """用户消息 + queued 的 AgentRun 在同一事务里写入。
@@ -54,6 +87,7 @@ class RunService:
                     raise ConversationNotFound(str(conversation_id))
                 if conv.archived_at is not None:
                     raise ConversationArchived(str(conversation_id))
+                await self._check_budget(session, user_id)
                 if conv.title is None:
                     conv.title = auto_title(content)
                 conv.last_activity_at = func.now()  # 与消息同一事务：列表排序与消息内容不会不一致
@@ -192,6 +226,7 @@ class RunService:
                     raise ConversationArchived(str(run.conversation_id))
                 if run.status not in (RunStatus.FAILED, RunStatus.CANCELLED):
                     raise RunNotRetryable("only failed or cancelled runs can be retried")
+                await self._check_budget(session, user_id)
                 messages = await MessageRepository(session).list_by_conversation(run.conversation_id)
                 if not messages or messages[-1].id != run.input_message_id:
                     raise RunNotRetryable("only the latest message can be retried")

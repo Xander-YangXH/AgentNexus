@@ -50,6 +50,8 @@ x-backend-env: &backend-env
   # 登录（decisions/0023）。本地 http 演示时 COOKIE_SECURE 必须是 false，否则浏览器不保存会话 Cookie
   SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  # 每个用户最近 24 小时的模型费用上限（美元，decisions/0032）；0 表示不限，管理员不受限
+  USER_DAILY_BUDGET_USD: ${USER_DAILY_BUDGET_USD:-1.0}
   # 登录限流（decisions/0025）：同一账号同一 IP / 同一 IP 在窗口内的尝试上限
   LOGIN_PAIR_LIMIT: ${LOGIN_PAIR_LIMIT:-5}
   LOGIN_IP_LIMIT: ${LOGIN_IP_LIMIT:-30}

@@ -58,6 +58,9 @@ AgentNexus 是一个求职用的个人项目，按“企业内部部署”的威
 - 前端渲染 Markdown 时关闭原始 HTML（`html: false`），模型输出的标签当文本显示，不会被执行。
 - markdown-it 升级到 15.0.3，修复了两个“构造的输入导致渲染时间平方级增长”的问题。
 
+### 费用护栏（[decisions/0032](docs/decisions/0032-user-daily-budget.md)）
+- 每个用户最近 24 小时的模型费用有上限（默认 $1，`USER_DAILY_BUDGET_USD`），到上限后发消息、重试返回 429，不写入消息、不调用模型。防止失控的脚本、反复重试或被诱导的反复提问无限花钱。管理员不受限。
+
 ### 运行状态与监控（[decisions/0031](docs/decisions/0031-system-status.md)）
 - `/api/admin/status` 只给管理员；`/metrics`（Prometheus）不要求登录，但不在 `/api` 下，Nginx 不转发，只能在内部网络或本机抓取。
 - 两者都只有计数和时长：统计由 `SECURITY DEFINER` 函数完成（绕过 RLS），不返回任何行，`search_path` 固定，PUBLIC 没有执行权限。

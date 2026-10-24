@@ -72,8 +72,8 @@ def get_conversation_service(sm: SessionMaker) -> ConversationService:
     return ConversationService(sm)
 
 
-def get_run_service(sm: SessionMaker) -> RunService:
-    return RunService(sm)
+def get_run_service(sm: SessionMaker, request: Request) -> RunService:
+    return RunService(sm, budget=request.app.state.run_budget)  # 费用上限（decisions/0032），测试里为 None
 
 
 SESSION_COOKIE = "agentnexus_session"

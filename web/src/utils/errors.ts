@@ -21,6 +21,14 @@ export function describeLoginError(status: number, details?: unknown): string | 
   return minutes ? `尝试次数过多，请 ${minutes} 分钟后再试` : '尝试次数过多，请稍后再试'
 }
 
+// 费用上限（decisions/0032）：后端在 details 里给出已用和上限（美元）
+export function describeQuota(details?: unknown): string {
+  const d = (details ?? {}) as { used_usd?: unknown; limit_usd?: unknown }
+  const limit = Number(d.limit_usd)
+  const amount = Number.isFinite(limit) && limit > 0 ? `（上限 $${limit}）` : ''
+  return `最近 24 小时的模型用量已达个人上限${amount}，请稍后再试或联系管理员`
+}
+
 // 知识库：文档处理失败的原因（后端 knowledge/parsing.py 与 services/knowledge.py）
 const DOCUMENT_COPY: Record<string, string> = {
   unsupported_type: '不支持的文件类型',
