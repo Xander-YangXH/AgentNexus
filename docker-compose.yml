@@ -235,7 +235,7 @@ services:
       SANDBOX_ROOT: /workspaces
       # 创建容器时按“卷 + 子目录”挂载（volume subpath）：这里的路径是 sandbox 容器里的，Docker 不认识；
       # 卷名是 Docker 认识的，每个容器只挂自己那个工作空间的子目录
-      SANDBOX_VOLUME: agentnexus_sandbox_workspaces
+      SANDBOX_VOLUME: ${COMPOSE_PROJECT_NAME}_sandbox_workspaces
       SANDBOX_MEMORY: ${SANDBOX_MEMORY:-256m}
       SANDBOX_CPUS: ${SANDBOX_CPUS:-0.5}
       SANDBOX_CONCURRENCY: ${SANDBOX_CONCURRENCY:-4}
@@ -310,7 +310,8 @@ networks:
 
 volumes:
   sandbox_workspaces:
-    name: agentnexus_sandbox_workspaces  # 固定卷名：sandbox 服务创建容器时按这个名字挂载子目录
+    # 显式卷名：sandbox 服务创建容器时要按名字挂载子目录。带上项目名：同一台机器起第二套环境（-p 另一个名字）时不会共用工作空间
+    name: ${COMPOSE_PROJECT_NAME}_sandbox_workspaces
   blob_data:
   pg_data:
   qdrant_data:
