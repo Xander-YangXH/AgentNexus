@@ -1,5 +1,6 @@
 """登录、会话、CSRF 与管理员接口（阶段 5，decisions/0023）。这里走真实的 Cookie 会话，不用测试替身。"""
 
+import os
 import uuid
 from datetime import timedelta
 
@@ -9,19 +10,22 @@ import pytest_asyncio
 from sqlalchemy import func, select
 
 from agentnexus.security.auth import AuthService, token_hash, verify_password
+from agentnexus.security.throttle import LoginThrottle
 from agentnexus.storage.postgres import UserSession
 from server.deps import SESSION_COOKIE, get_sessionmaker
 from server.main import create_app
+from tests.conftest import REDIS_TEST_DB
 
 PASSWORD = "test-password-123"
 
 
 @pytest_asyncio.fixture
-async def app_env(sessionmaker):
+async def app_env(sessionmaker, redis):
     app = create_app(with_lifespan=False)
     app.dependency_overrides[get_sessionmaker] = lambda: sessionmaker
     auth = AuthService(sessionmaker)
     app.state.auth_service = auth
+    app.state.login_throttle = LoginThrottle(redis)
     admin = await auth.create_user(f"admin-{uuid.uuid4().hex[:6]}", PASSWORD, role="admin")
     member = await auth.create_user(f"m-{uuid.uuid4().hex[:6]}", PASSWORD)
     yield app, auth, admin, member
@@ -167,3 +171,94 @@ async def test_csrf_rejects_cross_site_writes(app_env, headers, expected):
         if expected == 403:
             assert r.json()["error"]["code"] == "csrf_rejected"
         assert (await c.get("/api/conversations", headers=headers)).status_code == 200  # 读请求不受影响
+
+
+# ---------- 登录限流（阶段 6.4，decisions/0025） ----------
+
+async def _login_from(c, name, password, ip):
+    return await c.post("/api/auth/login", json={"name": name, "password": password}, headers={"X-Real-IP": ip})
+
+
+async def test_sixth_attempt_for_the_same_account_and_ip_is_refused_without_checking_the_password(app_env):
+    app, _, _, member = app_env
+    async with _client(app) as c:
+        codes = [(await _login(c, member.name, f"wrong-{i}")).status_code for i in range(5)]
+        assert codes == [401] * 5
+        r = await _login(c, member.name)  # 密码正确也不行：被限流时根本不校验密码，猜中了也不知道
+        assert r.status_code == 429
+        assert r.json()["error"]["code"] == "too_many_login_attempts"
+        retry = int(r.headers["Retry-After"])
+        assert 0 < retry <= 900 and r.json()["error"]["details"]["retry_after"] == retry
+
+
+async def test_an_attacker_cannot_lock_the_owner_out_from_another_ip(app_env):
+    app, _, _, member = app_env
+    app.state.trust_proxy_headers = True
+    async with _client(app) as c:
+        for i in range(6):
+            await _login_from(c, member.name, f"wrong-{i}", "203.0.113.7")
+        assert (await _login_from(c, member.name, "wrong", "203.0.113.7")).status_code == 429
+        # 只按“账号 + IP”限：账号本人从自己的地址照常登录
+        assert (await _login_from(c, member.name, PASSWORD, "198.51.100.2")).status_code == 200
+
+
+async def test_forwarded_ip_header_is_ignored_unless_the_proxy_is_trusted(app_env):
+    app, _, _, member = app_env  # 默认不信任：直连 api 时每次换一个 X-Real-IP 也绕不过去
+    async with _client(app) as c:
+        codes = [(await _login_from(c, member.name, "wrong", f"10.0.0.{i}")).status_code for i in range(6)]
+    assert codes == [401] * 5 + [429]
+
+
+async def test_successful_login_resets_the_counter_for_that_account_and_ip(app_env):
+    app, _, _, member = app_env
+    async with _client(app) as c:
+        for i in range(4):
+            await _login(c, member.name, f"wrong-{i}")
+        assert (await _login(c, member.name)).status_code == 200
+        codes = [(await _login(c, member.name, f"again-{i}")).status_code for i in range(5)]
+    assert codes == [401] * 5  # 清零后又有 5 次机会
+
+
+async def test_one_ip_guessing_many_accounts_hits_the_ip_limit(app_env, redis):
+    app, _, admin, _ = app_env
+    app.state.login_throttle = LoginThrottle(redis, ip_limit=8)
+    async with _client(app) as c:
+        codes = [(await _login(c, f"nobody-{i}", "wrong-pass")).status_code for i in range(7)]
+        # 攻击者用自己的真实账号登录一次：只退回这一次，不清零 IP 计数（否则每猜几次就能清零一次）
+        assert (await _login(c, admin.name)).status_code == 200
+        codes += [(await _login(c, f"nobody-{i}", "wrong-pass")).status_code for i in range(7, 9)]
+        assert codes == [401] * 8 + [429]
+        assert (await _login(c, admin.name)).status_code == 429  # IP 上限对这个 IP 上的所有账号生效
+
+
+async def test_concurrent_guesses_cannot_slip_past_the_limit(app_env):
+    import asyncio
+
+    app, _, _, member = app_env
+    async with _client(app) as c:
+        rs = await asyncio.gather(*(_login(c, member.name, f"wrong-{i}") for i in range(20)))
+    codes = sorted(r.status_code for r in rs)
+    assert codes == [401] * 5 + [429] * 15  # 先计数再校验：同时到达的请求不会一起“通过检查”
+
+
+async def test_a_small_connection_pool_queues_instead_of_letting_attempts_through(app_env):
+    # compose 实测发现的问题：连接池满了报错，第一版把“报错”当成“放行”，并发一多就绕过了限流
+    import asyncio
+
+    app, _, _, member = app_env
+    throttle = LoginThrottle.from_url(f"{os.environ['REDIS_URL'].rsplit('/', 1)[0]}/{REDIS_TEST_DB}", max_connections=2)
+    app.state.login_throttle = throttle
+    async with _client(app) as c:
+        rs = await asyncio.gather(*(_login(c, member.name, f"wrong-{i}") for i in range(20)))
+    await throttle.close()
+    assert sorted(r.status_code for r in rs) == [401] * 5 + [429] * 15
+
+
+async def test_login_is_refused_when_attempts_cannot_be_counted(app_env):
+    app, _, _, member = app_env
+    throttle = LoginThrottle.from_url("redis://127.0.0.1:1/0", pool_timeout=0.5)
+    app.state.login_throttle = throttle
+    async with _client(app) as c:
+        r = await _login(c, member.name)  # 密码正确也拒绝：安全检查出错时不能默认通过
+    await throttle.close()
+    assert (r.status_code, r.json()["error"]["code"]) == (503, "login_unavailable")

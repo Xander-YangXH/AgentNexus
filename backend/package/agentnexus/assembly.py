@@ -83,6 +83,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
         sessionmaker, blobs, embedder, index,
         max_upload_bytes=settings.max_upload_mb * 1024 * 1024, token_counter=embedder.token_counter(),
         lease_seconds=settings.job_lease_seconds,
+        parse_timeout=settings.parse_timeout_seconds, parse_memory_mb=settings.parse_memory_mb,
     )
     reranker = await asyncio.to_thread(FastReranker, settings.rerank_model) if settings.rerank_enabled else None
     search = SearchService(sessionmaker, embedder, index, reranker, candidates=settings.rerank_candidates)

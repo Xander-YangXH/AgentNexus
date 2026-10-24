@@ -62,8 +62,8 @@ backend/
 │   │                           jobs.py（入库 / 图谱任务）、cancel_bus.py、janitor.py（checkpoint 清理、审批过期）
 │   ├── services/               用例层：runs、conversations、knowledge、search、graph、artifacts、usage、run_events
 │   ├── repositories/           数据访问（SQLAlchemy）
-│   ├── knowledge/              解析、分块、向量化、重排、图谱抽取与合并、Neo4j 存储
-│   ├── security/               登录与会话（auth）、可见性（access）、RLS 身份（principal）
+│   ├── knowledge/              解析（PDF / Word 在子进程里，isolation）、分块、向量化、重排、图谱抽取与合并、Neo4j 存储
+│   ├── security/               登录与会话（auth）、登录限流（throttle）、可见性（access）、RLS 身份（principal）
 │   ├── sandbox/                sandbox 服务（app、runner、files）与 worker 侧客户端
 │   ├── mcp_gateway/            MCP 网关（只依赖 mcp / starlette，单独打镜像）
 │   ├── storage/                PostgreSQL 模型与会话、原件存储、Qdrant 索引、checkpoint、数据库角色
@@ -121,12 +121,13 @@ docs/                           decisions（ADR）、guides（走读）、dev-lo
 7. **只有 sandbox 服务持有 Docker socket**；第三方工具代码只在 mcp-gateway 里运行，且只能经出口代理出网。
 8. **迁移只往前加**；新表要等 migrate 服务执行 `storage/roles.py` 后 api / worker 才有权限。
 9. **前端不保存业务状态**：流式、审批、接管的状态在纯函数状态机里，终态以接口返回的数据库状态为准；样式只用设计 token。
+10. **安全检查出错时拒绝，不放行**：登录限流计不了数返回 503；不可信文件的解析在子进程里，超时或超内存就判失败。
 
 ## 6. 横切关注点
-- **认证**：服务端会话（会话表存令牌哈希）+ HttpOnly / SameSite=Lax Cookie；写请求校验 Origin。密码 argon2id，在线程池里计算。
+- **认证**：服务端会话（会话表存令牌哈希）+ HttpOnly / SameSite=Lax Cookie；写请求校验 Origin。密码 argon2id，在线程池里计算。登录限流按“账号 + IP”和按 IP 计数（Redis），客户端 IP 取 Nginx 覆盖的 `X-Real-IP`。威胁模型与已知局限见 `SECURITY.md`。
 - **可观测性**：每个请求一个 request-id，run 执行期间日志自动带 run_id；结构化日志（text / json）。用量从回调采集，写 `usage_events`。
 - **配置**：全部来自环境变量（`config/settings.py`），compose 通过 `.env` 注入；密钥只在需要它的服务里出现。
-- **依赖**：后端按 `requirements.lock`（uv，只取发布满两周的版本）安装；前端 `package-lock.json`。
+- **依赖**：后端按 `requirements.lock`（uv，只取发布满两周的版本；有已知漏洞且影响我们的包例外）安装；前端 `package-lock.json`。CI 每次用 pip-audit / npm audit 扫描，豁免写在 `scripts/audit-allowlist.json`（带到期日）。
 - **测试**：后端集成测试用真实数据库和 Docker，模型一律用假模型；越权矩阵用两种数据库角色各跑一遍；安全相关逻辑做变异检查。CI 见 `.github/workflows/ci.yml`。
 
 ## 7. 继续阅读

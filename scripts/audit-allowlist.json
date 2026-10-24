@@ -1,0 +1,18 @@
+{
+  "_说明": "已知漏洞的例外（decisions/0025）。只放“核对过不影响我们”的包；review_by 到期 CI 就失败，届时修复版本已满两周，按常规升级并删除条目。",
+  "pillow": {
+    "reason": "后端不处理图片（只是 onnxruntime 等的间接依赖）；沙盒里 matplotlib 用它写 PNG，但沙盒代码本来就不可信且被隔离",
+    "fixed_in": "13.0.0（2026-10-16 发布）",
+    "review_by": "2026-10-30"
+  },
+  "langgraph-checkpoint-postgres": {
+    "reason": "漏洞在 Store 的命名空间处理，我们只用 checkpointer，不用 Store",
+    "fixed_in": "3.1.3（2026-10-12 发布）",
+    "review_by": "2026-10-26"
+  },
+  "filelock": {
+    "reason": "Linux 上的漏洞只在 SQLite 读写锁（ReadWriteLock），没有被用到；软锁（SoftFileLock）的漏洞只在 Windows 上。huggingface_hub 在不支持 flock 的文件系统上会退回软锁，只在构建镜像下载模型时用到（运行时离线）",
+    "fixed_in": "4.2.1（2026-10-17 发布）",
+    "review_by": "2026-10-31"
+  }
+}

@@ -3,3 +3,5 @@
 mcp>=1.30,<2
 mcp-server-fetch==2026.8.18
 uvicorn>=0.30
+# 安全修复例外（decisions/0025）：旧版内置了一个中间证书私钥泄露的根证书；fetch 工具的 HTTPS 请求都信任它
+certifi>=2026.10.19

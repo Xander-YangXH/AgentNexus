@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, Request, Response
 
 from agentnexus.security.auth import AuthService
-from server.deps import SESSION_COOKIE, AdminPrincipal, CurrentPrincipal, get_auth_service
+from agentnexus.security.throttle import LoginThrottle
+from server.deps import SESSION_COOKIE, AdminPrincipal, CurrentPrincipal, client_ip, get_auth_service, get_login_throttle
 from server.schemas import (
     DepartmentCreate,
     DepartmentOut,
@@ -29,13 +30,17 @@ async def _me(principal, auth: AuthService) -> MeOut:
 
 @router.post("/auth/login", response_model=MeOut)
 async def login(body: LoginRequest, request: Request, response: Response,
-                auth: AuthService = Depends(get_auth_service)):
+                auth: AuthService = Depends(get_auth_service), throttle: LoginThrottle = Depends(get_login_throttle)):
     """登录：校验密码，建会话，令牌放进 HttpOnly Cookie（脚本读不到，XSS 偷不走）。
 
     SameSite=Lax：别的网站发起的跨站 POST 不带这个 Cookie（再加上 CSRF 中间件校验 Origin）。
     Secure 由配置决定：本地 http 演示时不能设，否则浏览器不保存。
+    限流（decisions/0025）：同一账号同一 IP、同一 IP 在窗口内尝试过多时返回 429，不再校验密码。
     """
+    ip = client_ip(request)
+    await throttle.attempt(body.name, ip)
     result = await auth.login(body.name, body.password)
+    await throttle.succeeded(body.name, ip)
     max_age = int((result.expires_at - datetime.now(UTC)).total_seconds())
     response.set_cookie(SESSION_COOKIE, result.token, max_age=max_age, httponly=True, samesite="lax",
                         secure=request.app.state.cookie_secure, path="/")

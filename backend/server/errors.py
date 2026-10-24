@@ -13,6 +13,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from agentnexus.security.throttle import LoginThrottleUnavailable, TooManyLoginAttempts
+
 from agentnexus.services.errors import (
     DocumentExists,
     DocumentNotFound,
@@ -52,6 +54,7 @@ DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     UserExists: (409, "user_exists", "name already exists"),
     UserNotFound: (404, "user_not_found", "user not found"),
     InvalidCredentials: (401, "invalid_credentials", "invalid user name or password"),
+    LoginThrottleUnavailable: (503, "login_unavailable", "login is temporarily unavailable"),
     KnowledgeBaseReadOnly: (403, "knowledge_base_read_only", "shared knowledge base is read-only"),
     NoDepartment: (409, "no_department", "user does not belong to a department"),
     RunAlreadyFinished: (409, "run_already_finished", "run already finished"),
@@ -84,12 +87,15 @@ def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
 
-def error_response(request: Request, status: int, code: str, message: str, details=None) -> JSONResponse:
+def error_response(request: Request, status: int, code: str, message: str, details=None,
+                   headers: dict[str, str] | None = None) -> JSONResponse:
     body = {"code": code, "message": message, "request_id": _request_id(request)}
     if details is not None:
         body["details"] = details
-    headers = {"X-Request-ID": body["request_id"]} if body["request_id"] else None
-    return JSONResponse(status_code=status, content={"error": body}, headers=headers)
+    headers = dict(headers or {})
+    if body["request_id"]:
+        headers["X-Request-ID"] = body["request_id"]
+    return JSONResponse(status_code=status, content={"error": body}, headers=headers or None)
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -125,6 +131,12 @@ def install_error_handlers(app: FastAPI) -> None:
         return error_response(request, 409, "graph_build_too_large", "too many chunks to extract in one build",
                               {"extract_count": exc.extract_count, "limit": exc.limit})
 
+    async def too_many_login_attempts(request: Request, exc: TooManyLoginAttempts):
+        # Retry-After 是标准头；details 里也给一份，前端直接显示“X 分钟后再试”
+        return error_response(request, 429, "too_many_login_attempts", "too many login attempts",
+                              {"retry_after": exc.retry_after}, headers={"Retry-After": str(exc.retry_after)})
+
+    app.add_exception_handler(TooManyLoginAttempts, too_many_login_attempts)
     app.add_exception_handler(GraphBuildTooLarge, graph_build_too_large)
     app.add_exception_handler(DocumentExists, document_exists)
     app.add_exception_handler(StarletteHTTPException, http_error)

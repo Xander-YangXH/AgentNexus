@@ -10,6 +10,7 @@ from agentnexus.observability.logging import configure_logging
 from agentnexus.services.run_events import RunEventStreamer
 from agentnexus.security.auth import AuthService
 from agentnexus.security.principal import install_rls_identity
+from agentnexus.security.throttle import LoginThrottle
 from server.csrf import CsrfMiddleware
 from server.errors import install_error_handlers
 from server.middleware import RequestContextMiddleware
@@ -28,6 +29,11 @@ async def lifespan(app: FastAPI):
     app.state.usage_service = c.usage_service
     app.state.auth_service = AuthService(c.sessionmaker, session_ttl=timedelta(hours=settings.session_ttl_hours))
     app.state.cookie_secure = settings.cookie_secure
+    app.state.trust_proxy_headers = settings.trust_proxy_headers
+    app.state.login_throttle = LoginThrottle.from_url(
+        settings.redis_url, pair_limit=settings.login_pair_limit, ip_limit=settings.login_ip_limit,
+        window_seconds=settings.login_window_seconds,
+    )
     app.state.search_service = c.search_service
     app.state.graph_service = c.graph_service
     # 这三个在 api 里不 start：enqueue 只是空操作（通知已在提交任务的事务里发出），cancel 写数据库并广播给 worker
@@ -45,6 +51,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     await sse_redis.aclose()
+    await app.state.login_throttle.close()
     await assembly.close(c)
 
 
@@ -64,6 +71,7 @@ def create_app(*, with_lifespan: bool = True) -> FastAPI:
     # 每个数据库事务开始时设置当前用户（RLS，decisions/0023）
     install_rls_identity()
     app.state.cookie_secure = False  # 生产 lifespan 里按配置覆盖
+    app.state.trust_proxy_headers = False
     app.add_middleware(CsrfMiddleware)
     # 请求上下文：request-id + 访问日志。纯 ASGI 中间件，不影响 SSE 流式（最后添加 = 最外层：CSRF 拒绝的请求也有日志）
     app.add_middleware(RequestContextMiddleware)

@@ -8,6 +8,7 @@ from agentnexus.runtime.dispatcher import RunDispatcher
 from agentnexus.runtime.jobs import JobDispatcher
 from agentnexus.security.auth import AuthService
 from agentnexus.security.principal import Principal, principal_var
+from agentnexus.security.throttle import LoginThrottle
 from agentnexus.services.artifacts import ArtifactService
 from agentnexus.services.graph import GraphService
 from agentnexus.services.usage import UsageService
@@ -80,6 +81,18 @@ SESSION_COOKIE = "agentnexus_session"
 
 def get_auth_service(request: Request) -> AuthService:
     return request.app.state.auth_service
+
+
+def get_login_throttle(request: Request) -> LoginThrottle:
+    return request.app.state.login_throttle
+
+
+def client_ip(request: Request) -> str:
+    """客户端 IP。经 Nginx 时直连的对端永远是 Nginx，真实地址在它设置的 X-Real-IP 里（Nginx 用 $remote_addr 覆盖，
+    客户端自己带的同名头不会被透传）。只有确定 api 只能经代理访问时才信任这个头（TRUST_PROXY_HEADERS），否则可以伪造。"""
+    if request.app.state.trust_proxy_headers and (real := request.headers.get("x-real-ip")):
+        return real.strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def current_principal(

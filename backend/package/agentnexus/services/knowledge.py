@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from agentnexus.knowledge.chunking import Chunk, chunk_sections
 from agentnexus.knowledge.embedding import Embedder
+from agentnexus.knowledge.isolation import parse_isolated
 from agentnexus.knowledge.parsing import SUPPORTED_EXTENSIONS, ParseError, extension_of, parse
 from agentnexus.knowledge.tokens import EstimatingCounter, TokenCounter
 from agentnexus.runtime.lease import Claimed, LeaseQueue, notify_jobs
@@ -55,6 +56,8 @@ class KnowledgeService:
         *,
         max_upload_bytes: int = 10 * 1024 * 1024,
         token_counter: TokenCounter | None = None,
+        parse_timeout: float = 60.0,
+        parse_memory_mb: int = 1024,
         lease_seconds: float = 30.0,
     ):
         self.sessionmaker = sessionmaker
@@ -67,6 +70,9 @@ class KnowledgeService:
         self.index = index
         self.max_upload_bytes = max_upload_bytes
         self.token_counter = token_counter or EstimatingCounter()
+        self.parse_timeout = parse_timeout
+        self.parse_memory_mb = parse_memory_mb
+        self.parser = parse  # 测试可以换成“恶意”的解析函数（必须是模块级函数，子进程按名字导入）
 
     # ---------- 知识库 ----------
 
@@ -263,7 +269,10 @@ class KnowledgeService:
 
     def _prepare(self, filename: str, data: bytes) -> tuple[list[Chunk], list[list[float]]]:
         markdown = extension_of(filename) in (".md", ".markdown")  # 只有 Markdown 的 # 才确定是标题
-        chunks = chunk_sections(parse(filename, data), self.token_counter, heading_boundaries=markdown)
+        # PDF / Word 在子进程里解析，有超时和内存上限：一个构造的恶意文件不能卡死整条入库流水线（decisions/0025）
+        sections = parse_isolated(filename, data, timeout=self.parse_timeout, mem_mb=self.parse_memory_mb,
+                                  parser=self.parser)
+        chunks = chunk_sections(sections, self.token_counter, heading_boundaries=markdown)
         return chunks, self.embedder.embed_documents([c.text for c in chunks])
 
     async def _discard_points(self, ids: list[uuid.UUID]) -> None:

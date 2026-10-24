@@ -10,6 +10,7 @@ import KnowledgePanel from './components/KnowledgePanel.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import NavRail, { type View } from './components/NavRail.vue'
 import { useChat } from './composables/useChat'
+import { describeLoginError } from './utils/errors'
 import { antdTheme } from './theme/tokens'
 import { provideTheme } from './theme/useTheme'
 
@@ -55,7 +56,7 @@ async function doLogin(name: string, password: string) {
     await chat.login(name, password)
     view.value = 'chat'
   } catch (e) {
-    loginError.value = e instanceof HttpError && e.status === 401 ? '用户名或密码错误' : describe(e)
+    loginError.value = (e instanceof HttpError && describeLoginError(e.status, e.body?.details)) || describe(e)
   } finally {
     loggingIn.value = false
   }

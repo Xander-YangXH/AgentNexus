@@ -2,6 +2,8 @@
 #   uv pip compile requirements.txt --universal --python-version 3.12 --exclude-newer <今天减 14 天> -o requirements.lock
 # --exclude-newer 只取发布满两周的版本（含间接依赖），避免装到刚发布、可能有问题或被投毒的包
 # 升级：只改日期不会升级任何包（uv 优先沿用锁文件里已有的版本），要加 --upgrade-package <包名>（或 --upgrade 全部升级）
+# 安全修复例外（decisions/0025）：有已知漏洞、且影响我们的包，可以升到不满两周的修复版本，
+#   用 --exclude-newer-package <包>=<修复版本发布次日> 只放开到修复版本（不顺带取更新的），并在下面逐条写明原因。当前例外：pypdf、certifi
 fastapi>=0.115
 uvicorn[standard]>=0.30
 psycopg[binary,pool]>=3.3.3
@@ -15,7 +17,7 @@ langchain-openai>=1.0
 langchain-anthropic>=1.0
 langchain-google-genai>=4.0
 # 知识库文档解析（阶段 2）
-pypdf>=6.19,<7
+pypdf>=6.21.2,<7  # 安全修复例外：6.19.0 有 11 个“构造的 PDF 导致死循环 / 内存耗尽”的漏洞，worker 解析用户上传的 PDF
 python-docx>=1.2,<2
 # FastAPI 接收文件上传需要
 python-multipart>=0.0.32,<0.1
@@ -33,3 +35,5 @@ mcp>=1.30,<2
 pyyaml>=6.0,<7
 # 登录（decisions/0023）：argon2id 密码哈希（OWASP 首选；实测 OWASP 参数下 15ms）
 argon2-cffi>=25.1,<26
+# 安全修复例外（decisions/0025）：旧版内置了一个中间证书私钥泄露的根证书；所有对外 TLS（模型 API）都信任它。间接依赖，显式声明下限
+certifi>=2026.10.19

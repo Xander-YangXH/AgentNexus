@@ -32,6 +32,9 @@ x-backend-env: &backend-env
   KG_MAX_CHUNKS_PER_BUILD: ${KG_MAX_CHUNKS_PER_BUILD:-2000}
   QDRANT_COLLECTION: ${QDRANT_COLLECTION:-chunks}
   INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-1}
+  # 解析上传的 PDF / Word：在子进程里进行，超时或超过内存上限就终止（decisions/0025）
+  PARSE_TIMEOUT_SECONDS: ${PARSE_TIMEOUT_SECONDS:-60}
+  PARSE_MEMORY_MB: ${PARSE_MEMORY_MB:-1024}
   EMBEDDING_THREADS: ${EMBEDDING_THREADS:-}
   RERANK_ENABLED: ${RERANK_ENABLED:-true}
   RERANK_CANDIDATES: ${RERANK_CANDIDATES:-10}
@@ -45,6 +48,10 @@ x-backend-env: &backend-env
   # 登录（decisions/0023）。本地 http 演示时 COOKIE_SECURE 必须是 false，否则浏览器不保存会话 Cookie
   SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  # 登录限流（decisions/0025）：同一账号同一 IP / 同一 IP 在窗口内的尝试上限
+  LOGIN_PAIR_LIMIT: ${LOGIN_PAIR_LIMIT:-5}
+  LOGIN_IP_LIMIT: ${LOGIN_IP_LIMIT:-30}
+  LOGIN_WINDOW_SECONDS: ${LOGIN_WINDOW_SECONDS:-900}
   # 不在这里覆盖 EMBEDDING_MODEL / RERANK_MODEL：模型是构建镜像时下载的，运行时换名字只会启动失败（见 docker/api.Dockerfile）
 
 x-backend: &backend
@@ -150,6 +157,9 @@ services:
       <<: *backend-env
       # 受 RLS 约束的普通角色（decisions/0023）：超级用户和表所有者都会绕过 RLS
       DATABASE_URL: postgresql://agentnexus_api:${DB_API_PASSWORD:?在 .env 里设置 DB_API_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # 客户端 IP 取 Nginx 设置的 X-Real-IP（登录限流用）。前提是 api 只经 Nginx 访问：
+      # 下面的端口只绑定在 127.0.0.1 上（本机调试用），生产部署时不要对外暴露 api 端口（decisions/0025）
+      TRUST_PROXY_HEADERS: "true"
     volumes:
       - blob_data:/data/blobs  # 知识库文档原件（不放进数据库）
     ports:

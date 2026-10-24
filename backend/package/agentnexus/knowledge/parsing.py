@@ -18,7 +18,7 @@ class Section:
 class ParseError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
-        self.code = code  # unsupported_type / encrypted / empty / corrupt
+        self.code = code  # unsupported_type / encrypted / empty / corrupt / parse_timeout / too_complex / parse_failed
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx"}

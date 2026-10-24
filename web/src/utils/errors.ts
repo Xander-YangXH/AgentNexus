@@ -12,12 +12,25 @@ export function describeError(code: string | null | undefined): string {
   return COPY[code ?? 'internal'] ?? COPY.internal // 不认识的错误码也给出可读的提示
 }
 
+// 登录失败：401 不区分“用户不存在 / 密码错”；429 是限流（decisions/0025），后端在 details.retry_after 里给出剩余秒数
+export function describeLoginError(status: number, details?: unknown): string | null {
+  if (status === 401) return '用户名或密码错误'
+  if (status !== 429) return null
+  const seconds = Number((details as { retry_after?: unknown } | undefined)?.retry_after)
+  const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds / 60) : null
+  return minutes ? `尝试次数过多，请 ${minutes} 分钟后再试` : '尝试次数过多，请稍后再试'
+}
+
 // 知识库：文档处理失败的原因（后端 knowledge/parsing.py 与 services/knowledge.py）
 const DOCUMENT_COPY: Record<string, string> = {
   unsupported_type: '不支持的文件类型',
   encrypted: 'PDF 已加密，无法读取',
   empty: '没有可提取的文字（扫描件需要 OCR，暂不支持）',
   corrupt: '文件已损坏或格式不对',
+  // 解析在子进程里进行、有超时和内存上限（decisions/0025）
+  parse_timeout: '解析超时，已终止（文件过于复杂，或者是构造的异常文件）',
+  too_complex: '解析占用内存过多，已终止（文件过于复杂，或者是构造的异常文件）',
+  parse_failed: '解析进程异常退出',
   index_unavailable: '向量库暂时不可用，可以稍后重新处理',
   internal: '处理失败（服务内部错误）',
 }

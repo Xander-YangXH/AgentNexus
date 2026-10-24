@@ -1,7 +1,9 @@
 # 持续集成（阶段 6.2）：每次推送和拉取请求都跑一遍。
 # - backend：ruff 代码检查 + 全部集成测试（真实的 PostgreSQL、Redis、Neo4j；沙盒测试用 runner 自带的 Docker）；
 # - frontend：类型检查 + 单元测试 + 生产构建；
-# - images：用模板 .env 校验 compose 文件，并构建所有镜像（Dockerfile 坏了在这里发现）。
+# - images：用模板 .env 校验 compose 文件，并构建所有镜像（Dockerfile 坏了在这里发现）；
+# - audit：依赖漏洞扫描（阶段 6.4，decisions/0025）。三个 Python 锁文件按白名单判断，前端 npm audit。
+#   漏洞库每天在变：代码没改、扫描也可能变红——那正是要提醒的事（新漏洞，或者白名单到期该升级了）。
 # 不调用真实模型：自动化测试一律用假模型（真实模型的两个测试在没有本地模型缓存时自动跳过）。
 name: CI
 
@@ -86,6 +88,23 @@ jobs:
         run: npx vitest run
       - name: Build
         run: npx vite build
+
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Python dependencies（锁文件 + scripts/audit-allowlist.json）
+        run: pip install pip-audit==2.10.1 && python scripts/audit_deps.py
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Frontend dependencies
+        working-directory: web
+        run: npm audit --audit-level=moderate
 
   images:
     runs-on: ubuntu-24.04

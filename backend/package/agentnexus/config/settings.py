@@ -49,6 +49,9 @@ class Settings:
     llm_price_output: float = 1.2
     knowledge_prefetch: bool = True  # 调用模型前先用用户原话检索一次（decisions/0018 的评测对比）
     knowledge_top_k: int = 4  # knowledge_search 工具每次给模型几个片段：越多越全，但输入 token 越多（每块约 300 token）  # 召回多少个候选交给重排。实测 10 个约 200 字的候选约 1 秒（CPU），耗时近似线性
+    # 解析不可信文件（decisions/0025）：PDF / Word 在子进程里解析，超时或超过内存上限就终止、文档标为失败
+    parse_timeout_seconds: float = 60.0
+    parse_memory_mb: int = 1024
     ingest_concurrency: int = 1  # 同时处理的文档数。向量化是 CPU 密集的，ONNX 自己就会用满多核，并发多了只会互相抢
     # 工具与沙盒（decisions/0021）。没配置的部分就不提供对应工具（依赖它们的技能也不出现）
     sandbox_url: str | None = None  # sandbox 服务地址，例如 http://sandbox:8000
@@ -64,6 +67,12 @@ class Settings:
     approval_ttl_hours: float = 24.0  # 等待审批多久后自动取消
     # 登录（decisions/0023）
     session_ttl_hours: float = 168.0  # 会话有效期（7 天）；退出或被禁用时立即失效
+    # 登录限流（decisions/0025）：同一账号同一 IP、同一 IP 在窗口内的尝试上限
+    login_pair_limit: int = 5
+    login_ip_limit: int = 30
+    login_window_seconds: int = 900
+    # 客户端 IP 取反向代理设置的 X-Real-IP（compose 里为 true：api 只经 Nginx 访问）。直连 api 时必须为 false，否则 IP 可伪造
+    trust_proxy_headers: bool = False
     cookie_secure: bool = False  # 只在 HTTPS 下发送 Cookie。本地 http 演示必须为 false，否则浏览器不保存
     log_level: str = "INFO"
     log_format: str = "text"  # text（给人看）| json（给机器看）
@@ -102,6 +111,8 @@ def get_settings() -> Settings:
         embedding_model=os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"),
         embedding_threads=int(os.environ["EMBEDDING_THREADS"]) if os.environ.get("EMBEDDING_THREADS") else None,
         ingest_concurrency=int(os.environ.get("INGEST_CONCURRENCY", 1)),
+        parse_timeout_seconds=float(os.environ.get("PARSE_TIMEOUT_SECONDS", 60)),
+        parse_memory_mb=int(os.environ.get("PARSE_MEMORY_MB", 1024)),
         rerank_enabled=os.environ.get("RERANK_ENABLED", "true").lower() not in ("0", "false", "no", "off"),
         rerank_model=os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3-int8"),
         rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", 10)),
@@ -127,6 +138,10 @@ def get_settings() -> Settings:
         approval_ttl_hours=float(os.environ.get("APPROVAL_TTL_HOURS", 24)),
         session_ttl_hours=float(os.environ.get("SESSION_TTL_HOURS", 168)),
         cookie_secure=os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes", "on"),
+        login_pair_limit=int(os.environ.get("LOGIN_PAIR_LIMIT", 5)),
+        login_ip_limit=int(os.environ.get("LOGIN_IP_LIMIT", 30)),
+        login_window_seconds=int(os.environ.get("LOGIN_WINDOW_SECONDS", 900)),
+        trust_proxy_headers=os.environ.get("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes", "on"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         log_format=os.environ.get("LOG_FORMAT", "text"),
     )

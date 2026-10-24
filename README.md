@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上传文档建立知识库，和 Agent 对话时回答逐句标注引用；从文档抽取知识图谱并溯源；发起“深度调研”，确认计划后并行调研、生成可下载的报告；Agent 可以在隔离沙盒里执行代码、经出口代理抓取网页。多用户按部门隔离（应用层检查 + PostgreSQL 行级安全），用量有看板。演示场景是**客服知识库**（`backend/scripts/seed_demo.py` 一键生成）。
+AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上传文档建立知识库，和 Agent 对话时回答逐句标注引用；从文档抽取知识图谱并溯源；发起“深度调研”，确认计划后并行调研、生成可下载的报告；Agent 可以在隔离沙盒里执行代码、经出口代理抓取网页。多用户按部门隔离（应用层检查 + PostgreSQL 行级安全），用量有看板。安全设计与已知局限见 [SECURITY.md](SECURITY.md)。演示场景是**客服知识库**（`backend/scripts/seed_demo.py` 一键生成）。
 
 每一项技术选型都先做实验再决定，推导过程见 [docs/decisions/](docs/decisions/) 与 [docs/interview-prep.md](docs/interview-prep.md)；基础设施规模按个人项目的体量做了取舍，见 [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md)。
 
@@ -25,14 +25,14 @@ AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上�
 | 关系型存储 | PostgreSQL（事实来源；行级安全做第二道隔离）|
 | 任务队列 | PostgreSQL 租约队列（SKIP LOCKED + 心跳 + fencing token，实验后替代 ARQ）|
 | 实时事件 | Redis Streams + SSE（断线续传）|
-| 登录 | 服务端会话 + HttpOnly Cookie，argon2id |
+| 登录 | 服务端会话 + HttpOnly Cookie，argon2id；Redis 计数的失败次数限制 |
 | 对象存储 | 本地数据卷（`BlobStore` 接口，可换 MinIO / S3） |
 | 知识图谱 | Neo4j（派生存储，PostgreSQL 为事实来源）+ cytoscape.js |
-| 文档解析 | pypdf / python-docx |
+| 文档解析 | pypdf / python-docx（在子进程里解析，有超时和内存上限） |
 | Embedding / 重排 | bge-small-zh-v1.5、bge-reranker-v2-m3（fastembed / ONNX，本地运行） |
 | 模型 | DeepSeek（Anthropic 兼容接口）；默认假模型，无需密钥即可跑通 |
 | 工具沙盒 | 独立 sandbox 服务（唯一持有 Docker socket）+ 加固的一次性容器；MCP 网关 + Squid 出口代理 |
-| 部署 | Docker Compose（12 个服务，一键启动）；GitHub Actions CI |
+| 部署 | Docker Compose（12 个服务，一键启动）；GitHub Actions CI（含 pip-audit / npm audit 依赖扫描） |
 
 ## 快速开始
 
@@ -56,6 +56,7 @@ README 截图由 `scripts/screenshots.py` 生成（Playwright + 本机 Chrome）
 ## 文档索引
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构：进程拓扑、代码地图、核心链路、架构不变量
+- [SECURITY.md](SECURITY.md) — 安全：威胁模型、每道防线在哪里（登录限流、RLS、沙盒、出口代理、子进程解析、依赖扫描）、已知局限、报告方式
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
 - [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md) — 基础设施与能力深度的取舍及理由
 - `docs/decisions/` — 关键架构决策记录（每次重大取舍写一条，含背景/决定/后果/验证）
@@ -100,6 +101,6 @@ AgentNexus/
 - [x] 阶段 3：知识图谱（LLM 结构化抽取 + 缓存与费用预估 → 合并 → PostgreSQL 事实来源 + Neo4j 派生存储 → 图谱浏览与溯源；走读见 docs/guides/knowledge-graph.md）
 - [x] 阶段 4：多智能体、工具与扩展生态（独立 worker + PostgreSQL 租约队列，走读见 docs/guides/worker-leases.md；沙盒执行代码、MCP 网关 + 出口代理、Skills，走读见 docs/guides/tools-sandbox.md；深度调研：计划审批 + 并行子 Agent + 可下载报告，崩溃后只重做未完成的子任务，走读见 docs/guides/multi-agent-research.md）
 - [x] 阶段 5：多租户权限与 Dashboard（会话登录、部门共享、应用层 + PostgreSQL RLS 双重隔离、用量看板，走读见 docs/guides/auth-tenancy.md）
-- [ ] 阶段 6：打磨、部署与简历包装（6.1 已完成：前端设计系统与改版，浅色 / 深色主题，走读见 docs/guides/frontend-design.md）
+- [ ] 阶段 6：打磨、部署与简历包装（已完成：6.1 前端设计系统与改版，走读见 docs/guides/frontend-design.md；6.2 从零部署实测、ruff、CI；6.3 演示数据与截图；6.4 安全收尾，见 [SECURITY.md](SECURITY.md)。剩余：演示视频）
 
 详见 [ROADMAP.md](ROADMAP.md)。
