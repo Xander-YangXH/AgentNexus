@@ -11,18 +11,24 @@ import {
   CloseCircleFilled,
   DownloadOutlined,
   ExperimentOutlined,
+  FileExcelOutlined,
+  FileImageOutlined,
   FileMarkdownOutlined,
+  FileOutlined,
   LoadingOutlined,
   MenuOutlined,
   RobotOutlined,
 } from '@ant-design/icons-vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentKind, Attachment, KnowledgeBase, Message } from '../api/types'
+import { fileKind, previewUrl } from '../composables/attachments'
 import { citedSources, formatSize, plainSnippet } from '../composables/knowledge'
 import { isActive, type PendingReply } from '../composables/pendingReply'
 import type { RunNotice } from '../composables/runNotices'
 import { describeError } from '../utils/errors'
 import { renderMarkdown } from '../utils/markdown'
+
+const FILE_ICONS = { image: FileImageOutlined, table: FileExcelOutlined, markdown: FileMarkdownOutlined, file: FileOutlined }
 
 const props = defineProps<{
   title: string | null
@@ -188,13 +194,16 @@ watch(
             <div class="body">
               <div class="an-md" v-html="renderMarkdown(m.content)" />
               <div v-if="m.attachments?.length" class="files">
-                <div v-for="a in m.attachments" :key="a.id" class="file">
-                  <FileMarkdownOutlined class="file-icon" />
-                  <div class="file-meta">
-                    <div class="file-name">{{ a.filename }}</div>
-                    <div class="an-hint">{{ formatSize(a.size) }}</div>
+                <div v-for="a in m.attachments" :key="a.id" class="file-wrap">
+                  <img v-if="previewUrl(a)" :src="previewUrl(a)!" :alt="a.filename" class="file-preview" loading="lazy" />
+                  <div class="file">
+                    <component :is="FILE_ICONS[fileKind(a)]" class="file-icon" />
+                    <div class="file-meta">
+                      <div class="file-name">{{ a.filename }}</div>
+                      <div class="an-hint">{{ formatSize(a.size) }}</div>
+                    </div>
+                    <a-button size="small" @click="emit('download', a)"><DownloadOutlined /> 下载</a-button>
                   </div>
-                  <a-button size="small" @click="emit('download', a)"><DownloadOutlined /> 下载</a-button>
                 </div>
               </div>
               <div v-if="citedSources(m.citations).length" class="sources">
@@ -461,6 +470,18 @@ watch(
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin-top: 12px;
+}
+.file-wrap {
+  min-width: 0;
+}
+.file-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  margin-bottom: 6px;
+  border: 1px solid var(--an-border);
+  border-radius: 10px;
+  background: var(--an-figure-bg);
 }
 .file {
   display: flex;

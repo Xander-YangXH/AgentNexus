@@ -28,6 +28,7 @@ export interface Palette {
   dangerSoft: string
   codeBg: string
   codeText: string
+  figureBg: string // 图片预览的底色：Agent 画的图表默认按白底设计，暗色模式下也放在白底上
   shadow: string
   shadowLg: string
   chart: string[] // 图表色板：顺序固定，同一指标在各图里颜色一致
@@ -39,6 +40,7 @@ export const PALETTES: Record<Mode, Palette> = {
     bg: '#f6f6f7',
     surface: '#ffffff',
     surface2: '#f4f4f5',
+    figureBg: '#ffffff',
     border: '#e4e4e7',
     borderStrong: '#d4d4d8',
     text: '#18181b',
@@ -64,6 +66,7 @@ export const PALETTES: Record<Mode, Palette> = {
     bg: '#0c0c0f',
     surface: '#151519',
     surface2: '#1d1d22',
+    figureBg: '#ffffff',
     border: '#2a2a31',
     borderStrong: '#3a3a43',
     text: '#f4f4f5',
@@ -128,7 +131,7 @@ const VAR_NAMES: Record<Exclude<keyof Palette, 'chart'>, string> = {
   primary: '--an-primary', primaryHover: '--an-primary-hover', primarySoft: '--an-primary-soft',
   primaryText: '--an-primary-text', success: '--an-success', successSoft: '--an-success-soft',
   warning: '--an-warning', warningSoft: '--an-warning-soft', danger: '--an-danger', dangerSoft: '--an-danger-soft',
-  codeBg: '--an-code-bg', codeText: '--an-code-text', shadow: '--an-shadow', shadowLg: '--an-shadow-lg',
+  codeBg: '--an-code-bg', codeText: '--an-code-text', figureBg: '--an-figure-bg', shadow: '--an-shadow', shadowLg: '--an-shadow-lg',
 }
 
 /** 把当前模式的颜色写到 :root 的 CSS 变量上；data-theme 供少数需要区分的样式使用 */

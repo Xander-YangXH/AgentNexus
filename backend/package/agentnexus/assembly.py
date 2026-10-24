@@ -119,7 +119,7 @@ async def build(settings: Settings, *, worker: bool) -> Components:
             return (await search.search(user_id, kb_ids, query, top_k=settings.knowledge_top_k, source="agent")).hits
 
         chat_model = build_chat_model(settings)
-        tools = await _tools(settings, stack)
+        tools = await _tools(settings, stack, artifacts)
         agent = ChatbotAgent(
             ChatbotContext(model=chat_model, knowledge_search=knowledge_search,
                            prefetch=settings.knowledge_prefetch, usage=usage, **tools),
@@ -168,14 +168,16 @@ async def build(settings: Settings, *, worker: bool) -> Components:
                       purge_jobs, cancel_bus, janitor, stack)
 
 
-async def _tools(settings: Settings, stack: contextlib.AsyncExitStack) -> dict:
+async def _tools(settings: Settings, stack: contextlib.AsyncExitStack, artifacts: ArtifactService) -> dict:
     """通用工具与技能（decisions/0021）。worker 自己不持有 Docker socket，也不运行第三方 MCP 服务：
     代码执行经 sandbox 服务，联网工具经 MCP 网关，这里只是两个 HTTP 客户端。"""
     sources = []
     if settings.sandbox_url and settings.sandbox_token:
         client = SandboxClient(settings.sandbox_url, settings.sandbox_token, timeout=settings.sandbox_exec_timeout + 30)
         stack.push_async_callback(client.close)
-        sources.append(StaticTools(sandbox_tools(client, exec_timeout=settings.sandbox_exec_timeout)))
+        # share_file 把工作目录里的文件存成产物（阶段 7.2）：取文件、写产物都在 worker 里，api 不需要沙盒令牌
+        sources.append(StaticTools(sandbox_tools(client, exec_timeout=settings.sandbox_exec_timeout,
+                                                 save_artifact=artifacts.save)))
     if settings.mcp_gateway_url:
         toolbox = McpToolbox(settings.mcp_gateway_url)
         stack.push_async_callback(toolbox.close)

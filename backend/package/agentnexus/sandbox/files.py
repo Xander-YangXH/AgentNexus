@@ -36,7 +36,21 @@ def read_text(workspace: Path, relative: str) -> str:
         raise FileNotFoundError(relative)
     if target.stat().st_size > MAX_FILE_BYTES:
         raise PathError(f"file larger than {MAX_FILE_BYTES} bytes")
-    return target.read_text(encoding="utf-8", errors="replace")
+    data = target.read_bytes()
+    if b"\x00" in data[:8192]:
+        # 图片等二进制文件按文本读出来是一大段乱码，白占上下文（实测模型会去 read_file 一张刚画好的 PNG）
+        raise PathError("binary file (e.g. an image) cannot be read as text; use share_file to give it to the user")
+    return data.decode("utf-8", errors="replace")
+
+
+def read_bytes(workspace: Path, relative: str, max_bytes: int) -> bytes:
+    """原样读取（图表、表格等交给用户下载的文件）。"""
+    target = resolve(workspace, relative)
+    if not target.is_file():
+        raise FileNotFoundError(relative)
+    if target.stat().st_size > max_bytes:
+        raise PathError(f"file larger than {max_bytes} bytes")
+    return target.read_bytes()
 
 
 def write_text(workspace: Path, relative: str, content: str) -> int:

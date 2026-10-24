@@ -75,6 +75,7 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   list_files: ['正在查看文件', '文件列表已获取'],
   read_file: ['正在读取文件', '文件已读取'],
   write_file: ['正在写入文件', '文件已写入'],
+  share_file: ['正在准备下载文件', '文件已可下载'],
   fetch: ['正在抓取网页', '网页已获取'],
 }
 

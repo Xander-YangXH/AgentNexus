@@ -13,6 +13,8 @@ AgentNexus 是一个面向团队私有部署的知识库与 Agent 平台：上�
 | ![](docs/images/research-plan.png) | ![](docs/images/research-report.png) |
 | **知识图谱：从文档抽取实体与关系** | **用量看板（深色模式）** |
 | ![](docs/images/graph.png) | ![](docs/images/usage-dark.png) |
+| **数据分析：沙盒里画图，图表和数据作为附件交付** | **知识库：上传、处理状态、删除** |
+| ![](docs/images/data-analysis.png) | ![](docs/images/knowledge.png) |
 
 ## 技术栈
 
@@ -103,5 +105,6 @@ AgentNexus/
 - [x] 阶段 5：多租户权限与 Dashboard（会话登录、部门共享、应用层 + PostgreSQL RLS 双重隔离、用量看板，走读见 docs/guides/auth-tenancy.md）
 - [ ] 阶段 6：打磨、部署与简历包装（已完成：6.1 前端设计系统与改版，走读见 docs/guides/frontend-design.md；6.2 从零部署实测、ruff、CI；6.3 演示数据与截图；6.4 安全收尾，见 [SECURITY.md](SECURITY.md)。剩余：演示视频）
 - [x] 补全 7.1：删除知识库与文档（数据库事务 + 清理任务发件箱，派生存储故障时删除照样成功，见 docs/decisions/0026）
+- [x] 补全 7.2：Agent 把沙盒里画的图、算的表作为附件交给用户（见 docs/decisions/0027）
 
 详见 [ROADMAP.md](ROADMAP.md)。

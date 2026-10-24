@@ -86,6 +86,21 @@ async def test_files_are_shared_between_code_and_api_and_isolated_per_workspace(
     assert probe["stdout"].startswith("[]")
 
 
+async def test_raw_bytes_for_files_shared_with_the_user(sandbox):
+    """share_file 用的原样读取（阶段 7.2）：二进制不被改动；路径校验、大小上限与文本读取相同。"""
+    client, _, _ = sandbox
+    ws = _ws()
+    out = await client.execute(ws, "open('chart.png', 'wb').write(bytes(range(256)))\n"
+                                   "open('big.bin', 'wb').write(b'x' * (5 * 1024 * 1024 + 1))")
+    assert out["exit_code"] == 0, out
+    assert await client.read_bytes(ws, "chart.png") == bytes(range(256))
+    for bad, reason in [("../x", "escapes"), ("/etc/passwd", "relative"), ("missing.png", "404"), ("big.bin", "larger")]:
+        with pytest.raises(SandboxError, match=reason):
+            await client.read_bytes(ws, bad)
+    with pytest.raises(SandboxError, match="404"):
+        await client.read_bytes(_ws(), "chart.png")  # 别的对话的工作空间里没有这个文件
+
+
 async def test_path_and_workspace_validation(sandbox):
     client, _, root = sandbox
     ws = _ws()
@@ -116,6 +131,26 @@ async def test_cannot_reach_another_workspace_through_dot_segments(sandbox):
         with pytest.raises(SandboxError, match="400|404"):
             got = await client.read_file(attacker, path)
             pytest.fail(f"read another workspace via {path!r}: {got!r}")
+
+
+def test_volume_mount_does_not_copy_the_image_directory_over_the_workspace(tmp_path):
+    """compose 里用命名卷的子目录挂载。不加 no_copy 时，Docker 会把镜像里 /workspace 的属主和权限（root 755）
+    复制到空的工作空间上，沙盒代码写不了文件（阶段 7.2 实测发现：新对话第一步就执行代码画图，权限被拒）。"""
+    from agentnexus.sandbox.runner import DockerSandbox
+
+    box = DockerSandbox(None, "img", tmp_path, volume="proj_sandbox_workspaces")
+    ws = str(uuid.uuid4())
+    mount = dict(box._mount(ws))
+    assert mount["Source"] == "proj_sandbox_workspaces" and mount["VolumeOptions"]["Subpath"] == ws
+    assert mount["VolumeOptions"]["NoCopy"] is True
+
+
+def test_binary_files_are_not_read_as_text(tmp_path):
+    (tmp_path / "chart.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+    (tmp_path / "notes.txt").write_text("销售额")
+    with pytest.raises(files.PathError, match="share_file"):
+        files.read_text(tmp_path, "chart.png")  # 读出来是乱码、白占上下文：告诉模型用 share_file
+    assert files.read_text(tmp_path, "notes.txt") == "销售额"
 
 
 def test_resolve_rejects_escapes(tmp_path):

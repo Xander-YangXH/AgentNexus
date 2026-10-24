@@ -1,6 +1,6 @@
 """生成 README 截图（阶段 6.3）。用本机 Chrome（Playwright 的 channel="chrome"，不额外下载浏览器）。
 
-前提：服务已启动，并执行过 backend/scripts/seed_demo.py --graph --ask（客服知识库、图谱和几轮问答）。
+前提：服务已启动，并执行过 backend/scripts/seed_demo.py --graph --ask --analysis（客服知识库、图谱、几轮问答、一次数据分析）。
 用法：DEMO_PASSWORD=... python scripts/screenshots.py [--base http://localhost:8080] [--research]
   --research：新建一个调研对话截取“确认计划”卡片（真实模型下会调用一次模型制定计划，约 $0.0005），截完取消
 输出：docs/images/*.png
@@ -105,6 +105,15 @@ def main() -> None:
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(800)
         shot(page, "research-report")
+
+        # 7. 数据分析：沙盒里画的图表作为附件交付（阶段 7.2）
+        page = context().new_page()
+        login(page, base, "dev_wang", pw)
+        page.get_by_text("月度销售额分析").first.click()
+        page.wait_for_load_state("networkidle")
+        page.locator(".file-preview").last.scroll_into_view_if_needed()
+        page.wait_for_timeout(800)
+        shot(page, "data-analysis")
 
         browser.close()
 

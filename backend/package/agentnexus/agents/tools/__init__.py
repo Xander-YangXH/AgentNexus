@@ -27,11 +27,20 @@ class ToolScope:
 
 
 @dataclasses.dataclass(frozen=True)
+class ToolOutput:
+    """除了给模型看的文字，还交给用户一些文件（例如 share_file 产出的图表）。
+    附件进入图的状态（随 checkpoint 保存，接管后不丢），最后成为回复的 attachments。"""
+
+    text: str
+    attachments: list[dict]
+
+
+@dataclasses.dataclass(frozen=True)
 class AgentTool:
     name: str
     description: str
     parameters: dict  # JSON Schema
-    run: Callable[[dict, ToolScope | None], Awaitable[str]]
+    run: Callable[[dict, ToolScope | None], Awaitable[str | ToolOutput]]
 
     def spec(self) -> dict:
         """OpenAI 函数格式；各供应商的 bind_tools 都能转换。"""

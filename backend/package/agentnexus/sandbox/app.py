@@ -8,6 +8,7 @@ worker 里跑着受模型输出影响的逻辑，所以 worker 不能拿 socket�
 - POST /workspaces/{id}/exec        {code, timeout}  → 执行结果
 - GET  /workspaces/{id}/files                         → 文件列表
 - GET  /workspaces/{id}/file?path=…                  → 文本内容
+- GET  /workspaces/{id}/file/raw?path=…              → 原始字节（交给用户下载的文件，最多 5MB）
 - PUT  /workspaces/{id}/file  {path, content}         → 写入
 文件路径不放进 URL 的路径部分：HTTP 客户端会把 URL 里的 .. 规范化掉，“../../<别的对话>/files/x”
 会变成访问另一个工作空间（第一版就是这样，测试发现）。放在查询参数 / 请求体里，原样到达这里再校验。
@@ -22,13 +23,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import docker
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from agentnexus.sandbox import files
 from agentnexus.sandbox.runner import DockerSandbox, Limits
 
 MAX_TIMEOUT = 120.0
+MAX_RAW_BYTES = 5 * 1024 * 1024  # 与产物上限一致（services/artifacts.py）
 
 
 class ExecRequest(BaseModel):
@@ -83,6 +85,16 @@ def create_app(sandbox: DockerSandbox, token: str, *, concurrency: int = 4) -> F
             raise HTTPException(status_code=404, detail="file not found") from None
         except files.PathError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @api.get("/workspaces/{workspace_id}/file/raw")
+    async def read_raw(workspace_id: str, path: str):
+        try:
+            data = files.read_bytes(workspace(workspace_id), path, MAX_RAW_BYTES)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="file not found") from None
+        except files.PathError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return Response(data, media_type="application/octet-stream")
 
     @api.put("/workspaces/{workspace_id}/file")
     async def write_file(workspace_id: str, body: WriteRequest):

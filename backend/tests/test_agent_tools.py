@@ -3,6 +3,7 @@
 模型用剧本代替（不调用真实模型）；工具用记录调用的假工具。沙盒和 MCP 本身的行为见 test_sandbox.py、test_mcp_gateway.py。
 """
 
+import dataclasses
 import uuid
 from pathlib import Path
 
@@ -16,8 +17,9 @@ from pydantic import PrivateAttr
 from agentnexus.agents.buildin.chatbot import ChatbotAgent, ChatbotContext
 from agentnexus.agents.buildin.chatbot.graph import ROUND_LIMIT_REACHED
 from agentnexus.agents.skills import DEFAULT_DIR, LOAD_SKILL, Skill, load_skills, parse_skill
-from agentnexus.agents.tools import OUTPUT_LIMIT, AgentTool, StaticTools, ToolError, truncate
-from agentnexus.agents.tools.sandbox import sandbox_tools
+from agentnexus.agents.buildin.chatbot.graph import MAX_ATTACHMENTS
+from agentnexus.agents.tools import OUTPUT_LIMIT, AgentTool, StaticTools, ToolError, ToolOutput, truncate
+from agentnexus.agents.tools.sandbox import SHARE_FILE, content_type_of, sandbox_tools
 from agentnexus.agents.types import ChatMessage, RunContext
 from agentnexus.events import TOOL_FINISHED, TOOL_STARTED
 from agentnexus.sandbox.client import SandboxError
@@ -177,7 +179,7 @@ def test_parse_skill_validates_the_header():
 def test_bundled_skills_load_and_reference_real_tools(tmp_path):
     skills = load_skills(DEFAULT_DIR)
     assert set(skills) >= {"data-analysis", "web-research"}
-    known = {"python_exec", "list_files", "read_file", "write_file", "fetch"}  # fetch 来自 MCP 网关
+    known = {"python_exec", "list_files", "read_file", "write_file", "share_file", "fetch"}  # fetch 来自 MCP 网关
     for skill in skills.values():
         assert set(skill.tools) <= known, skill.name
     (tmp_path / "a.md").write_text("---\nname: dup\ndescription: x\n---\n")
@@ -201,6 +203,12 @@ class FakeSandbox:
 
     async def list_files(self, ws):
         return [{"path": "data.csv", "size": 12}]
+
+    async def read_bytes(self, ws, path):
+        self.calls.append(("read_bytes", ws, path))
+        if self.error:
+            raise self.error
+        return b"\x89PNG fake"
 
 
 def _scope():
@@ -239,3 +247,79 @@ def test_truncate_keeps_short_text_and_marks_long_text():
     assert truncate("abc") == "abc"
     long = truncate("x" * (OUTPUT_LIMIT + 10))
     assert long.startswith("x" * OUTPUT_LIMIT) and "已截断" in long and str(OUTPUT_LIMIT + 10) in long
+
+
+# ---------- 交付文件：share_file（阶段 7.2） ----------
+
+def test_shared_files_keep_safe_types_only():
+    assert content_type_of("chart.png") == "image/png"
+    assert content_type_of("result.csv") == "text/csv; charset=utf-8"
+    assert content_type_of("report.md") == "text/markdown; charset=utf-8"
+    assert content_type_of("table.xlsx").startswith("application/vnd.openxmlformats")
+    # 能执行脚本的格式、不认识的格式：一律按二进制下载
+    for name in ("page.html", "chart.svg", "run.sh", "noext"):
+        assert content_type_of(name) == "application/octet-stream", name
+
+
+async def test_share_file_copies_the_file_into_an_artifact():
+    saved = []
+
+    async def save(filename, content_type, data):
+        saved.append((filename, content_type, data))
+        return {"id": "a1", "filename": filename, "content_type": content_type, "size": len(data), "blob_key": "artifacts/a1"}
+
+    box = FakeSandbox()
+    tools = {t.name: t for t in sandbox_tools(box, save_artifact=save)}
+    scope = _scope()
+    out = await tools[SHARE_FILE].run({"path": "out/chart.png"}, scope)
+    assert isinstance(out, ToolOutput) and "chart.png" in out.text and "不要写下载链接" in out.text
+    assert out.attachments == [{"id": "a1", "filename": "chart.png", "content_type": "image/png", "size": 9,
+                                "blob_key": "artifacts/a1"}]
+    assert box.calls == [("read_bytes", scope.workspace_id, "out/chart.png")]  # 工作空间来自服务端
+    assert SHARE_FILE not in {t.name for t in sandbox_tools(box)}  # 没有产物存储时不提供
+
+
+class SharingTool(FakeTool):
+    async def run(self, args, scope):
+        self.calls.append((args, scope))
+        n = len(self.calls)
+        return ToolOutput(f"已交付 f{n}.png", [{"id": f"a{n}", "filename": f"f{n}.png", "content_type": "image/png", "size": 1}])
+
+
+SHARE_SKILLS = {"data-analysis": Skill("data-analysis", "分析数据", ("python_exec", SHARE_FILE), "说明")}
+
+
+async def test_shared_files_become_attachments_of_the_reply():
+    share = SharingTool(SHARE_FILE)
+    script = [_call(LOAD_SKILL, name="data-analysis"), _call(SHARE_FILE, 1, path="chart.png"), AIMessage(content="图在附件里")]
+    reply, calls, _, _ = await _run(script, [FakeTool("python_exec"), share], skills=SHARE_SKILLS)
+    assert reply.content == "图在附件里"
+    assert [a["filename"] for a in reply.attachments] == ["f1.png"]
+    assert _tool_messages(calls[-1])[-1].content == "已交付 f1.png"  # 模型看到的是文字，附件不进上下文
+
+
+async def test_at_most_a_few_files_per_reply():
+    share = SharingTool(SHARE_FILE)
+    calls_msg = AIMessage(content="", tool_calls=[{"name": SHARE_FILE, "args": {"path": f"{i}.png"}, "id": f"s{i}",
+                                                   "type": "tool_call"} for i in range(MAX_ATTACHMENTS + 2)])
+    script = [_call(LOAD_SKILL, name="data-analysis"), calls_msg, AIMessage(content="好了")]
+    reply, calls, _, _ = await _run(script, [FakeTool("python_exec"), share], skills=SHARE_SKILLS)
+    assert len(reply.attachments) == MAX_ATTACHMENTS and len(share.calls) == MAX_ATTACHMENTS
+    refused = [m for m in _tool_messages(calls[-1]) if m.status == "error"]
+    assert len(refused) == 2 and "最多交付" in refused[0].content
+
+
+async def test_attachments_survive_a_takeover_from_the_checkpoint(checkpointer):
+    """接管（decisions/0020）：图已跑完但结果还没落库时 worker 崩溃，接管者从 checkpoint 取最终状态——附件也在里面。"""
+    share = SharingTool(SHARE_FILE)
+    model = ScriptedModel(script=[_call(LOAD_SKILL, name="data-analysis"), _call(SHARE_FILE, 1, path="c.png"),
+                                  AIMessage(content="完成")])
+    tools = StaticTools([FakeTool("python_exec").tool(), share.tool()])
+    agent = ChatbotAgent(ChatbotContext(model=model, tool_sources=[tools], skills=SHARE_SKILLS), checkpointer)
+    ctx = RunContext(run_id=uuid.uuid4(), conversation_id=uuid.uuid4(), history=[ChatMessage("user", "画图")],
+                     events=Recorder())
+    first = await agent.run(ctx)
+    assert [a["filename"] for a in first.attachments] == ["f1.png"]
+    again = await agent.run(dataclasses.replace(ctx, attempt=2))
+    assert again.attachments == first.attachments and len(share.calls) == 1  # 没有重新交付、没有重复产物
+

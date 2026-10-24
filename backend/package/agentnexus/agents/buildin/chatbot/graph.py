@@ -9,7 +9,7 @@ from agentnexus.agents.buildin.chatbot.context import ChatbotContext
 from agentnexus.agents.buildin.chatbot.state import ChatState
 from agentnexus.agents.messages import message_text
 from agentnexus.agents.skills import LOAD_SKILL, load_skill_spec
-from agentnexus.agents.tools import AgentTool, ToolScope
+from agentnexus.agents.tools import AgentTool, ToolOutput, ToolScope
 from agentnexus.agents.buildin.chatbot.tools import (
     KNOWLEDGE_SEARCH,
     KNOWLEDGE_SEARCH_TOOL,
@@ -21,6 +21,7 @@ from agentnexus.agents.buildin.chatbot.tools import (
 log = logging.getLogger(__name__)
 
 ROUND_LIMIT_REACHED = "本次回答的工具调用次数已达上限，请根据已经得到的结果回答。"
+MAX_ATTACHMENTS = 5  # 一次回答最多交给用户几个文件：防止模型把整个工作目录都“交付”一遍
 
 
 def _kb_ids(config: RunnableConfig) -> list[uuid.UUID]:
@@ -82,10 +83,11 @@ def build_graph(context: ChatbotContext, checkpointer=None):
         return {"messages": [reply]}
 
     async def run_calls(tool_calls, state: ChatState, config: RunnableConfig, *, over_limit: bool):
-        """执行一组工具调用，返回（工具结果消息, 新增的引用）。模型发起的调用和预检索共用这一段。"""
+        """执行一组工具调用，返回（工具结果消息, 新增的引用, 新加载的技能, 新交付的文件）。模型发起的调用和预检索共用这一段。"""
         known = {c["chunk_id"]: c["n"] for c in state.get("citations", [])}  # 同一片段多次检索到时沿用原编号
         next_n = len(known) + 1
-        replies, new_citations, loaded = [], [], []
+        replies, new_citations, loaded, attachments = [], [], [], []
+        delivered = len(state.get("attachments", []))
         tools, skills = await toolbox() if context.tool_sources or context.skills else ({}, {})
         allowed = set(enabled(state, skills))
         for call in tool_calls:
@@ -111,8 +113,15 @@ def build_graph(context: ChatbotContext, checkpointer=None):
                     hint = "先用 load_skill 加载包含它的技能。" if call["name"] in tools else ""
                     replies.append(reply(f"工具不可用：{call['name']}。{hint}", status="error"))
                     continue
+                if call["name"] == "share_file" and delivered + len(attachments) >= MAX_ATTACHMENTS:
+                    replies.append(reply(f"一次回答最多交付 {MAX_ATTACHMENTS} 个文件。", status="error"))
+                    continue
                 try:
-                    replies.append(reply(await tools[call["name"]].run(call["args"] or {}, _scope(config))))
+                    result = await tools[call["name"]].run(call["args"] or {}, _scope(config))
+                    if isinstance(result, ToolOutput):
+                        attachments.extend(result.attachments)
+                        result = result.text
+                    replies.append(reply(result))
                 except Exception as exc:
                     # 工具失败不让整个回答失败：把原因告诉模型，由它修正（例如改代码）或如实告知用户
                     log.warning("tool %s failed: %s", call["name"], exc)
@@ -139,14 +148,14 @@ def build_graph(context: ChatbotContext, checkpointer=None):
                     next_n += 1
                 numbered.append((known[key], hit))
             replies.append(reply(format_for_model(numbered)))
-        return replies, new_citations, loaded
+        return replies, new_citations, loaded, attachments
 
     async def call_tools(state: ChatState, config: RunnableConfig):
         limit = context.max_skill_tool_rounds if state.get("skills") else context.max_tool_rounds
         over_limit = _tool_rounds(state["messages"]) > limit
-        replies, new_citations, loaded = await run_calls(state["messages"][-1].tool_calls, state, config,
-                                                         over_limit=over_limit)
-        return {"messages": replies, "citations": new_citations, "skills": loaded}
+        replies, new_citations, loaded, attachments = await run_calls(state["messages"][-1].tool_calls, state, config,
+                                                                      over_limit=over_limit)
+        return {"messages": replies, "citations": new_citations, "skills": loaded, "attachments": attachments}
 
     async def prefetch(state: ChatState, config: RunnableConfig):
         """预检索（decisions/0018）：调用模型之前，先用用户的原话检索一次，结果以“工具调用 + 工具结果”的形式放进上下文。
@@ -162,7 +171,7 @@ def build_graph(context: ChatbotContext, checkpointer=None):
         if not query:
             return None
         call = {"name": KNOWLEDGE_SEARCH, "args": {"query": query}, "id": f"prefetch_{uuid.uuid4().hex[:12]}", "type": "tool_call"}
-        replies, new_citations, _ = await run_calls([call], state, config, over_limit=False)
+        replies, new_citations, _, _ = await run_calls([call], state, config, over_limit=False)
         return {"messages": [AIMessage(content="", tool_calls=[call]), *replies], "citations": new_citations}
 
     def route(state: ChatState):

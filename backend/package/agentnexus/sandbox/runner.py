@@ -64,7 +64,10 @@ class DockerSandbox:
 
     def _mount(self, workspace_id: str) -> Mount:
         if self.volume:
-            return Mount("/workspace", self.volume, type="volume", subpath=workspace_id)
+            # no_copy：Docker 把空卷挂到镜像里已存在的目录上时，会把镜像目录的内容连同属主和权限复制到卷上（copy-up）。
+            # 新对话的工作空间是空的，于是被改回镜像里 /workspace 的 root 755，沙盒里的 nobody 写不进去。
+            # 本机测试用的是绑定挂载，没有这个行为；compose 里第一步就执行代码写文件时才出现（阶段 7.2 实测发现）
+            return Mount("/workspace", self.volume, type="volume", subpath=workspace_id, no_copy=True)
         return Mount("/workspace", str(self.root / workspace_id), type="bind")
 
     def execute(self, workspace_id: str, code: str, timeout: float) -> ExecResult:

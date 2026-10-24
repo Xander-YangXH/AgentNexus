@@ -1,0 +1,3 @@
+# 沙盒里 matplotlib 的默认设置（阶段 7.2）：中文字体优先，负号用 ASCII（中文字体里没有 Unicode 负号）
+font.sans-serif: WenQuanYi Micro Hei, DejaVu Sans
+axes.unicode_minus: False

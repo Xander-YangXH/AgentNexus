@@ -22,15 +22,18 @@ class SandboxClient:
         # 拼进 URL 之前先校验：工作空间 id 只能是 UUID（客户端会规范化 URL 里的 ..，不能指望服务端看到原样）
         return str(uuid.UUID(workspace_id))
 
-    async def _call(self, method: str, url: str, **kw) -> dict | list:
-        r = await self._http.request(method, url, **kw)
+    @staticmethod
+    def _check(r: httpx.Response) -> httpx.Response:
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")
             except Exception:
                 detail = r.text[:200]
             raise SandboxError(f"{r.status_code}: {detail}")
-        return r.json()
+        return r
+
+    async def _call(self, method: str, url: str, **kw) -> dict | list:
+        return self._check(await self._http.request(method, url, **kw)).json()
 
     async def execute(self, workspace_id: str, code: str, timeout: float = 30.0) -> dict:
         return await self._call("POST", f"/workspaces/{self._ws(workspace_id)}/exec", json={"code": code, "timeout": timeout})
@@ -41,6 +44,10 @@ class SandboxClient:
     # 路径（模型给的）只放在查询参数 / 请求体里，不拼进 URL 路径：避免客户端规范化 .. 后跨到别的工作空间
     async def read_file(self, workspace_id: str, path: str) -> str:
         return (await self._call("GET", f"/workspaces/{self._ws(workspace_id)}/file", params={"path": path}))["content"]
+
+    async def read_bytes(self, workspace_id: str, path: str) -> bytes:
+        r = await self._http.get(f"/workspaces/{self._ws(workspace_id)}/file/raw", params={"path": path})
+        return self._check(r).content
 
     async def write_file(self, workspace_id: str, path: str, content: str) -> int:
         body = {"path": path, "content": content}

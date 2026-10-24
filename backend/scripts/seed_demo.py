@@ -7,7 +7,8 @@
   ADMIN_PASSWORD=... DEMO_PASSWORD=... python backend/scripts/seed_demo.py [--base http://localhost:8080] [--graph] [--ask]
   --graph：构建知识图谱（真实模型下会花钱，先打印预估费用）
   --ask：用客服专员账号问几个问题（真实模型下会花钱，每个约 $0.0005）
-不带这两个参数时不调用模型。
+  --analysis：用研发账号做一次数据分析（沙盒里画图并交付图表，阶段 7.2；真实模型约 $0.002，需要 sandbox 服务）
+不带这些参数时不调用模型。
 """
 
 import argparse
@@ -58,6 +59,8 @@ USERS = [  # (用户名, 角色, 部门)
 ]
 KB_OWNER, KB_NAME = "kefu_li", "客服知识库"
 QUESTIONS = ["买的衣服不合适，签收第 5 天了还能退吗？", "退款多久能到账？", "我要开增值税专用发票，需要提供什么？"]
+ANALYSIS_TITLE = "月度销售额分析"
+ANALYSIS_QUESTION = "帮我编一组 1 到 12 月的月销售额数据（单位万元），用 Python 画一张折线图，并把图片交给我。"
 
 
 def documents() -> dict[str, str]:
@@ -99,6 +102,7 @@ def main() -> None:
     parser.add_argument("--base", default="http://localhost:8080")
     parser.add_argument("--graph", action="store_true")
     parser.add_argument("--ask", action="store_true")
+    parser.add_argument("--analysis", action="store_true")
     args = parser.parse_args()
     admin_pw, demo_pw = os.environ.get("ADMIN_PASSWORD"), os.environ.get("DEMO_PASSWORD")
     if not admin_pw or not demo_pw:
@@ -153,6 +157,18 @@ def main() -> None:
             reply = agent.get(f"/api/conversations/{conv['id']}/messages")[-1]
             cited = [c["filename"] for c in reply.get("citations") or [] if c["cited"]]
             print(f"问：{q}\n  答：{reply['content'][:80]}…\n  引用：{cited}")
+
+    if args.analysis:
+        dev = Client(args.base, "dev_wang", demo_pw)
+        if any(c["title"] == ANALYSIS_TITLE for c in dev.get("/api/conversations")):
+            print(f"「{ANALYSIS_TITLE}」已存在，跳过")
+            return
+        conv = dev.post("/api/conversations", json={"title": ANALYSIS_TITLE})
+        run = dev.post(f"/api/conversations/{conv['id']}/messages", json={"content": ANALYSIS_QUESTION})
+        while dev.get(f"/api/runs/{run['id']}")["status"] in ("queued", "running"):
+            time.sleep(0.5)
+        reply = dev.get(f"/api/conversations/{conv['id']}/messages")[-1]
+        print(f"数据分析：附件 {[a['filename'] for a in reply.get('attachments') or []]}")
 
 
 if __name__ == "__main__":

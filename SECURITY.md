@@ -47,6 +47,7 @@ AgentNexus 是一个求职用的个人项目，按“企业内部部署”的威
 ### 代码执行（[decisions/0021](docs/decisions/0021-tools-sandbox-mcp.md)）
 - 只有 sandbox 服务持有 Docker socket（持有 socket 等于宿主机 root），api 和 worker 都没有，调用要带令牌。
 - 每次执行一个一次性容器：断网、只读根文件系统、非 root 用户、去掉所有 capabilities、`no-new-privileges`、进程数 / 内存 / CPU / 时间上限。11 个逃逸和资源耗尽用例全部挡住。
+- 沙盒里生成的文件由 worker 复制成产物交给用户（[decisions/0027](docs/decisions/0027-agent-file-delivery.md)），api 不持有沙盒令牌。下载一律 `attachment` + `nosniff`；只有图片、CSV、文本、PDF 等安全格式保留类型，HTML、SVG 按二进制下载；前端只用 `<img>` 预览图片。
 
 ### 联网工具（[decisions/0021](docs/decisions/0021-tools-sandbox-mcp.md)）
 - fetch 工具运行在 MCP 网关里，网关在 internal 网络中，只能经 Squid 出口代理上网。

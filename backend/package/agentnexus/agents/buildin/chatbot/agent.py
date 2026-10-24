@@ -46,7 +46,7 @@ class ChatbotAgent(BaseAgent):
         #   "values"  ：每一步之后的完整状态，最后一个就是最终状态。
         # 最终回复取自最终状态，而不是把 token 拼起来：状态才是图认定的结果，token 只是过程中的视图。
         final_state = None
-        graph_input = {"messages": to_langchain(ctx.history), "citations": [], "skills": []}
+        graph_input = {"messages": to_langchain(ctx.history), "citations": [], "skills": [], "attachments": []}
         if ctx.attempt > 1 and self._graph.checkpointer is not None:
             # 接管（decisions/0020）：thread_id 就是 run_id，上一个 worker 的进度都在 checkpoint 里
             snapshot = await self._graph.aget_state(config)
@@ -85,7 +85,8 @@ class ChatbotAgent(BaseAgent):
     def _reply(state: dict) -> AgentReply:
         content = message_text(state["messages"][-1])
         citations = state.get("citations") or []
-        return AgentReply(content=content, citations=mark_cited(citations, content) if citations else None)
+        return AgentReply(content=content, citations=mark_cited(citations, content) if citations else None,
+                          attachments=state.get("attachments") or None)
 
     @staticmethod
     def _log_usage(new_messages) -> None:
