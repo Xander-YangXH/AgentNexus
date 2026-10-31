@@ -4,6 +4,8 @@
 
 > 完整进度、架构总图与分模块任务清单见 [PROGRESS.md](PROGRESS.md)；本文件只保留最近的交接要点。
 
+> 全项目的学习手册（每个模块的设计理由、细节、踩坑、风险与对策、附录与面试速查）见 [guides/project-handbook.md](guides/project-handbook.md)，同步到阶段 7.9。
+
 ## 项目
 AgentNexus：企业级多租户知识库与 Agent 平台（RAG、知识图谱、LangGraph 多 Agent、MCP/Skills、沙盒、多租户、仪表盘），用作 2026-2027 大模型算法 / Agent 开发求职项目。远程仓库：https://github.com/Xander-YangXH/AgentNexus
 

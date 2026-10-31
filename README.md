@@ -63,6 +63,7 @@ README 截图由 `scripts/screenshots.py` 生成（Playwright + 本机 Chrome）
 - [ROADMAP.md](ROADMAP.md) — 分阶段学习与开发路线图（3-4 个月）
 - [docs/tech-tradeoffs.md](docs/tech-tradeoffs.md) — 基础设施与能力深度的取舍及理由
 - `docs/decisions/` — 关键架构决策记录（每次重大取舍写一条，含背景/决定/后果/验证）
+- [docs/guides/project-handbook.md](docs/guides/project-handbook.md) — **项目学习手册**：从业务到每个模块的设计理由、细节、踩过的坑、风险与对策，附数据表、状态机、错误码、配置、接口一览和面试速查（先读这一份，再按需看下面的分专题走读）
 - [docs/guides/message-lifecycle.md](docs/guides/message-lifecycle.md) — 学习导读：一条消息从发送到流式显示的完整旅程（代码位置、设计理由、故障表现、自测题）
 - [docs/guides/worker-leases.md](docs/guides/worker-leases.md) — 学习导读：独立 worker 与租约（认领、心跳、fencing、续做、跨进程取消、崩溃接管实测）
 - [docs/guides/knowledge-graph.md](docs/guides/knowledge-graph.md) — 学习导读：知识图谱的抽取、合并、存储分工、失败与恢复、自测题
