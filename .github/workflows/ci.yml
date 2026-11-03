@@ -11,13 +11,20 @@ on:
   push:
     branches: [master]
   pull_request:
+  # 每天定时跑一次依赖扫描：白名单到期、新出的漏洞不必等到下一次推送才发现（dev-log 问题 #192）。
+  # 定时触发时只跑 audit，其余三个任务跳过（代码没变）。
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # 按触发方式分组：定时的扫描不会取消同一分支上正在跑的推送 CI
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -69,6 +76,7 @@ jobs:
         run: pytest -q
 
   frontend:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -107,6 +115,7 @@ jobs:
         run: npm audit --audit-level=moderate
 
   images:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:

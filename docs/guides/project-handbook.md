@@ -1098,7 +1098,7 @@ DELETE 请求
 - **锁文件**：用 uv 生成三个锁文件（后端、sandbox 镜像、MCP 网关镜像），固定所有间接依赖的版本，镜像和 CI 用同一套。
 - **两周规则**：`--exclude-newer` 只取发布满两周的版本——刚发布的包可能有问题或被投毒（供应链攻击通常在几天内被发现、撤下）。
 - **安全修复例外**：有已知漏洞**且影响我们**的包，可以升到不满两周的修复版本（用 `--exclude-newer-package` 只放开到修复版本），原因逐条写在 `requirements.txt`。例如 pypdf（11 个“构造的 PDF 导致死循环 / 内存耗尽”，而 worker 正好解析用户上传的 PDF）、certifi（旧版内置了私钥泄露的中间证书）。
-- **扫描**：CI 每次运行对三个锁文件跑 pip-audit、对前端跑 npm audit。核对过“不影响我们”的漏洞写进 `scripts/audit-allowlist.json`，每条有原因、修复版本和 **复查日期（review_by）**；到期 CI 就失败（届时修复版本已满两周，该按常规升级并删除条目）。
+- **扫描**：CI 每次推送对三个锁文件跑 pip-audit、对前端跑 npm audit，并且**每天定时跑一次**（2026-11 加的：第一批白名单到期时恰好一周没有推送，一周里没有任何提醒；并发分组按触发方式区分，避免定时任务取消推送的 CI）。核对过“不影响我们”的漏洞写进 `scripts/audit-allowlist.json`，每条有原因、修复版本和 **复查日期（review_by）**；到期 CI 就失败（届时修复版本已满两周，该按常规升级并删除条目）。
 - **为什么到期就让 CI 失败**：白名单最常见的问题是“加进去就忘了”。到期失败强迫人回来处理。
 - **注意**：漏洞库每天在变，代码没改、扫描也可能变红——那正是要提醒的事。
 
@@ -1118,7 +1118,8 @@ DELETE 请求
 |---|---|
 | 依赖被投毒 | 两周规则 + 锁文件 |
 | 已知漏洞未修 | 每次 CI 扫描；白名单有到期日 |
-| 白名单被遗忘 | review_by 到期 CI 失败 |
+| 白名单被遗忘 | review_by 到期 CI 失败；每天定时扫描，不依赖有人推送 |
+| 一个包在某个锁文件里升不上去（被别的依赖的版本上限挡住） | 核对我们的代码是否把不可信数据交给它；保留白名单，到期日设为“放开上限的版本满两周” |
 | 镜像里带进密钥 | `.env` 不进版本库和构建上下文 |
 
 **代码位置**：`SECURITY.md`、`backend/requirements.txt`（例外说明）、`scripts/audit_deps.py`、`scripts/audit-allowlist.json`、`.github/workflows/ci.yml`。
@@ -1205,7 +1206,7 @@ theme/tokens.ts（浅色 / 深色两套调色板）
 | backend | ruff 检查 + 全部集成测试（真实的 PostgreSQL、Redis、Neo4j；沙盒测试用 runner 自带的 Docker） |
 | frontend | vue-tsc 类型检查 + Vitest + 生产构建 |
 | images | 用模板 `.env` 校验 compose 文件；构建所有镜像 |
-| audit | 三个 Python 锁文件按白名单跑 pip-audit；前端 npm audit |
+| audit | 三个 Python 锁文件按白名单跑 pip-audit；前端 npm audit。每天定时单独运行一次（其余三个任务在定时触发时跳过） |
 
 - **自动化测试不调用真实模型**：一律用假模型（`LLM_PROVIDER=fake`，按规则产生 token、工具调用），可重复、不花钱。真实模型只在手动验证和评测脚本里用。
 - 为什么测试要用真实的 PostgreSQL / Redis / Neo4j / Docker：项目的核心正确性（SKIP LOCKED、RLS、事务、NOTIFY、流、容器加固）都在这些组件的行为里，mock 测不出来。
@@ -1222,7 +1223,7 @@ theme/tokens.ts（浅色 / 深色两套调色板）
 
 **遇到过的问题（部署 / 工具相关）**：
 - 本地 zsh 不会对未加引号的变量做分词，脚本在 bash 和 zsh 下行为不同。
-- 管道里 `cmd | tail && echo OK`：管道的退出码是最后一个命令的，`cmd` 失败也会打印 OK → 用 `set -o pipefail` 或分开检查。
+- 管道里 `cmd | tail && echo OK`：管道的退出码是最后一个命令的，`cmd` 失败也会打印 OK → 用 `set -o pipefail` 或分开检查。这个坑犯了三次，第三次是镜像构建失败、容器却用旧镜像重启（2026-11 依赖升级）——所以验证前要在容器里核对版本。
 - Nginx `Host $host` 不带端口，导致 CSRF 拒绝所有写请求（4.12）。
 - Neo4j 的内存配置值不等于实际占用（4.9）。
 

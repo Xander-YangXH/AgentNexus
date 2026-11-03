@@ -17,7 +17,7 @@ langchain-openai>=1.0
 langchain-anthropic>=1.0
 langchain-google-genai>=4.0
 # 知识库文档解析（阶段 2）
-pypdf>=6.21.2,<7  # 安全修复例外：6.19.0 有 11 个“构造的 PDF 导致死循环 / 内存耗尽”的漏洞，worker 解析用户上传的 PDF
+pypdf>=6.21.4,<7  # 安全修复例外：6.19.0 有 11 个、6.21.2 又有 7 个“构造的 PDF 导致死循环 / 内存耗尽”的漏洞（6.21.3 / 6.21.4 修复，2026-10-28 发布），worker 解析用户上传的 PDF
 python-docx>=1.2,<2
 # FastAPI 接收文件上传需要
 python-multipart>=0.0.32,<0.1

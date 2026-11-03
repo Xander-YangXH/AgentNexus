@@ -72,7 +72,7 @@ AgentNexus 是一个求职用的个人项目，按“企业内部部署”的威
 ### 依赖（[decisions/0016](docs/decisions/0016-ingestion-pipeline-and-vector-index.md)、[0025](docs/decisions/0025-security-hardening.md)）
 - 锁文件固定所有版本；新版本发布满两周才采用（防供应链投毒）。
 - 例外：有已知漏洞且影响我们的包，升级到修复版本，即使不满两周。原因逐条写在 `backend/requirements.txt`。
-- CI 每次运行都对三个 Python 锁文件跑 pip-audit、对前端跑 npm audit。核对过不影响我们的漏洞写在 `scripts/audit-allowlist.json`，每条有复查日期，过期 CI 就失败。
+- CI 每次推送都对三个 Python 锁文件跑 pip-audit、对前端跑 npm audit，另外**每天定时跑一次**（新漏洞、白名单到期不必等到下一次推送）。核对过不影响我们的漏洞写在 `scripts/audit-allowlist.json`，每条有复查日期，过期 CI 就失败。
 
 ## 已知局限
 

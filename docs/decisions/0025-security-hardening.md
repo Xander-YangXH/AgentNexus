@@ -120,3 +120,8 @@
 - 分布式攻击（大量 IP 各猜几次）只能靠“账号 + IP”的上限减慢；需要的话可以加“单账号全局失败次数”触发验证码，但那会引入锁别人账号的问题。
 - 内存上限只在 Linux 上生效；macOS 上开发时只有超时这一层。
 - 白名单里的包要在 `review_by` 之前升级（10-26 langgraph-checkpoint-postgres，10-30 pillow，10-31 filelock），到期 CI 会变红提醒。
+
+## 八、补充（2026-11-03）：第一批白名单到期
+- 到期的三条（langgraph-checkpoint-postgres、filelock、沙盒的 pillow）按常规升级并删除；新出现的 pypdf 漏洞按例外升到 6.21.4（解析用户上传的 PDF）；pyasn1 进白名单（我们不解码外部 ASN.1）。
+- 后端的 pillow 被 fastembed 0.9.0 的 `pillow<13` 挡住，放开上限的 0.9.1 未满两周；后端不使用 Pillow，保留白名单到 11-08。
+- **修正本决策的一个缺口**：“到期 CI 就失败”依赖于有人推送。那一周没有推送，到期一周无人知道。CI 增加每天定时运行的 audit。详见 dev-log“维护：白名单到期的依赖升级”。
